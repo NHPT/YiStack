@@ -21,16 +21,28 @@ podman run --name "$CONTAINER_NAME" \
 
 ready=false
 for _ in $(seq 1 60); do
-  if podman exec "$CONTAINER_NAME" pg_isready -U "$DATABASE_USER" -d yistack >/dev/null 2>&1; then
+  if podman exec "$CONTAINER_NAME" \
+    psql -At -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+    -c "SELECT 1;" 2>/dev/null | grep -qx "1"; then
     ready=true
     break
   fi
+
+  container_status="$(
+    podman inspect --format '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || true
+  )"
+  if [ "$container_status" = "exited" ] || [ "$container_status" = "dead" ]; then
+    podman logs "$CONTAINER_NAME" >&2
+    echo "[R7] PostgreSQL container stopped before the yistack database became ready." >&2
+    exit 1
+  fi
+
   sleep 1
 done
 
 if [ "$ready" != "true" ]; then
   podman logs "$CONTAINER_NAME" >&2
-  echo "[R7] PostgreSQL did not become ready." >&2
+  echo "[R7] PostgreSQL did not make the yistack database queryable." >&2
   exit 1
 fi
 

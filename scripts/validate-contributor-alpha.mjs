@@ -36,6 +36,8 @@ const requiredFiles = [
   'docs/engineering/PRINCIPLES.en.md',
   'docs/engineering/DEVELOPMENT_WORKFLOW.en.md',
   'docs/roadmap/ROADMAP.en.md',
+  'scripts/verify-clean-checkout.sh',
+  'scripts/verify-supabase-baseline.sh',
   'backend/migrations/000000000000_contributor_alpha.sql',
   'backend/migrations/rollback/000000000000_contributor_alpha.sql',
 ];
@@ -56,6 +58,8 @@ assert.equal(packageJSON.license, 'Apache-2.0');
 assert.equal(packageJSON.packageManager, 'pnpm@11.5.2');
 assert.equal(packageJSON.engines.node, '>=22 <23');
 assert.equal(packageJSON.engines.pnpm, '11.5.2');
+assert.equal(packageJSON.dependencies['embla-carousel'], '8.6.0');
+assert.equal(packageJSON.dependencies['embla-carousel-react'], '8.6.0');
 for (const script of [
   'contributor:validate',
   'checkout:verify',
@@ -192,6 +196,17 @@ for (const command of [
 const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');
 assert.ok(liveEvalWorkflow.includes('pnpm eval:smoke'));
 assert.ok(liveEvalWorkflow.includes('YISTACK_EVAL_TOKEN'));
+
+const supabaseBaseline = read('scripts/verify-supabase-baseline.sh');
+assert.match(
+  supabaseBaseline,
+  /psql -At -v ON_ERROR_STOP=1[\s\S]*-d yistack[\s\S]*-c "SELECT 1;"/,
+);
+assert.doesNotMatch(
+  supabaseBaseline,
+  /pg_isready[\s\S]*-d yistack/,
+  'database readiness must execute a query instead of accepting an early pg_isready result',
+);
 
 const eslintConfig = read('eslint.config.mjs');
 for (const ignoredPath of [
