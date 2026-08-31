@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "admin-capability-provider-preflight",
+      "title": "Admin Capability Provider Preflight",
+      "input": "Backend startup capability provider preflight snapshot",
+      "modelFiles": [
+        "src/app/admin/admin-capability-preflight-model.ts"
+      ],
+      "displayFiles": [
+        "src/app/admin/admin-capability-preflight-card.tsx",
+        "src/app/admin/admin-capability-preflight-view.tsx"
+      ],
+      "validationScript": "scripts/validate-admin-capability-preflight-model.ts",
+      "yesLabel": "[YES] Checking admin capability preflight model...",
+      "validationLayerKeywords": [
+        "Admin capability provider preflight",
+        "AdminDiagnosticSection"
+      ],
+      "urlStateParams": [
+        "status",
+        "severity",
+        "config_key",
+        "reason_code"
+      ],
+      "readonlyEvidenceKeywords": [
+        "capabilityPreflightBoundaryDescription"
+      ],
+      "readonlyBoundary": "Startup snapshot only; does not execute runners, probe endpoints, restart runtime, or write configuration."
+    },
+    {
+      "id": "admin-audit-diagnostics",
+      "title": "Admin Audit Diagnostics",
+      "input": "Existing admin audit read-only list result",
+      "modelFiles": [
+        "src/app/admin/admin-audit-diagnostics-model.ts"
+      ],
+      "displayFiles": [
+        "src/app/admin/admin-audit-diagnostics-card.tsx",
+        "src/app/admin/page.tsx"
+      ],
+      "validationScript": "scripts/validate-admin-audit-diagnostics-model.ts",
+      "yesLabel": "[YES] Checking admin audit diagnostics model...",
+      "validationLayerKeywords": [
+        "Admin audit diagnostics",
+        "AdminDiagnosticSection"
+      ],
+      "urlStateParams": [
+        "audit_action",
+        "audit_target_type"
+      ],
+      "readonlyEvidenceKeywords": [
+        "auditDiagnosticsReadOnlyBoundary"
+      ],
+      "readonlyBoundary": "Consumes existing admin audit query results only; does not change audit writes or query permissions."
+    },
+    {
+      "id": "workspace-capability-audit-diagnostics",
+      "title": "Workspace Capability Audit Diagnostics",
+      "input": "Project-scoped capability execution audit read-only list result",
+      "modelFiles": [
+        "src/lib/workspace/capability-audit-diagnostics.ts"
+      ],
+      "displayFiles": [
+        "src/app/workspace/workspace-capability-audit-panel.tsx"
+      ],
+      "validationScript": "scripts/validate-capability-audit-diagnostics-model.ts",
+      "yesLabel": "[YES] Checking capability audit diagnostics model...",
+      "validationLayerKeywords": [
+        "Capability Audit diagnostics",
+        "Workspace 面板",
+        "capability_status",
+        "capability_profile",
+        "open_capability_audit"
+      ],
+      "urlStateParams": [
+        "capability_status",
+        "capability_profile",
+        "capability_reason",
+        "runtime_project",
+        "runtime_reason"
+      ],
+      "readonlyEvidenceKeywords": [
+        "不会改变 Capability Audit 查询条件"
+      ],
+      "readonlyBoundary": "Consumes project-scoped audit records only; does not provide real Skill/MCP execution actions."
+    },
+    {
+      "id": "workspace-runtime-health-diagnostics",
+      "title": "Workspace Runtime Health Diagnostics",
+      "input": "Existing ProjectRuntimeStatus stored on Workspace projectInfo",
+      "modelFiles": [
+        "src/lib/workspace/runtime-health-diagnostics.ts",
+        "src/lib/workspace/runtime-health-query.ts"
+      ],
+      "displayFiles": [
+        "src/app/workspace/workspace-ide-desktop-preview-panel.tsx",
+        "src/app/workspace/workspace-ide-mobile-preview-panel.tsx"
+      ],
+      "validationScript": "scripts/validate-runtime-health-diagnostics-model.ts",
+      "yesLabel": "[YES] Checking runtime health diagnostics model...",
+      "validationLayerKeywords": [
+        "Runtime Health diagnostics",
+        "Workspace Preview",
+        "capability_status"
+      ],
+      "urlStateParams": [
+        "capability_status",
+        "runtime_project",
+        "runtime_reason"
+      ],
+      "readonlyEvidenceKeywords": [
+        "诊断区只消费已有 runtime status",
+        "恢复按钮是显式受控动作",
+        "onRecoverRuntime"
+      ],
+      "readonlyBoundary": "The diagnostics area consumes existing runtime status only. Runtime recovery is available only as an explicit user action and must reuse the controlled start/readiness chain."
+    },
+    {
+      "id": "admin-runtime-health-diagnostics",
+      "title": "Admin Runtime Health Diagnostics",
+      "input": "Existing runtime_status snapshots returned by the Admin project list",
+      "modelFiles": [
+        "src/app/admin/admin-runtime-health-diagnostics-model.ts",
+        "src/lib/workspace/runtime-health-diagnostics.ts",
+        "src/lib/workspace/runtime-health-query.ts"
+      ],
+      "displayFiles": [
+        "src/app/admin/admin-runtime-health-diagnostics-card.tsx",
+        "src/app/admin/page.tsx"
+      ],
+      "validationScript": "scripts/validate-admin-runtime-health-diagnostics-model.ts",
+      "yesLabel": "[YES] Checking admin runtime health diagnostics model...",
+      "validationLayerKeywords": [
+        "Admin Runtime Health diagnostics",
+        "AdminDiagnosticSection"
+      ],
+      "urlStateParams": [
+        "runtime_severity",
+        "runtime_status",
+        "runtime_project"
+      ],
+      "readonlyEvidenceKeywords": [
+        "runtimeHealthReadOnlyBoundary"
+      ],
+      "readonlyBoundary": "Consumes existing Admin project runtime_status snapshots only; does not inspect containers, start/stop runtime, generate preview tokens, or write backend status."
+    },
+    {
+      "id": "admin-provider-health-diagnostics",
+      "title": "Admin Provider Health Diagnostics",
+      "input": "Sanitized config/runtime snapshot returned by the Admin LLM Provider list",
+      "modelFiles": [
+        "src/app/admin/admin-provider-health-diagnostics-model.ts"
+      ],
+      "displayFiles": [
+        "src/app/admin/admin-provider-health-diagnostics-card.tsx",
+        "src/app/admin/page.tsx"
+      ],
+      "validationScript": "scripts/validate-admin-provider-health-diagnostics-model.ts",
+      "yesLabel": "[YES] Checking admin provider health diagnostics model...",
+      "validationLayerKeywords": [
+        "Admin Provider Health diagnostics",
+        "AdminDiagnosticSection"
+      ],
+      "urlStateParams": [
+        "provider_health",
+        "provider_runtime"
+      ],
+      "readonlyEvidenceKeywords": [
+        "providerHealthReadOnlyBoundary"
+      ],
+      "readonlyBoundary": "Consumes sanitized Admin LLM Provider list fields only; does not read secret values, reload providers, test connections, call external endpoints, or write provider configuration."
+    },
+    {
+      "id": "admin-dashboard-health-summary",
+      "title": "Admin Dashboard Health Summary",
+      "input": "Existing Provider Health, Runtime Health, Provider Preflight, and Audit read-only snapshots already loaded by the Admin Dashboard",
+      "modelFiles": [
+        "src/app/admin/admin-dashboard-health-summary-model.ts",
+        "src/app/admin/admin-provider-health-diagnostics-model.ts",
+        "src/app/admin/admin-runtime-health-diagnostics-model.ts",
+        "src/app/admin/admin-capability-preflight-model.ts",
+        "src/app/admin/admin-audit-diagnostics-model.ts"
+      ],
+      "displayFiles": [
+        "src/app/admin/admin-dashboard-diagnostics-layout.tsx",
+        "src/app/admin/page.tsx"
+      ],
+      "validationScript": "scripts/validate-admin-dashboard-diagnostics-layout.mjs",
+      "yesLabel": "[YES] Checking admin dashboard diagnostics layout...",
+      "validationLayerKeywords": [
+        "Admin Dashboard health summary",
+        "Provider Health / Runtime Health / Provider Preflight / Audit"
+      ],
+      "urlStateParams": [
+        "provider_health",
+        "runtime_severity",
+        "runtime_status",
+        "runtime_project",
+        "severity",
+        "reason_code",
+        "audit_action",
+        "audit_target_type"
+      ],
+      "readonlyEvidenceKeywords": [
+        "dashboardDiagnosticsReadOnly"
+      ],
+      "readonlyBoundary": "Aggregates existing Admin Dashboard read-only snapshots only; does not add backend calls, reload providers, probe endpoints, inspect runtime containers, or write audit/config/runtime state."
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+# RUNBOOK.md — {{.ProjectName}}
+
+## 项目运行
+
+- 工作目录：{{.DirectoryPath}}
+- 容器状态：{{.ContainerStatus}}
+- 容器端口：{{.ContainerPort}}
+
+## 最近一次实现指令
+
+{{.LastPrompt}}
+
+## 推荐命令
+
+{{.CommandList}}
+
+## 运维提示
+
+- 进入 workspace 时应自动启动或恢复容器
+- 长时间无操作时允许自动停止容器
+- 删除项目时应清理代码、聊天记录、容器和 Git 历史

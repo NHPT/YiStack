@@ -1,0 +1,170 @@
+#!/usr/bin/env node
+
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const read = (relativePath) => fs.readFileSync(path.join(rootDir, relativePath), 'utf8');
+
+const requiredFiles = [
+  'LICENSE',
+  '.nvmrc',
+  'README.en.md',
+  'CONTRIBUTING.md',
+  'CONTRIBUTING.en.md',
+  'SECURITY.md',
+  'CODE_OF_CONDUCT.md',
+  'CODE_OF_CONDUCT.zh-CN.md',
+  'GOVERNANCE.md',
+  'MAINTAINERS.md',
+  '.github/CODEOWNERS',
+  '.github/PULL_REQUEST_TEMPLATE.md',
+  '.github/ISSUE_TEMPLATE/bug_report.yml',
+  '.github/ISSUE_TEMPLATE/feature_request.yml',
+  '.github/ISSUE_TEMPLATE/config.yml',
+  '.github/workflows/ci.yml',
+  '.github/workflows/canonical-eval.yml',
+  'docs/CHANGELOG.md',
+  'docs/engineering/DATABASE_LIFECYCLE.md',
+  'backend/migrations/000000000000_contributor_alpha.sql',
+  'backend/migrations/rollback/000000000000_contributor_alpha.sql',
+];
+
+for (const relativePath of requiredFiles) {
+  const stat = fs.statSync(path.join(rootDir, relativePath));
+  assert.equal(stat.isFile(), true, `${relativePath} must be a file`);
+  assert.ok(stat.size > 0, `${relativePath} must not be empty`);
+}
+
+const license = read('LICENSE');
+assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
+
+assert.equal(read('.nvmrc').trim(), '22');
+
+const packageJSON = JSON.parse(read('package.json'));
+assert.equal(packageJSON.license, 'Apache-2.0');
+assert.equal(packageJSON.packageManager, 'pnpm@11.5.2');
+assert.equal(packageJSON.engines.node, '>=22 <23');
+assert.equal(packageJSON.engines.pnpm, '11.5.2');
+for (const script of [
+  'contributor:validate',
+  'checkout:verify',
+  'db:verify',
+  'eval:smoke:ci',
+]) {
+  assert.equal(typeof packageJSON.scripts[script], 'string', `missing package script ${script}`);
+}
+
+const readme = read('README.md');
+const readmeEnglish = read('README.en.md');
+const contributing = read('CONTRIBUTING.md');
+const contributingEnglish = read('CONTRIBUTING.en.md');
+const codeOfConduct = read('CODE_OF_CONDUCT.md');
+const codeOfConductChinese = read('CODE_OF_CONDUCT.zh-CN.md');
+const product = read('docs/PRODUCT.md');
+for (const [name, source] of [
+  ['README.md', readme],
+  ['README.en.md', readmeEnglish],
+  ['docs/PRODUCT.md', product],
+]) {
+  assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
+  assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
+}
+assert.match(readme, /Contributor Alpha/);
+assert.doesNotMatch(readme, /高级 AI 模型、50\+ 模板|^- \*\*插件系统\*\*：/m);
+assert.match(product, /规划不等于已实现/);
+assert.match(readme, /\[English\]\(README\.en\.md\)/);
+assert.match(readmeEnglish, /\[简体中文\]\(README\.md\)/);
+assert.match(contributing, /\[English\]\(CONTRIBUTING\.en\.md\)/);
+assert.match(contributingEnglish, /\[简体中文\]\(CONTRIBUTING\.md\)/);
+assert.match(codeOfConduct, /\[简体中文\]\(CODE_OF_CONDUCT\.zh-CN\.md\)/);
+assert.match(codeOfConductChinese, /\[English \(canonical\)\]\(CODE_OF_CONDUCT\.md\)/);
+assert.match(contributing, /`main` 分支/);
+assert.match(contributingEnglish, /the `main` branch/);
+
+for (const relativePath of [
+  'README.md',
+  'README.en.md',
+  'SECURITY.md',
+  'CODE_OF_CONDUCT.md',
+  'CODE_OF_CONDUCT.zh-CN.md',
+  '.github/ISSUE_TEMPLATE/config.yml',
+  'docs/DEVELOPER_GUIDE.md',
+]) {
+  assert.doesNotMatch(
+    read(relativePath),
+    /github\.com\/yistack\/yistack/i,
+    `${relativePath} must not reference the retired repository path`,
+  );
+}
+
+for (const relativePath of [
+  'README.md',
+  'README.en.md',
+  'docs/ARCHITECTURE.md',
+  'docs/CHANGELOG.md',
+  'docs/PRODUCT.md',
+  'docs/engineering/YES.md',
+  'docs/roadmap/ROADMAP.md',
+]) {
+  assert.doesNotMatch(
+    read(relativePath),
+    /docs\/internal\//,
+    `${relativePath} must not link to private development documents`,
+  );
+}
+
+const workflow = read('.github/workflows/ci.yml');
+assert.match(workflow, /push:\s+branches:\s+- main/);
+assert.doesNotMatch(workflow, /push:\s+branches:\s+- master/);
+for (const command of [
+  'pnpm install --frozen-lockfile',
+  'pnpm lint',
+  'pnpm build',
+  'pnpm yes:validate',
+  'go test ./...',
+  'pnpm eval:smoke:ci',
+  'bash scripts/verify-clean-checkout.sh',
+]) {
+  assert.ok(workflow.includes(command), `CI must run: ${command}`);
+}
+
+const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');
+assert.ok(liveEvalWorkflow.includes('pnpm eval:smoke'));
+assert.ok(liveEvalWorkflow.includes('YISTACK_EVAL_TOKEN'));
+
+const eslintConfig = read('eslint.config.mjs');
+for (const ignoredPath of [
+  'runtime/projects/**',
+  'runtime/generation-evidence/**',
+  'runtime/evals/**',
+  'evals/**/node_modules/**',
+]) {
+  assert.ok(eslintConfig.includes(ignoredPath), `ESLint must ignore ${ignoredPath}`);
+}
+
+const initSQL = read('backend/init.sql');
+const forwardBaseline = read('backend/migrations/000000000000_contributor_alpha.sql');
+const rollbackBaseline = read('backend/migrations/rollback/000000000000_contributor_alpha.sql');
+for (const source of [initSQL, forwardBaseline]) {
+  assert.ok(source.includes('public.schema_migrations'));
+  assert.ok(source.includes('000000000000_contributor_alpha'));
+}
+assert.ok(rollbackBaseline.includes('cannot remove baseline while later migrations are recorded'));
+assert.ok(rollbackBaseline.includes('DELETE FROM public.schema_migrations'));
+
+const envExample = read('.env.example');
+for (const key of [
+  'SUPABASE_URL=',
+  'SUPABASE_ANON_KEY=',
+  'SUPABASE_SERVICE_ROLE_KEY=',
+  'GITHUB_OAUTH_CLIENT_SECRET=',
+  'JWT_SECRET=',
+  'VERCEL_ACCESS_TOKEN=',
+]) {
+  assert.ok(envExample.includes(key), `.env.example must document ${key}`);
+}
+
+console.log(`[R7] Contributor Alpha repository contract valid (${requiredFiles.length} required files).`);

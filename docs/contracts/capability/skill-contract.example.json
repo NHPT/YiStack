@@ -1,0 +1,28 @@
+{
+  "source_note": "示例 Skill contract manifest，仅用于验证本地 contract runner 的结构化结果契约；不代表真实外部 Skill 调用。",
+  "capabilities": {
+    "skill.contract_dry_run": {
+      "status": "executed",
+      "reason_code": "skill_contract_manifest_executed",
+      "source_note": "本地 contract manifest 返回了 Skill 契约验证结果；未触网、未调用真实 Skill runtime。",
+      "metadata": {
+        "runner_mode": "contract",
+        "provider": "skill",
+        "external_call": false
+      },
+      "artifacts": [
+        {
+          "id": "skill.contract_dry_run.contract_result",
+          "type": "capability_contract",
+          "name": "Skill 契约验证结果",
+          "uri": "",
+          "source_note": "该 artifact 只描述本地 manifest 契约结果，不代表真实外部系统产物。",
+          "metadata": {
+            "provider": "skill",
+            "runner_mode": "contract"
+          }
+        }
+      ]
+    }
+  }
+}

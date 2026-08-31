@@ -1,0 +1,28 @@
+{
+  "source_note": "示例 MCP contract manifest，仅用于验证本地 contract runner 的结构化结果契约；不代表真实外部 MCP 调用。",
+  "capabilities": {
+    "mcp.contract_dry_run": {
+      "status": "executed",
+      "reason_code": "mcp_contract_manifest_executed",
+      "source_note": "本地 contract manifest 返回了 MCP 契约验证结果；未触网、未调用真实 MCP server。",
+      "metadata": {
+        "runner_mode": "contract",
+        "provider": "mcp",
+        "external_call": false
+      },
+      "artifacts": [
+        {
+          "id": "mcp.contract_dry_run.contract_result",
+          "type": "capability_contract",
+          "name": "MCP 契约验证结果",
+          "uri": "",
+          "source_note": "该 artifact 只描述本地 manifest 契约结果，不代表真实外部系统产物。",
+          "metadata": {
+            "provider": "mcp",
+            "runner_mode": "contract"
+          }
+        }
+      ]
+    }
+  }
+}

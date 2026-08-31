@@ -1,0 +1,16 @@
+用户需求：{{.Description}}{{if .AppType}}
+应用类型偏好：{{.AppType}}{{end}}{{if .Language}}
+编程语言偏好：{{.Language}}{{end}}
+{{if .FoundationContext}}
+
+Project Foundation 生成前设计真源：
+{{.FoundationContext}}{{end}}
+{{if .CurrentPlanSummary}}
+
+当前待确认的候选方案：
+{{.CurrentPlanSummary}}{{end}}{{if .UserFeedback}}
+
+用户对当前方案的新反馈 / 新约束：
+{{.UserFeedback}}
+
+请基于最新反馈重新生成候选方案，若有冲突以最新反馈为准。{{end}}

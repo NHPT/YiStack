@@ -1,0 +1,17 @@
+# Repository-wide fallback
+* @yistack/maintainers
+
+# Security and governance
+/.github/ @yistack/maintainers
+/SECURITY.md @yistack/maintainers
+/GOVERNANCE.md @yistack/maintainers
+/MAINTAINERS.md @yistack/maintainers
+/LICENSE @yistack/maintainers
+
+# Runtime, persistence, and release boundaries
+/backend/init.sql @yistack/maintainers
+/backend/migrations/ @yistack/maintainers
+/backend/internal/middleware/ @yistack/maintainers
+/backend/internal/service/ @yistack/maintainers
+/backend/pkg/container/ @yistack/maintainers
+/scripts/ @yistack/maintainers

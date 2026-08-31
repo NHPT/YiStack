@@ -1,0 +1,42 @@
+{
+  "source_note": "示例 MCP HTTP runner 协议，仅用于验证受限 MCP HTTP client 的请求/响应结构；不代表真实 MCP server。",
+  "request": {
+    "capability_id": "online_context.search_crawl",
+    "capability_name": "联网上下文搜索抓取",
+    "capability_version": "v1",
+    "capability_catalog_source": "由 GenerateCommand.Online=true 选择；真实执行必须继续经过 Capability runner、网络 allowlist 和审计边界。",
+    "provider": "mcp",
+    "provider_resolution_status": "resolved",
+    "required": false,
+    "reason_code": "external_provider_ready_for_execution",
+    "source_note": "Skill / MCP provider 已解析为可执行候选；真实执行仍需通过 execution policy、runner 注入和网络边界。",
+    "workflow_stage": "implement",
+    "workflow_mode": "implement",
+    "capability_profile": "default-implementation-capability-profile",
+    "project_id": "project_example",
+    "user_id": "user_example"
+  },
+  "response": {
+    "status": "executed",
+    "reason_code": "mcp_http_contract_executed",
+    "source_note": "示例 MCP HTTP endpoint 返回了结构化执行结果；该示例不代表真实外部调用。",
+    "metadata": {
+      "runner_mode": "mcp-http",
+      "provider": "mcp",
+      "external_call": true
+    },
+    "artifacts": [
+      {
+        "id": "online_context.search_crawl.http_result",
+        "type": "online_context",
+        "name": "MCP HTTP 联网上下文结果",
+        "uri": "",
+        "source_note": "该 artifact 只描述 MCP HTTP 协议示例结果，不代表真实外部系统产物。",
+        "metadata": {
+          "provider": "mcp",
+          "runner_mode": "mcp-http"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Browser Acceptance Fixture</title></head>
+<body><main><h1>Browser acceptance ready</h1><button data-testid="fixture-action">Run check</button><p data-testid="fixture-result"></p></main>
+<script>
+  document.querySelector('[data-testid="fixture-action"]').addEventListener('click', () => {
+    document.querySelector('[data-testid="fixture-result"]').textContent = 'Interaction passed';
+  });
+</script>
+</body>
+</html>

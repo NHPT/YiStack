@@ -1,0 +1,22 @@
+{
+  "name": "yistack-supabase-user-crud-fixture",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "next build",
+    "test:rls": "node tests/rls.e2e.mjs",
+    "rollback:storage": "node tests/rollback.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.95.3",
+    "next": "16.1.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.30",
+    "@types/react": "19.2.10",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}

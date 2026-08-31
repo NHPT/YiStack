@@ -1,0 +1,18 @@
+请先给出技术方案分析，不要直接输出最终方案列表。
+
+用户需求：{{.Description}}{{if .AppType}}
+应用类型偏好：{{.AppType}}{{end}}{{if .Language}}
+编程语言偏好：{{.Language}}{{end}}
+{{if .FoundationContext}}
+
+Project Foundation 生成前设计真源：
+{{.FoundationContext}}{{end}}
+{{if .CurrentPlanSummary}}
+
+当前待确认的候选方案：
+{{.CurrentPlanSummary}}{{end}}{{if .UserFeedback}}
+
+用户对当前方案的新反馈 / 新约束：
+{{.UserFeedback}}
+
+请基于以上反馈重新权衡方案。若与之前候选方案存在冲突，以用户最新反馈为准。{{end}}

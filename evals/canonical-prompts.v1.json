@@ -1,0 +1,138 @@
+{
+  "schema_version": "canonical_generation_suite.v1",
+  "prompt_version": "r5.1",
+  "thresholds": {
+    "schema_pass_rate": 1,
+    "false_success_count": 0,
+    "command_failure_block_rate": 1,
+    "terminal_event_uniqueness_rate": 1,
+    "final_build_preview_browser_rate": 0.9,
+    "blocking_browser_error_count_on_success": 0
+  },
+  "samples": [
+    {
+      "id": "static-landing-01", "category": "static", "app_type": "static-html", "runtime_profile": "static-html",
+      "prompt": "Create a responsive product landing page for Orbit Notes. Include the exact heading 'Orbit Notes Workspace' and a button with data-testid='primary-action' that reveals the text 'Workspace opened' without reloading.",
+      "acceptance": { "required_text": ["Orbit Notes Workspace"], "actions": [{ "type": "click", "selector": "[data-testid='primary-action']", "expect_text": "Workspace opened" }] }
+    },
+    {
+      "id": "static-portfolio-02", "category": "static", "app_type": "static-html", "runtime_profile": "static-html",
+      "prompt": "Build an accessible one-page portfolio for Mina Park with the exact heading 'Mina Park Product Designer', project sections, keyboard-visible links, and no external runtime dependencies.",
+      "acceptance": { "required_text": ["Mina Park Product Designer"], "actions": [] }
+    },
+    {
+      "id": "static-docs-03", "category": "static", "app_type": "static-html", "runtime_profile": "static-html",
+      "prompt": "Build a compact API documentation page titled 'Northstar API Reference' with navigation anchors, request and response examples, and responsive mobile layout.",
+      "acceptance": { "required_text": ["Northstar API Reference"], "actions": [] }
+    },
+    {
+      "id": "static-calculator-04", "category": "static", "app_type": "static-html", "runtime_profile": "static-html",
+      "prompt": "Create a browser-only tip calculator titled 'Clear Tip Calculator'. Add inputs with data-testid='bill-input' and data-testid='tip-input', a button data-testid='calculate', and show 'Total per person' after calculation.",
+      "acceptance": { "required_text": ["Clear Tip Calculator"], "actions": [{ "type": "fill", "selector": "[data-testid='bill-input']", "text": "100" }, { "type": "fill", "selector": "[data-testid='tip-input']", "text": "20" }, { "type": "click", "selector": "[data-testid='calculate']", "expect_text": "Total per person" }] }
+    },
+    {
+      "id": "vite-dashboard-05", "category": "react-vite", "app_type": "web", "runtime_profile": "node-react",
+      "prompt": "Create a React Vite operations dashboard with the exact heading 'Atlas Operations', summary metrics, a filter button data-testid='status-filter', and display 'Showing active incidents' after clicking it.",
+      "acceptance": { "required_text": ["Atlas Operations"], "actions": [{ "type": "click", "selector": "[data-testid='status-filter']", "expect_text": "Showing active incidents" }] }
+    },
+    {
+      "id": "vite-kanban-06", "category": "react-vite", "app_type": "web", "runtime_profile": "node-react",
+      "prompt": "Build a React Vite kanban board titled 'Signal Delivery Board' with three columns, semantic controls, deterministic sample tasks, and responsive mobile behavior.",
+      "acceptance": { "required_text": ["Signal Delivery Board"], "actions": [] }
+    },
+    {
+      "id": "vite-inventory-07", "category": "react-vite", "app_type": "web", "runtime_profile": "node-react",
+      "prompt": "Build a React Vite inventory table headed 'Field Inventory'. Add a search input data-testid='inventory-search'; entering 'sensor' must keep a visible row containing 'Sensor Kit'.",
+      "acceptance": { "required_text": ["Field Inventory"], "actions": [{ "type": "fill", "selector": "[data-testid='inventory-search']", "text": "sensor", "expect_text": "Sensor Kit" }] }
+    },
+    {
+      "id": "vite-booking-08", "category": "react-vite", "app_type": "web", "runtime_profile": "node-react",
+      "prompt": "Create a React Vite room booking interface titled 'Studio Booking'. Include a button data-testid='reserve-slot' that updates the page with 'Reservation confirmed'.",
+      "acceptance": { "required_text": ["Studio Booking"], "actions": [{ "type": "click", "selector": "[data-testid='reserve-slot']", "expect_text": "Reservation confirmed" }] }
+    },
+    {
+      "id": "next-catalog-09", "category": "next", "app_type": "web", "runtime_profile": "node-nextjs",
+      "prompt": "Create a Next.js product catalog headed 'Aperture Catalog' with server-rendered sample products, responsive filters, loading and empty states, and no remote image requirement.",
+      "acceptance": { "required_text": ["Aperture Catalog"], "actions": [] }
+    },
+    {
+      "id": "next-support-10", "category": "next", "app_type": "web", "runtime_profile": "node-nextjs",
+      "prompt": "Build a Next.js support queue titled 'Support Command Center'. Add a button data-testid='resolve-ticket' that changes the selected ticket state to 'Resolved'.",
+      "acceptance": { "required_text": ["Support Command Center"], "actions": [{ "type": "click", "selector": "[data-testid='resolve-ticket']", "expect_text": "Resolved" }] }
+    },
+    {
+      "id": "next-analytics-11", "category": "next", "app_type": "web", "runtime_profile": "node-nextjs",
+      "prompt": "Create a Next.js analytics page titled 'Revenue Pulse' with server-rendered metrics, an accessible data table, and deterministic local data only.",
+      "acceptance": { "required_text": ["Revenue Pulse"], "actions": [] }
+    },
+    {
+      "id": "next-onboarding-12", "category": "next", "app_type": "web", "runtime_profile": "node-nextjs",
+      "prompt": "Build a Next.js onboarding checklist headed 'Launch Checklist'. A button data-testid='complete-step' must mark a step and display 'Step completed'.",
+      "acceptance": { "required_text": ["Launch Checklist"], "actions": [{ "type": "click", "selector": "[data-testid='complete-step']", "expect_text": "Step completed" }] }
+    },
+    {
+      "id": "api-health-13", "category": "api", "app_type": "api", "runtime_profile": "node-express",
+      "prompt": "Create a Node Express service with GET /api/health and a browser inspection page headed 'Service Health Console'. The page must show a deterministic healthy status without external services.",
+      "acceptance": { "required_text": ["Service Health Console"], "actions": [] }
+    },
+    {
+      "id": "api-orders-14", "category": "api", "app_type": "api", "runtime_profile": "node-express",
+      "prompt": "Create a Node Express in-memory orders API with validation and a browser page titled 'Orders API Explorer'. A button data-testid='load-orders' must display 'Sample order loaded'.",
+      "acceptance": { "required_text": ["Orders API Explorer"], "actions": [{ "type": "click", "selector": "[data-testid='load-orders']", "expect_text": "Sample order loaded" }] }
+    },
+    {
+      "id": "api-go-tasks-15", "category": "api", "app_type": "api", "runtime_profile": "go-gin",
+      "prompt": "Create a Go Gin in-memory task API with health and CRUD routes plus a browser page headed 'Task API Console'. Keep startup and tests deterministic.",
+      "acceptance": { "required_text": ["Task API Console"], "actions": [] }
+    },
+    {
+      "id": "api-python-events-16", "category": "api", "app_type": "api", "runtime_profile": "python-fastapi",
+      "prompt": "Create a Python FastAPI in-memory events API with validation, tests, and a browser root page titled 'Events API Console'. Do not require external credentials.",
+      "acceptance": { "required_text": ["Events API Console"], "actions": [] }
+    },
+    {
+      "id": "supabase-crm-17", "category": "supabase-fullstack", "app_type": "web", "runtime_profile": "node-nextjs",
+      "prompt": "Build a Next.js Supabase-ready CRM titled 'Harbor CRM'. Include typed repository boundaries, SQL schema and RLS policies, an explicit local demo mode, and never expose service-role secrets to browser code.",
+      "acceptance": { "required_text": ["Harbor CRM"], "actions": [] }
+    },
+    {
+      "id": "supabase-notes-18", "category": "supabase-fullstack", "app_type": "web", "runtime_profile": "node-react",
+      "prompt": "Create a React Vite Supabase-ready notes app headed 'Private Notes'. Include auth-aware data boundaries, SQL and RLS, local deterministic fallback data, and no browser service-role key.",
+      "acceptance": { "required_text": ["Private Notes"], "actions": [] }
+    },
+    {
+      "id": "supabase-assets-19", "category": "supabase-fullstack", "app_type": "web", "runtime_profile": "node-nextjs",
+      "prompt": "Build a Next.js asset register titled 'Asset Registry' with Supabase schema, owner-isolated RLS policies, server/client secret separation, and a local fixture view that works without credentials.",
+      "acceptance": { "required_text": ["Asset Registry"], "actions": [] }
+    },
+    {
+      "id": "supabase-feedback-20", "category": "supabase-fullstack", "app_type": "web", "runtime_profile": "node-react",
+      "prompt": "Create a React Vite feedback tracker headed 'Feedback Loop' with Supabase-ready auth and CRUD boundaries, SQL plus RLS, and deterministic demo content when environment variables are absent.",
+      "acceptance": { "required_text": ["Feedback Loop"], "actions": [] }
+    },
+    {
+      "id": "iteration-theme-21", "category": "iteration", "app_type": "web", "runtime_profile": "node-react",
+      "seed_prompt": "Create a React Vite dashboard headed Iteration Baseline with a simple navigation and sample cards.",
+      "prompt": "Iterate on the existing application without replacing unrelated files. Add a restrained light and dark theme toggle data-testid='theme-toggle' and show the text 'Dark theme active' when enabled.",
+      "acceptance": { "required_text": ["Dark theme"], "actions": [{ "type": "click", "selector": "[data-testid='theme-toggle']", "expect_text": "Dark theme active" }] }
+    },
+    {
+      "id": "iteration-search-22", "category": "iteration", "app_type": "web", "runtime_profile": "node-react",
+      "seed_prompt": "Create a React Vite directory headed Iteration Baseline with a visible list of deterministic sample records.",
+      "prompt": "Iterate on the current list view using minimal patch operations. Add an accessible search field data-testid='global-search' and preserve all existing navigation and sample data.",
+      "acceptance": { "required_text": ["Search"], "actions": [{ "type": "fill", "selector": "[data-testid='global-search']", "text": "test" }] }
+    },
+    {
+      "id": "iteration-empty-state-23", "category": "iteration", "app_type": "web", "runtime_profile": "node-nextjs",
+      "seed_prompt": "Create a Next.js dashboard headed Iteration Baseline with a filterable records area and local sample data.",
+      "prompt": "Patch the existing dashboard to add a professional empty state with the exact text 'No records match this view'. Preserve existing routes, data contracts, and styles.",
+      "acceptance": { "required_text": ["No records match this view"], "actions": [] }
+    },
+    {
+      "id": "iteration-validation-24", "category": "iteration", "app_type": "web", "runtime_profile": "node-nextjs",
+      "seed_prompt": "Create a Next.js form page headed Iteration Baseline with name and email fields and a submit button.",
+      "prompt": "Patch the existing form to add client-side required-field validation. The submit button data-testid='submit-form' must display 'Please complete required fields' when submitted empty, without changing unrelated files.",
+      "acceptance": { "required_text": ["required"], "actions": [{ "type": "click", "selector": "[data-testid='submit-form']", "expect_text": "Please complete required fields" }] }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+请基于以下信息输出最终候选技术方案 JSON 数组。
+
+用户需求：{{.Description}}{{if .AppType}}
+应用类型偏好：{{.AppType}}{{end}}{{if .Language}}
+编程语言偏好：{{.Language}}{{end}}
+{{if .FoundationContext}}
+
+Project Foundation 生成前设计真源：
+{{.FoundationContext}}{{end}}
+
+前置分析：
+{{.Analysis}}

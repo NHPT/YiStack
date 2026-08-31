@@ -1,0 +1,8448 @@
+package service
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"yistack/config"
+	"yistack/internal/model"
+	"yistack/pkg/utils"
+)
+
+type EnterpriseOrganizationReadinessStatus string
+type EnterpriseSsoDiscoveryReadinessStatus string
+type EnterpriseProjectOwnershipReadinessStatus string
+type EnterpriseProjectOwnershipPreflightStatus string
+type EnterpriseProjectOwnershipMappingStatus string
+type EnterpriseProjectOwnershipOwnerGuardReadinessStatus string
+type EnterpriseProjectAccessGuardActivationAuditReadinessStatus string
+type EnterpriseProjectAccessGuardActivationAuditEventType string
+type EnterpriseProjectAccessGuardActivationAuditEventStatus string
+type EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus string
+type EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource string
+type EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityStatus string
+type EnterpriseProjectAccessGuardActivationAuditMetadataIssueSource string
+type EnterpriseAuditCoverageReadinessStatus string
+type EnterpriseAuditExportReadinessStatus string
+type EnterpriseAuditExportQueryReadinessStatus string
+type EnterpriseAuditExportTaskPreflightReadinessStatus string
+type EnterpriseAuditExportFileFormatReadinessStatus string
+type EnterpriseAuditExportFileGeneratorReadinessStatus string
+type EnterpriseAuditExportTaskCreateRequestReadinessStatus string
+type EnterpriseAuditExportTaskPersistenceReadinessStatus string
+type EnterpriseAuditExportWorkerReadinessStatus string
+type EnterpriseAuditExportWorkerExecutionRequestReadinessStatus string
+type EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus string
+type EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus string
+type EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus string
+type EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus string
+type EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus string
+type EnterpriseAuditExportTaskStatusTransitionReadinessStatus string
+type EnterpriseAuditExportArchiveExpirationReadinessStatus string
+type EnterpriseAuditExportDeliveryReportReadinessStatus string
+type EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus string
+type EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus string
+type EnterpriseAuditExportDeliveryReportStorageReadinessStatus string
+type EnterpriseAuditExportDeliveryReportStoredReadinessStatus string
+type EnterpriseAuditRetentionReadinessStatus string
+type EnterprisePrivateDeploymentReadinessStatus string
+type EnterpriseCommercialReadinessStatus string
+
+const (
+	EnterpriseOrganizationReadinessSchemaReadyNoData  EnterpriseOrganizationReadinessStatus = "schema_ready_no_data"
+	EnterpriseOrganizationReadinessTeamReadyNoMembers EnterpriseOrganizationReadinessStatus = "team_ready_no_members"
+	EnterpriseOrganizationReadinessMemberReady        EnterpriseOrganizationReadinessStatus = "member_ready"
+
+	EnterpriseSsoDiscoveryDisabled      EnterpriseSsoDiscoveryReadinessStatus = "disabled"
+	EnterpriseSsoDiscoveryMissingConfig EnterpriseSsoDiscoveryReadinessStatus = "missing_config"
+	EnterpriseSsoDiscoveryFailed        EnterpriseSsoDiscoveryReadinessStatus = "discovery_failed"
+	EnterpriseSsoDiscoveryReady         EnterpriseSsoDiscoveryReadinessStatus = "discovery_ready"
+
+	EnterpriseProjectOwnershipReadinessNoProjects                EnterpriseProjectOwnershipReadinessStatus = "no_projects"
+	EnterpriseProjectOwnershipReadinessOrganizationModelNotReady EnterpriseProjectOwnershipReadinessStatus = "organization_model_not_ready"
+	EnterpriseProjectOwnershipReadinessLegacyUserOwned           EnterpriseProjectOwnershipReadinessStatus = "legacy_user_owned"
+	EnterpriseProjectOwnershipReadinessOwnershipSchemaReady      EnterpriseProjectOwnershipReadinessStatus = "ownership_schema_ready"
+
+	EnterpriseProjectOwnershipPreflightNoProjects                EnterpriseProjectOwnershipPreflightStatus = "no_projects"
+	EnterpriseProjectOwnershipPreflightOrganizationModelNotReady EnterpriseProjectOwnershipPreflightStatus = "organization_model_not_ready"
+	EnterpriseProjectOwnershipPreflightNoCandidates              EnterpriseProjectOwnershipPreflightStatus = "no_candidates"
+	EnterpriseProjectOwnershipPreflightCandidateReady            EnterpriseProjectOwnershipPreflightStatus = "candidate_ready"
+
+	EnterpriseProjectOwnershipMappingNoMappings   EnterpriseProjectOwnershipMappingStatus = "no_mappings"
+	EnterpriseProjectOwnershipMappingMappingReady EnterpriseProjectOwnershipMappingStatus = "mapping_ready"
+
+	EnterpriseProjectOwnershipOwnerGuardReadinessNoProjects       EnterpriseProjectOwnershipOwnerGuardReadinessStatus = "no_projects"
+	EnterpriseProjectOwnershipOwnerGuardReadinessNoMappings       EnterpriseProjectOwnershipOwnerGuardReadinessStatus = "no_mappings"
+	EnterpriseProjectOwnershipOwnerGuardReadinessUnmappedProjects EnterpriseProjectOwnershipOwnerGuardReadinessStatus = "unmapped_projects"
+	EnterpriseProjectOwnershipOwnerGuardReadinessEvidenceDrift    EnterpriseProjectOwnershipOwnerGuardReadinessStatus = "mapping_evidence_drift"
+	EnterpriseProjectOwnershipOwnerGuardReadinessReady            EnterpriseProjectOwnershipOwnerGuardReadinessStatus = "owner_guard_ready"
+
+	EnterpriseProjectAccessGuardActivationAuditSchemaReadyNoEvents EnterpriseProjectAccessGuardActivationAuditReadinessStatus = "schema_ready_no_events"
+	EnterpriseProjectAccessGuardActivationAuditPartialEvents       EnterpriseProjectAccessGuardActivationAuditReadinessStatus = "partial_events_recorded"
+	EnterpriseProjectAccessGuardActivationAuditEventsRecorded      EnterpriseProjectAccessGuardActivationAuditReadinessStatus = "audit_events_recorded"
+
+	EnterpriseProjectAccessGuardActivationAuditEventReadinessSnapshot        EnterpriseProjectAccessGuardActivationAuditEventType = "readiness_snapshot"
+	EnterpriseProjectAccessGuardActivationAuditEventBlockerSnapshot          EnterpriseProjectAccessGuardActivationAuditEventType = "blocker_snapshot"
+	EnterpriseProjectAccessGuardActivationAuditEventManualApproval           EnterpriseProjectAccessGuardActivationAuditEventType = "manual_approval"
+	EnterpriseProjectAccessGuardActivationAuditEventActivationExecution      EnterpriseProjectAccessGuardActivationAuditEventType = "activation_execution"
+	EnterpriseProjectAccessGuardActivationAuditEventPostActivationValidation EnterpriseProjectAccessGuardActivationAuditEventType = "post_activation_access_validation"
+	EnterpriseProjectAccessGuardActivationAuditEventRollbackEvidence         EnterpriseProjectAccessGuardActivationAuditEventType = "rollback_evidence"
+
+	EnterpriseProjectAccessGuardActivationAuditEventPlanned  EnterpriseProjectAccessGuardActivationAuditEventStatus = "planned"
+	EnterpriseProjectAccessGuardActivationAuditEventRecorded EnterpriseProjectAccessGuardActivationAuditEventStatus = "recorded"
+	EnterpriseProjectAccessGuardActivationAuditEventFailed   EnterpriseProjectAccessGuardActivationAuditEventStatus = "failed"
+
+	EnterpriseProjectAccessGuardActivationAuditPayloadNoEvents EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus = "payload_no_events"
+	EnterpriseProjectAccessGuardActivationAuditPayloadPending  EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus = "payload_integrity_pending"
+	EnterpriseProjectAccessGuardActivationAuditPayloadFailed   EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus = "payload_integrity_failed"
+	EnterpriseProjectAccessGuardActivationAuditPayloadReady    EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus = "payload_integrity_ready"
+
+	EnterpriseProjectAccessGuardActivationAuditPayloadIssueEventType         EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource = "event_type"
+	EnterpriseProjectAccessGuardActivationAuditPayloadIssueReadinessSnapshot EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource = "readiness_snapshot"
+	EnterpriseProjectAccessGuardActivationAuditPayloadIssueBlockerSnapshot   EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource = "blocker_snapshot"
+	EnterpriseProjectAccessGuardActivationAuditPayloadIssueReviewSnapshot    EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource = "review_snapshot"
+	EnterpriseProjectAccessGuardActivationAuditPayloadIssueAuditPlanSnapshot EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource = "audit_plan_snapshot"
+	EnterpriseProjectAccessGuardActivationAuditPayloadIssueExecutionResult   EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource = "execution_result"
+	EnterpriseProjectAccessGuardActivationAuditPayloadIssueRollbackReference EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource = "rollback_reference"
+
+	EnterpriseProjectAccessGuardActivationAuditMetadataNoEvents EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityStatus = "metadata_no_events"
+	EnterpriseProjectAccessGuardActivationAuditMetadataFailed   EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityStatus = "metadata_integrity_failed"
+	EnterpriseProjectAccessGuardActivationAuditMetadataReady    EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityStatus = "metadata_integrity_ready"
+
+	EnterpriseProjectAccessGuardActivationAuditMetadataIssueEventType      EnterpriseProjectAccessGuardActivationAuditMetadataIssueSource = "event_type"
+	EnterpriseProjectAccessGuardActivationAuditMetadataIssueEventStatus    EnterpriseProjectAccessGuardActivationAuditMetadataIssueSource = "event_status"
+	EnterpriseProjectAccessGuardActivationAuditMetadataIssueCurrentMode    EnterpriseProjectAccessGuardActivationAuditMetadataIssueSource = "current_mode"
+	EnterpriseProjectAccessGuardActivationAuditMetadataIssueTargetMode     EnterpriseProjectAccessGuardActivationAuditMetadataIssueSource = "target_mode"
+	EnterpriseProjectAccessGuardActivationAuditMetadataIssueProducerSource EnterpriseProjectAccessGuardActivationAuditMetadataIssueSource = "source"
+
+	EnterpriseAuditCoverageNoAuditLogs       EnterpriseAuditCoverageReadinessStatus = "no_audit_logs"
+	EnterpriseAuditCoverageActivationMissing EnterpriseAuditCoverageReadinessStatus = "activation_audit_missing"
+	EnterpriseAuditCoverageReady             EnterpriseAuditCoverageReadinessStatus = "audit_coverage_ready"
+
+	EnterpriseAuditExportNoAuditLogs        EnterpriseAuditExportReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportActivationMissing  EnterpriseAuditExportReadinessStatus = "activation_audit_missing"
+	EnterpriseAuditExportSampleMissing      EnterpriseAuditExportReadinessStatus = "export_sample_missing"
+	EnterpriseAuditExportReadinessAvailable EnterpriseAuditExportReadinessStatus = "audit_export_ready"
+
+	EnterpriseAuditExportQueryNoAuditLogs       EnterpriseAuditExportQueryReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportQueryActivationMissing EnterpriseAuditExportQueryReadinessStatus = "activation_audit_missing"
+	EnterpriseAuditExportQuerySampleMissing     EnterpriseAuditExportQueryReadinessStatus = "query_sample_missing"
+	EnterpriseAuditExportQueryReady             EnterpriseAuditExportQueryReadinessStatus = "audit_export_query_ready"
+
+	EnterpriseAuditExportTaskPreflightNoAuditLogs       EnterpriseAuditExportTaskPreflightReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportTaskPreflightActivationMissing EnterpriseAuditExportTaskPreflightReadinessStatus = "activation_audit_missing"
+	EnterpriseAuditExportTaskPreflightQueryNotReady     EnterpriseAuditExportTaskPreflightReadinessStatus = "query_not_ready"
+	EnterpriseAuditExportTaskPreflightRetentionNotReady EnterpriseAuditExportTaskPreflightReadinessStatus = "retention_not_ready"
+	EnterpriseAuditExportTaskPreflightReady             EnterpriseAuditExportTaskPreflightReadinessStatus = "audit_export_task_preflight_ready"
+
+	EnterpriseAuditExportFileFormatNoAuditLogs          EnterpriseAuditExportFileFormatReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportFileFormatTaskPreflightMissing EnterpriseAuditExportFileFormatReadinessStatus = "task_preflight_not_ready"
+	EnterpriseAuditExportFileFormatContractMissing      EnterpriseAuditExportFileFormatReadinessStatus = "format_contract_missing"
+	EnterpriseAuditExportFileFormatReady                EnterpriseAuditExportFileFormatReadinessStatus = "audit_export_file_format_ready"
+
+	EnterpriseAuditExportFileGeneratorNoAuditLogs       EnterpriseAuditExportFileGeneratorReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportFileGeneratorFileFormatMissing EnterpriseAuditExportFileGeneratorReadinessStatus = "file_format_not_ready"
+	EnterpriseAuditExportFileGeneratorContractMissing   EnterpriseAuditExportFileGeneratorReadinessStatus = "generator_contract_missing"
+	EnterpriseAuditExportFileGeneratorReady             EnterpriseAuditExportFileGeneratorReadinessStatus = "audit_export_file_generator_ready"
+
+	EnterpriseAuditExportTaskCreateRequestNoAuditLogs          EnterpriseAuditExportTaskCreateRequestReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportTaskCreateRequestFileGeneratorMissing EnterpriseAuditExportTaskCreateRequestReadinessStatus = "file_generator_not_ready"
+	EnterpriseAuditExportTaskCreateRequestContractMissing      EnterpriseAuditExportTaskCreateRequestReadinessStatus = "task_create_request_contract_missing"
+	EnterpriseAuditExportTaskCreateRequestReadinessReady       EnterpriseAuditExportTaskCreateRequestReadinessStatus = "audit_export_task_create_request_ready"
+
+	EnterpriseAuditExportTaskPersistenceNoAuditLogs          EnterpriseAuditExportTaskPersistenceReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportTaskPersistenceCreateRequestMissing EnterpriseAuditExportTaskPersistenceReadinessStatus = "task_create_request_not_ready"
+	EnterpriseAuditExportTaskPersistenceContractMissing      EnterpriseAuditExportTaskPersistenceReadinessStatus = "task_persistence_contract_missing"
+	EnterpriseAuditExportTaskPersistenceReadinessReady       EnterpriseAuditExportTaskPersistenceReadinessStatus = "audit_export_task_persistence_ready"
+
+	EnterpriseAuditExportWorkerNoAuditLogs          EnterpriseAuditExportWorkerReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportWorkerFileGeneratorMissing EnterpriseAuditExportWorkerReadinessStatus = "file_generator_not_ready"
+	EnterpriseAuditExportWorkerTaskReadbackMissing  EnterpriseAuditExportWorkerReadinessStatus = "task_readback_not_ready"
+	EnterpriseAuditExportWorkerNoQueuedTasks        EnterpriseAuditExportWorkerReadinessStatus = "no_queued_tasks"
+	EnterpriseAuditExportWorkerContractMissing      EnterpriseAuditExportWorkerReadinessStatus = "worker_contract_missing"
+	EnterpriseAuditExportWorkerReady                EnterpriseAuditExportWorkerReadinessStatus = "audit_export_worker_ready"
+
+	EnterpriseAuditExportWorkerExecutionRequestNoAuditLogs              EnterpriseAuditExportWorkerExecutionRequestReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportWorkerExecutionRequestWorkerNotReady           EnterpriseAuditExportWorkerExecutionRequestReadinessStatus = "worker_not_ready"
+	EnterpriseAuditExportWorkerExecutionRequestStatusTransitionNotReady EnterpriseAuditExportWorkerExecutionRequestReadinessStatus = "status_transition_not_ready"
+	EnterpriseAuditExportWorkerExecutionRequestContractMissing          EnterpriseAuditExportWorkerExecutionRequestReadinessStatus = "worker_execution_request_contract_missing"
+	EnterpriseAuditExportWorkerExecutionRequestReadinessReady           EnterpriseAuditExportWorkerExecutionRequestReadinessStatus = "audit_export_worker_execution_request_ready"
+
+	EnterpriseAuditExportWorkerExecutionRequestPersistenceNoAuditLogs     EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportWorkerExecutionRequestPersistenceRequestNotReady EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus = "worker_execution_request_not_ready"
+	EnterpriseAuditExportWorkerExecutionRequestPersistenceContractMissing EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus = "worker_execution_request_persistence_contract_missing"
+	EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessReady  EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus = "audit_export_worker_execution_request_persistence_ready"
+
+	EnterpriseAuditExportWorkerExecutionDryRunNoAuditLogs     EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportWorkerExecutionDryRunRequestNotReady EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus = "worker_execution_request_persistence_not_ready"
+	EnterpriseAuditExportWorkerExecutionDryRunNoRequests      EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus = "no_worker_execution_requests"
+	EnterpriseAuditExportWorkerExecutionDryRunContractMissing EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus = "worker_execution_dry_run_contract_missing"
+	EnterpriseAuditExportWorkerExecutionDryRunReadinessReady  EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus = "audit_export_worker_execution_dry_run_ready"
+
+	EnterpriseAuditExportWorkerExecutionArtifactNoAuditLogs      EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportWorkerExecutionArtifactDryRunNotReady   EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus = "worker_execution_dry_run_not_ready"
+	EnterpriseAuditExportWorkerExecutionArtifactNoDryRunRequests EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus = "no_dry_run_completed_requests"
+	EnterpriseAuditExportWorkerExecutionArtifactContractMissing  EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus = "worker_execution_artifact_contract_missing"
+	EnterpriseAuditExportWorkerExecutionArtifactReadinessReady   EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus = "audit_export_worker_execution_artifact_ready"
+
+	EnterpriseAuditExportWorkerExecutionOutputStorageNoAuditLogs        EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportWorkerExecutionOutputStorageArtifactNotReady   EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus = "worker_execution_artifact_not_ready"
+	EnterpriseAuditExportWorkerExecutionOutputStorageNoArtifactRequests EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus = "no_artifact_generated_requests"
+	EnterpriseAuditExportWorkerExecutionOutputStorageContractMissing    EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus = "worker_execution_output_storage_contract_missing"
+	EnterpriseAuditExportWorkerExecutionOutputStorageReadinessReady     EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus = "audit_export_worker_execution_output_storage_ready"
+
+	EnterpriseAuditExportWorkerExecutionTaskCompletionNoAuditLogs           EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportWorkerExecutionTaskCompletionOutputStorageNotReady EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus = "worker_execution_output_storage_not_ready"
+	EnterpriseAuditExportWorkerExecutionTaskCompletionNoStoredRequests      EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus = "no_output_stored_requests"
+	EnterpriseAuditExportWorkerExecutionTaskCompletionTaskReadbackNotReady  EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus = "task_readback_not_ready"
+	EnterpriseAuditExportWorkerExecutionTaskCompletionNoQueuedTasks         EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus = "no_queued_tasks"
+	EnterpriseAuditExportWorkerExecutionTaskCompletionContractMissing       EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus = "worker_execution_task_completion_contract_missing"
+	EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessReady        EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus = "audit_export_worker_execution_task_completion_ready"
+
+	EnterpriseAuditExportTaskStatusTransitionNoAuditLogs          EnterpriseAuditExportTaskStatusTransitionReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportTaskStatusTransitionWorkerNotReady       EnterpriseAuditExportTaskStatusTransitionReadinessStatus = "worker_not_ready"
+	EnterpriseAuditExportTaskStatusTransitionTaskReadbackNotReady EnterpriseAuditExportTaskStatusTransitionReadinessStatus = "task_readback_not_ready"
+	EnterpriseAuditExportTaskStatusTransitionNoCandidates         EnterpriseAuditExportTaskStatusTransitionReadinessStatus = "no_transition_candidates"
+	EnterpriseAuditExportTaskStatusTransitionContractMissing      EnterpriseAuditExportTaskStatusTransitionReadinessStatus = "status_transition_contract_missing"
+	EnterpriseAuditExportTaskStatusTransitionReadinessReady       EnterpriseAuditExportTaskStatusTransitionReadinessStatus = "audit_export_task_status_transition_ready"
+
+	EnterpriseAuditExportArchiveExpirationNoAuditLogs         EnterpriseAuditExportArchiveExpirationReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportArchiveExpirationRetentionNotReady   EnterpriseAuditExportArchiveExpirationReadinessStatus = "retention_not_ready"
+	EnterpriseAuditExportArchiveExpirationTaskReadbackMissing EnterpriseAuditExportArchiveExpirationReadinessStatus = "task_readback_not_ready"
+	EnterpriseAuditExportArchiveExpirationNoCandidates        EnterpriseAuditExportArchiveExpirationReadinessStatus = "no_expiration_candidates"
+	EnterpriseAuditExportArchiveExpirationContractMissing     EnterpriseAuditExportArchiveExpirationReadinessStatus = "archive_expiration_contract_missing"
+	EnterpriseAuditExportArchiveExpirationReadinessReady      EnterpriseAuditExportArchiveExpirationReadinessStatus = "audit_export_archive_expiration_ready"
+
+	EnterpriseAuditExportDeliveryReportNoAuditLogs               EnterpriseAuditExportDeliveryReportReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportDeliveryReportWorkerNotReady            EnterpriseAuditExportDeliveryReportReadinessStatus = "worker_not_ready"
+	EnterpriseAuditExportDeliveryReportStatusTransitionNotReady  EnterpriseAuditExportDeliveryReportReadinessStatus = "status_transition_not_ready"
+	EnterpriseAuditExportDeliveryReportArchiveExpirationNotReady EnterpriseAuditExportDeliveryReportReadinessStatus = "archive_expiration_not_ready"
+	EnterpriseAuditExportDeliveryReportContractMissing           EnterpriseAuditExportDeliveryReportReadinessStatus = "delivery_report_contract_missing"
+	EnterpriseAuditExportDeliveryReportReadinessReady            EnterpriseAuditExportDeliveryReportReadinessStatus = "audit_export_delivery_report_ready"
+
+	EnterpriseAuditExportDeliveryReportCompletedTaskNoAuditLogs                EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportDeliveryReportCompletedTaskDeliveryReportNotReady     EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus = "delivery_report_not_ready"
+	EnterpriseAuditExportDeliveryReportCompletedTaskReadbackNotReady           EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus = "task_readback_not_ready"
+	EnterpriseAuditExportDeliveryReportCompletedTaskNoCompletedTasks           EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus = "no_completed_tasks"
+	EnterpriseAuditExportDeliveryReportCompletedTaskNoWorkerCompletionEvidence EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus = "no_worker_execution_completed_tasks"
+	EnterpriseAuditExportDeliveryReportCompletedTaskContractMissing            EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus = "delivery_report_completed_task_contract_missing"
+	EnterpriseAuditExportDeliveryReportCompletedTaskReadinessReady             EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus = "audit_export_delivery_report_completed_task_ready"
+
+	EnterpriseAuditExportDeliveryReportGenerateRequestNoAuditLogs            EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportDeliveryReportGenerateRequestDeliveryReportNotReady EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus = "delivery_report_not_ready"
+	EnterpriseAuditExportDeliveryReportGenerateRequestCompletedTaskNotReady  EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus = "delivery_report_completed_task_not_ready"
+	EnterpriseAuditExportDeliveryReportGenerateRequestContractMissing        EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus = "delivery_report_generate_request_contract_missing"
+	EnterpriseAuditExportDeliveryReportGenerateRequestReadinessReady         EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus = "audit_export_delivery_report_generate_request_ready"
+
+	EnterpriseAuditExportDeliveryReportStorageNoAuditLogs             EnterpriseAuditExportDeliveryReportStorageReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportDeliveryReportStorageGenerateRequestNotReady EnterpriseAuditExportDeliveryReportStorageReadinessStatus = "generate_request_not_ready"
+	EnterpriseAuditExportDeliveryReportStorageContractMissing         EnterpriseAuditExportDeliveryReportStorageReadinessStatus = "delivery_report_storage_contract_missing"
+	EnterpriseAuditExportDeliveryReportStorageReadinessReady          EnterpriseAuditExportDeliveryReportStorageReadinessStatus = "audit_export_delivery_report_storage_ready"
+
+	EnterpriseAuditExportDeliveryReportStoredNoAuditLogs             EnterpriseAuditExportDeliveryReportStoredReadinessStatus = "no_audit_logs"
+	EnterpriseAuditExportDeliveryReportStoredStorageNotReady         EnterpriseAuditExportDeliveryReportStoredReadinessStatus = "delivery_report_storage_not_ready"
+	EnterpriseAuditExportDeliveryReportStoredNoReports               EnterpriseAuditExportDeliveryReportStoredReadinessStatus = "no_stored_reports"
+	EnterpriseAuditExportDeliveryReportStoredContractMissing         EnterpriseAuditExportDeliveryReportStoredReadinessStatus = "delivery_report_stored_contract_missing"
+	EnterpriseAuditExportDeliveryReportStoredMetadataEvidenceMissing EnterpriseAuditExportDeliveryReportStoredReadinessStatus = "delivery_report_metadata_evidence_missing"
+	EnterpriseAuditExportDeliveryReportStoredAuditEvidenceMissing    EnterpriseAuditExportDeliveryReportStoredReadinessStatus = "delivery_report_admin_audit_evidence_missing"
+	EnterpriseAuditExportDeliveryReportStoredReadinessReady          EnterpriseAuditExportDeliveryReportStoredReadinessStatus = "audit_export_delivery_report_stored_ready"
+
+	EnterpriseAuditRetentionNoAuditLogs       EnterpriseAuditRetentionReadinessStatus = "no_audit_logs"
+	EnterpriseAuditRetentionActivationMissing EnterpriseAuditRetentionReadinessStatus = "activation_audit_missing"
+	EnterpriseAuditRetentionPolicyMissing     EnterpriseAuditRetentionReadinessStatus = "retention_policy_missing"
+	EnterpriseAuditRetentionPolicyInvalid     EnterpriseAuditRetentionReadinessStatus = "retention_policy_invalid"
+	EnterpriseAuditRetentionReady             EnterpriseAuditRetentionReadinessStatus = "audit_retention_ready"
+
+	EnterprisePrivateDeploymentSystemConfigUnavailable  EnterprisePrivateDeploymentReadinessStatus = "system_config_unavailable"
+	EnterprisePrivateDeploymentBootstrapConfigMissing   EnterprisePrivateDeploymentReadinessStatus = "bootstrap_config_missing"
+	EnterprisePrivateDeploymentRuntimeConfigMissing     EnterprisePrivateDeploymentReadinessStatus = "runtime_config_missing"
+	EnterprisePrivateDeploymentMigrationSchemaMissing   EnterprisePrivateDeploymentReadinessStatus = "migration_schema_missing"
+	EnterprisePrivateDeploymentContainerBoundaryMissing EnterprisePrivateDeploymentReadinessStatus = "container_boundary_missing"
+	EnterprisePrivateDeploymentReady                    EnterprisePrivateDeploymentReadinessStatus = "private_deployment_ready"
+
+	EnterpriseCommercialReadinessProjectOwnershipNotReady  EnterpriseCommercialReadinessStatus = "project_ownership_not_ready"
+	EnterpriseCommercialReadinessAuditComplianceNotReady   EnterpriseCommercialReadinessStatus = "audit_compliance_not_ready"
+	EnterpriseCommercialReadinessPrivateDeploymentNotReady EnterpriseCommercialReadinessStatus = "private_deployment_not_ready"
+	EnterpriseCommercialReadinessContractMissing           EnterpriseCommercialReadinessStatus = "commercial_contract_missing"
+	EnterpriseCommercialReadinessReady                     EnterpriseCommercialReadinessStatus = "commercial_readiness_ready"
+)
+
+var enterpriseOrganizationSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,98}[a-z0-9]$`)
+
+const enterpriseProjectOwnershipPreflightCandidateLimit = 50
+
+var enterprisePrivateDeploymentRequiredRuntimeConfigKeys = []string{
+	"system.max_upload_size",
+	"project.max_size",
+	"project.backup_remote_enabled",
+	"project.resource_alert_enabled",
+	"capability.runner_timeout_seconds",
+	"capability.network_enabled",
+	"container.runtime",
+	"container.preview_port",
+	"enterprise.sso.enabled",
+	"enterprise.audit.retention_days",
+	"enterprise.project_access_guard.mode",
+}
+
+const enterpriseSsoEnabledConfigKey = "enterprise.sso.enabled"
+const enterpriseSsoProviderTypeConfigKey = "enterprise.sso.provider_type"
+const enterpriseSsoIssuerURLConfigKey = "enterprise.sso.issuer_url"
+const enterpriseSsoClientIDConfigKey = "enterprise.sso.client_id"
+const enterpriseSsoRedirectURIConfigKey = "enterprise.sso.redirect_uri"
+const enterpriseSsoDiscoveryRequestTimeoutSeconds = 10
+const enterpriseProjectOwnershipMappingLimit = 100
+const enterpriseProjectOwnershipOwnerGuardReadinessProjectPageSize = 100
+const enterpriseProjectOwnershipOwnerGuardReadinessPreviewLimit = 50
+const enterpriseProjectAccessGuardActivationAuditRequiredEventTypeCount = 6
+const enterpriseProjectAccessGuardActivationAuditCoverageScanLimit = 500
+const enterpriseProjectAccessGuardActivationAuditRecentEventLimit = 50
+const enterpriseProjectAccessGuardActivationAuditPayloadIssueLimit = 50
+const enterpriseProjectAccessGuardActivationAuditMetadataIssueLimit = 50
+const enterpriseAuditCoverageRequiredSourceCount = 2
+const enterpriseAuditExportRequiredSourceCount = 3
+const enterpriseAuditExportSampleLimit = 10
+const enterpriseAuditExportMaxWindow = 1000
+const enterpriseAuditExportQuerySampleLimit = 25
+const enterpriseAuditExportQueryMaxWindow = 1000
+const enterpriseAuditExportQueryRequiredFilterFieldCount = 5
+const enterpriseAuditExportQueryRequiredSourceCount = 4
+const enterpriseAuditExportTaskPreflightRequiredSourceCount = 5
+const enterpriseAuditExportFileFormatRequiredSourceCount = 6
+const enterpriseAuditExportFileFormatRequiredFormatCount = 2
+const enterpriseAuditExportFileFormatSchemaVersion = "enterprise_audit_export_v1"
+const enterpriseAuditExportFileGeneratorRequiredSourceCount = 7
+const enterpriseAuditExportFileGeneratorOutputPathPrefix = "enterprise-audit-exports"
+const enterpriseAuditExportFileGeneratorFileNameTemplate = "enterprise_audit_export_{task_id}_{created_at}.{format}"
+const enterpriseAuditExportFileGeneratorChecksumAlgorithm = "sha256"
+const enterpriseAuditExportFileGeneratorMaxRowsPerFile = 100000
+const enterpriseAuditExportTaskCreateRequestRequiredSourceCount = 8
+const enterpriseAuditExportTaskCreateRequestRequiredFieldCount = 7
+const enterpriseAuditExportTaskCreateRequestSchemaVersion = "enterprise_audit_export_task_create_request_v1"
+const enterpriseAuditExportTaskCreateRequestMaxReasonLength = 1000
+const enterpriseAuditExportTaskPersistenceRequiredSourceCount = 10
+const enterpriseAuditExportTaskPersistenceRequiredFieldCount = 16
+const enterpriseAuditExportTaskPersistenceTableName = "enterprise_audit_export_tasks"
+const enterpriseAuditExportTaskPersistenceSchemaVersion = "enterprise_audit_export_task_persistence_v1"
+const enterpriseAuditExportTaskCreateSource = "admin_enterprise_audit_export_task_create"
+const enterpriseAuditExportTaskStatusTransitionSource = "admin_enterprise_audit_export_task_status_transition"
+const enterpriseAuditExportTaskReadbackLimit = 50
+const enterpriseAuditExportWorkerRequiredSourceCount = 12
+const enterpriseAuditExportWorkerMode = "manual_controlled_worker"
+const enterpriseAuditExportWorkerBatchSize = 10
+const enterpriseAuditExportWorkerLeaseSeconds = 300
+const enterpriseAuditExportWorkerExecutionRequestRequiredSourceCount = 9
+const enterpriseAuditExportWorkerExecutionRequestRequiredFieldCount = 4
+const enterpriseAuditExportWorkerExecutionRequestSchemaVersion = "enterprise_audit_export_worker_execution_request_v1"
+const enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredSourceCount = 12
+const enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredFieldCount = 19
+const enterpriseAuditExportWorkerExecutionRequestPersistenceTableName = "enterprise_audit_export_worker_execution_requests"
+const enterpriseAuditExportWorkerExecutionRequestPersistenceSchemaVersion = "enterprise_audit_export_worker_execution_request_persistence_v1"
+const enterpriseAuditExportWorkerExecutionRequestPersistSource = "admin_enterprise_audit_export_worker_execution_request_persist"
+const enterpriseAuditExportWorkerExecutionDryRunRequiredSourceCount = 13
+const enterpriseAuditExportWorkerExecutionDryRunSource = "admin_enterprise_audit_export_worker_execution_dry_run"
+const enterpriseAuditExportWorkerExecutionDryRunSchemaVersion = "enterprise_audit_export_worker_execution_dry_run_v1"
+const enterpriseAuditExportWorkerExecutionArtifactRequiredSourceCount = enterpriseAuditExportWorkerExecutionDryRunRequiredSourceCount + 6
+const enterpriseAuditExportWorkerExecutionArtifactSchemaVersion = "enterprise_audit_export_worker_execution_artifact_v1"
+const enterpriseAuditExportWorkerExecutionArtifactSource = "admin_enterprise_audit_export_worker_execution_artifact"
+const enterpriseAuditExportWorkerExecutionOutputStorageRequiredSourceCount = enterpriseAuditExportWorkerExecutionArtifactRequiredSourceCount + 5
+const enterpriseAuditExportWorkerExecutionOutputStorageSchemaVersion = "enterprise_audit_export_worker_execution_output_storage_v1"
+const enterpriseAuditExportWorkerExecutionOutputStoragePathPrefix = "enterprise-audit-export-worker-output"
+const enterpriseAuditExportWorkerExecutionOutputStorageSource = "admin_enterprise_audit_export_worker_execution_output_storage"
+const enterpriseAuditExportWorkerExecutionTaskCompletionRequiredSourceCount = enterpriseAuditExportWorkerExecutionOutputStorageRequiredSourceCount + 6
+const enterpriseAuditExportWorkerExecutionTaskCompletionTargetStatus = "completed"
+const enterpriseAuditExportWorkerExecutionTaskCompletionRequiredRequestStatus = "output_stored"
+const enterpriseAuditExportWorkerExecutionTaskCompletionSource = "admin_enterprise_audit_export_worker_execution_task_completion"
+const enterpriseAuditExportTaskStatusTransitionRequiredSourceCount = 10
+const enterpriseAuditExportTaskStatusTransitionRequiredStatusCount = 5
+const enterpriseAuditExportTaskStatusTransitionRequiredTransitionCount = 4
+const enterpriseAuditExportArchiveExpirationRequiredSourceCount = 9
+const enterpriseAuditExportArchiveExpirationScanMode = "manual_readonly_preflight"
+const enterpriseAuditExportArchiveExpirationCandidateLimit = enterpriseAuditExportTaskReadbackLimit
+const enterpriseAuditExportDeliveryReportRequiredSourceCount = 11
+const enterpriseAuditExportDeliveryReportRequiredSectionCount = 6
+const enterpriseAuditExportDeliveryReportFormat = "markdown"
+const enterpriseAuditExportDeliveryReportCompletedTaskRequiredSourceCount = enterpriseAuditExportDeliveryReportRequiredSourceCount + 6
+const enterpriseAuditExportDeliveryReportCompletedTaskRequiredStatus = "completed"
+const enterpriseAuditExportDeliveryReportCompletedTaskSource = "admin_enterprise_audit_export_delivery_report_completed_task"
+const enterpriseAuditExportDeliveryReportGenerateRequestRequiredSourceCount = enterpriseAuditExportDeliveryReportCompletedTaskRequiredSourceCount + 3
+const enterpriseAuditExportDeliveryReportGenerateRequestRequiredFieldCount = 5
+const enterpriseAuditExportDeliveryReportGenerateRequestSchemaVersion = "enterprise_audit_export_delivery_report_generate_request_v1"
+const enterpriseAuditExportDeliveryReportGenerateRequestMaxReasonLength = 1000
+const enterpriseAuditExportDeliveryReportStorageRequiredSourceCount = enterpriseAuditExportDeliveryReportGenerateRequestRequiredSourceCount + 5
+const enterpriseAuditExportDeliveryReportStorageRequiredFieldCount = 6
+const enterpriseAuditExportDeliveryReportStorageSchemaVersion = "enterprise_audit_export_delivery_report_storage_v1"
+const enterpriseAuditExportDeliveryReportStoragePathPrefix = "enterprise-audit-export-delivery-reports/"
+const enterpriseAuditExportDeliveryReportStorageChecksumAlgorithm = "sha256"
+const enterpriseAuditExportDeliveryReportStorageSource = "admin_enterprise_audit_export_delivery_report_storage_write"
+const enterpriseAuditExportDeliveryReportStorageAuditAction = "store_enterprise_audit_export_delivery_report"
+const enterpriseAuditExportDeliveryReportStorageAuditTargetType = "enterprise_audit_export_delivery_report"
+const enterpriseAuditExportDeliveryReportStoredRequiredSourceCount = enterpriseAuditExportDeliveryReportStorageRequiredSourceCount + 7
+const enterpriseAuditExportDeliveryReportStoredReportReadLimit = 25
+const enterpriseAuditExportDeliveryReportStoredAuditReadLimit = 200
+const enterpriseAuditRetentionPolicyKey = "enterprise.audit.retention_days"
+const enterpriseAuditRetentionMinimumDays = 30
+const enterpriseAuditRetentionMaximumDays = 3650
+const enterpriseAuditRetentionRequiredSourceCount = 3
+
+var enterpriseAuditExportTaskIdempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
+
+var enterpriseAuditExportTaskStatusTransitionAllowedStatuses = []string{
+	"queued",
+	"processing",
+	"completed",
+	"failed",
+	"cancelled",
+}
+
+var enterpriseAuditExportTaskStatusTransitionAllowedTransitions = []string{
+	"queued->processing",
+	"queued->cancelled",
+	"processing->completed",
+	"processing->failed",
+}
+
+var enterpriseAuditExportWorkerExecutionRequestRequiredFields = []string{
+	"confirm_worker_execution",
+	"reason",
+	"idempotency_key",
+	"batch_limit",
+}
+
+var enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredFields = []string{
+	"idempotency_key",
+	"task_id",
+	"requested_by_admin_id",
+	"status",
+	"reason",
+	"batch_limit",
+	"request_schema_version",
+	"worker_readiness_status",
+	"status_transition_readiness_status",
+	"task_readback_status",
+	"queued_task_count",
+	"request_payload_snapshot",
+	"readiness_snapshot",
+	"execution_result",
+	"output_path",
+	"checksum_sha256",
+	"row_count",
+	"error_message",
+	"source",
+}
+
+var enterpriseAuditExportDeliveryReportRequiredSections = []string{
+	"audit_source_summary",
+	"task_queue_summary",
+	"worker_contract_summary",
+	"status_transition_summary",
+	"archive_expiration_summary",
+	"non_goal_boundary_summary",
+}
+
+var enterpriseAuditExportDeliveryReportGenerateRequestRequiredFields = []string{
+	"confirm_generate_report",
+	"report_format",
+	"required_report_sections",
+	"reason",
+	"idempotency_key",
+}
+
+var enterpriseAuditExportDeliveryReportStorageRequiredFields = []string{
+	"report_content",
+	"report_format",
+	"idempotency_key",
+	"generated_at",
+	"checksum_sha256",
+	"metadata_json",
+}
+
+var enterpriseProjectAccessGuardActivationAuditRequiredEventTypes = []EnterpriseProjectAccessGuardActivationAuditEventType{
+	EnterpriseProjectAccessGuardActivationAuditEventReadinessSnapshot,
+	EnterpriseProjectAccessGuardActivationAuditEventBlockerSnapshot,
+	EnterpriseProjectAccessGuardActivationAuditEventManualApproval,
+	EnterpriseProjectAccessGuardActivationAuditEventActivationExecution,
+	EnterpriseProjectAccessGuardActivationAuditEventPostActivationValidation,
+	EnterpriseProjectAccessGuardActivationAuditEventRollbackEvidence,
+}
+
+type EnterpriseOrganizationCreateInput struct {
+	Slug        string
+	DisplayName string
+	Status      string
+}
+
+type EnterpriseTeamCreateInput struct {
+	OrganizationID string
+	Slug           string
+	DisplayName    string
+	Status         string
+}
+
+type EnterpriseMemberBindInput struct {
+	OrganizationID string
+	TeamID         string
+	UserID         string
+	Status         string
+}
+
+type EnterpriseProjectOwnershipMigrateInput struct {
+	ProjectRecordID string
+	OrganizationID  string
+	TeamID          string
+	ConfirmMigrate  bool
+}
+
+type EnterpriseProjectAccessGuardActivationManualApprovalInput struct {
+	ConfirmManualApproval bool
+	ApprovalNote          string
+}
+
+type EnterpriseProjectAccessGuardActivationExecutionInput struct {
+	ConfirmActivationExecution bool
+	ExecutionNote              string
+}
+
+type EnterpriseProjectAccessGuardPostActivationValidationInput struct {
+	ConfirmPostActivationValidation bool
+	ValidationNote                  string
+}
+
+type EnterpriseProjectAccessGuardRollbackEvidenceInput struct {
+	ConfirmRollbackEvidence bool
+	RollbackNote            string
+	RollbackReference       string
+}
+
+type EnterpriseProjectAccessGuardAuthorizationActivationInput struct {
+	ConfirmEnterpriseAuthorizationActivation bool
+	ActivationNote                           string
+}
+
+type EnterpriseAuditExportTaskCreateInput struct {
+	Format            string
+	Reason            string
+	Filters           map[string]interface{}
+	TimeRangeStart    string
+	TimeRangeEnd      string
+	IdempotencyKey    string
+	ConfirmCreateTask bool
+}
+
+type EnterpriseAuditExportTaskStatusTransitionInput struct {
+	TaskID                  string
+	TargetStatus            string
+	Reason                  string
+	ConfirmStatusTransition bool
+}
+
+type EnterpriseAuditExportWorkerExecutionRequestPersistInput struct {
+	TaskID                 string
+	Reason                 string
+	IdempotencyKey         string
+	BatchLimit             int
+	ConfirmWorkerExecution bool
+}
+
+type EnterpriseAuditExportWorkerExecutionDryRunInput struct {
+	RequestID                    string
+	Reason                       string
+	ConfirmWorkerExecutionDryRun bool
+}
+
+type EnterpriseAuditExportWorkerExecutionArtifactGenerateInput struct {
+	RequestID                      string
+	Reason                         string
+	ConfirmWorkerExecutionArtifact bool
+}
+
+type EnterpriseAuditExportWorkerExecutionTaskCompletionInput struct {
+	RequestID                            string
+	Reason                               string
+	ConfirmWorkerExecutionTaskCompletion bool
+}
+
+type EnterpriseAuditExportDeliveryReportGenerateInput struct {
+	Reason                string
+	IdempotencyKey        string
+	ConfirmGenerateReport bool
+}
+
+type EnterpriseAuditExportDeliveryReportStoreInput struct {
+	Reason             string
+	IdempotencyKey     string
+	ReportFormat       string
+	ReportContent      string
+	GeneratedAt        string
+	ConfirmStoreReport bool
+}
+
+type EnterpriseOrganizationCreateValidationError struct {
+	Message string
+}
+
+func (e EnterpriseOrganizationCreateValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseOrganizationCreateValidationError(message string) error {
+	return EnterpriseOrganizationCreateValidationError{Message: message}
+}
+
+type EnterpriseTeamCreateValidationError struct {
+	Message string
+}
+
+func (e EnterpriseTeamCreateValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseTeamCreateValidationError(message string) error {
+	return EnterpriseTeamCreateValidationError{Message: message}
+}
+
+type EnterpriseMemberBindValidationError struct {
+	Message string
+}
+
+func (e EnterpriseMemberBindValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseMemberBindValidationError(message string) error {
+	return EnterpriseMemberBindValidationError{Message: message}
+}
+
+type EnterpriseProjectOwnershipMigrateValidationError struct {
+	Message string
+}
+
+func (e EnterpriseProjectOwnershipMigrateValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseProjectOwnershipMigrateValidationError(message string) error {
+	return EnterpriseProjectOwnershipMigrateValidationError{Message: message}
+}
+
+type EnterpriseProjectAccessGuardActivationManualApprovalValidationError struct {
+	Message string
+}
+
+func (e EnterpriseProjectAccessGuardActivationManualApprovalValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseProjectAccessGuardActivationManualApprovalValidationError(message string) error {
+	return EnterpriseProjectAccessGuardActivationManualApprovalValidationError{Message: message}
+}
+
+type EnterpriseProjectAccessGuardActivationExecutionValidationError struct {
+	Message string
+}
+
+func (e EnterpriseProjectAccessGuardActivationExecutionValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseProjectAccessGuardActivationExecutionValidationError(message string) error {
+	return EnterpriseProjectAccessGuardActivationExecutionValidationError{Message: message}
+}
+
+type EnterpriseProjectAccessGuardPostActivationValidationValidationError struct {
+	Message string
+}
+
+func (e EnterpriseProjectAccessGuardPostActivationValidationValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseProjectAccessGuardPostActivationValidationValidationError(message string) error {
+	return EnterpriseProjectAccessGuardPostActivationValidationValidationError{Message: message}
+}
+
+type EnterpriseProjectAccessGuardRollbackEvidenceValidationError struct {
+	Message string
+}
+
+func (e EnterpriseProjectAccessGuardRollbackEvidenceValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseProjectAccessGuardRollbackEvidenceValidationError(message string) error {
+	return EnterpriseProjectAccessGuardRollbackEvidenceValidationError{Message: message}
+}
+
+type EnterpriseProjectAccessGuardAuthorizationActivationValidationError struct {
+	Message string
+}
+
+func (e EnterpriseProjectAccessGuardAuthorizationActivationValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseProjectAccessGuardAuthorizationActivationValidationError(message string) error {
+	return EnterpriseProjectAccessGuardAuthorizationActivationValidationError{Message: message}
+}
+
+type EnterpriseAuditExportTaskCreateValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportTaskCreateValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportTaskCreateValidationError(message string) error {
+	return EnterpriseAuditExportTaskCreateValidationError{Message: message}
+}
+
+type EnterpriseAuditExportTaskStatusTransitionValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportTaskStatusTransitionValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportTaskStatusTransitionValidationError(message string) error {
+	return EnterpriseAuditExportTaskStatusTransitionValidationError{Message: message}
+}
+
+type EnterpriseAuditExportWorkerExecutionRequestPersistValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportWorkerExecutionRequestPersistValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError(message string) error {
+	return EnterpriseAuditExportWorkerExecutionRequestPersistValidationError{Message: message}
+}
+
+type EnterpriseAuditExportWorkerExecutionDryRunValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportWorkerExecutionDryRunValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportWorkerExecutionDryRunValidationError(message string) error {
+	return EnterpriseAuditExportWorkerExecutionDryRunValidationError{Message: message}
+}
+
+type EnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError(message string) error {
+	return EnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError{Message: message}
+}
+
+type EnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError(message string) error {
+	return EnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError{Message: message}
+}
+
+type EnterpriseAuditExportWorkerExecutionTaskCompletionValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportWorkerExecutionTaskCompletionValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError(message string) error {
+	return EnterpriseAuditExportWorkerExecutionTaskCompletionValidationError{Message: message}
+}
+
+type EnterpriseAuditExportDeliveryReportGenerateValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportDeliveryReportGenerateValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportDeliveryReportGenerateValidationError(message string) error {
+	return EnterpriseAuditExportDeliveryReportGenerateValidationError{Message: message}
+}
+
+type EnterpriseAuditExportDeliveryReportStoreValidationError struct {
+	Message string
+}
+
+func (e EnterpriseAuditExportDeliveryReportStoreValidationError) Error() string {
+	return e.Message
+}
+
+func newEnterpriseAuditExportDeliveryReportStoreValidationError(message string) error {
+	return EnterpriseAuditExportDeliveryReportStoreValidationError{Message: message}
+}
+
+// EnterpriseOrganizationReadiness 是企业组织治理的只读 readiness 真源。
+// 它只表达 schema 与观测计数，不代表租户隔离、组织级 RBAC 或项目归属已接线。
+type EnterpriseOrganizationReadiness struct {
+	OrganizationCount int64                                 `json:"organization_count"`
+	TeamCount         int64                                 `json:"team_count"`
+	MemberCount       int64                                 `json:"member_count"`
+	ReadinessStatus   EnterpriseOrganizationReadinessStatus `json:"readiness_status"`
+	Message           string                                `json:"message"`
+	Recovery          string                                `json:"recovery"`
+}
+
+// EnterprisePrivateDeploymentReadiness 聚合私有部署只读 readiness。
+// 它只读取启动配置、system_config、企业治理表 schema 与容器/Preview 边界，不写环境变量、数据库、容器或 audit。
+type EnterprisePrivateDeploymentReadiness struct {
+	ReadinessStatus                    EnterprisePrivateDeploymentReadinessStatus `json:"readiness_status"`
+	DatabaseType                       string                                     `json:"database_type"`
+	DatabaseConfigured                 bool                                       `json:"database_configured"`
+	SupabaseConfigured                 bool                                       `json:"supabase_configured"`
+	JWTConfigured                      bool                                       `json:"jwt_configured"`
+	SystemConfigAvailable              bool                                       `json:"system_config_available"`
+	RuntimeConfigKeyCount              int                                        `json:"runtime_config_key_count"`
+	RequiredRuntimeConfigKeyCount      int                                        `json:"required_runtime_config_key_count"`
+	RuntimeConfigCovered               bool                                       `json:"runtime_config_covered"`
+	MigrationSchemaAvailable           bool                                       `json:"migration_schema_available"`
+	MigrationSchemaCheckCount          int                                        `json:"migration_schema_check_count"`
+	MigrationSchemaAvailableCheckCount int                                        `json:"migration_schema_available_check_count"`
+	ContainerEnabled                   bool                                       `json:"container_enabled"`
+	ContainerRuntime                   string                                     `json:"container_runtime"`
+	ContainerSocketConfigured          bool                                       `json:"container_socket_configured"`
+	ProjectDirectoryConfigured         bool                                       `json:"project_directory_configured"`
+	PreviewGatewayConfigured           bool                                       `json:"preview_gateway_configured"`
+	EnvironmentVariableWriteEnabled    bool                                       `json:"environment_variable_write_enabled"`
+	DatabaseMigrationWriteEnabled      bool                                       `json:"database_migration_write_enabled"`
+	ContainerMutationEnabled           bool                                       `json:"container_mutation_enabled"`
+	ExternalNetworkProbeEnabled        bool                                       `json:"external_network_probe_enabled"`
+	Message                            string                                     `json:"message"`
+	Recovery                           string                                     `json:"recovery"`
+}
+
+// EnterpriseCommercialReadiness 聚合商业化发布前只读 readiness。
+// 它只判断企业治理、审计合规和私有部署证据是否足以进入商业化设计，不接入计费、订阅、合同或收款写入。
+type EnterpriseCommercialReadiness struct {
+	ReadinessStatus               EnterpriseCommercialReadinessStatus                      `json:"readiness_status"`
+	ProjectOwnershipStatus        ProjectAccessGuardEnterpriseActivationReadinessStatus    `json:"project_ownership_status"`
+	EnterpriseAuthorizationActive bool                                                     `json:"enterprise_authorization_active"`
+	AuditComplianceStatus         EnterpriseAuditExportDeliveryReportStoredReadinessStatus `json:"audit_compliance_status"`
+	PrivateDeploymentStatus       EnterprisePrivateDeploymentReadinessStatus               `json:"private_deployment_status"`
+	ProjectOwnershipReady         bool                                                     `json:"project_ownership_ready"`
+	AuditComplianceReady          bool                                                     `json:"audit_compliance_ready"`
+	PrivateDeploymentReady        bool                                                     `json:"private_deployment_ready"`
+	BillingProviderConfigured     bool                                                     `json:"billing_provider_configured"`
+	SubscriptionWriteEnabled      bool                                                     `json:"subscription_write_enabled"`
+	ContractWriteEnabled          bool                                                     `json:"contract_write_enabled"`
+	PaymentCollectionEnabled      bool                                                     `json:"payment_collection_enabled"`
+	CommercialLaunchReady         bool                                                     `json:"commercial_launch_ready"`
+	Message                       string                                                   `json:"message"`
+	Recovery                      string                                                   `json:"recovery"`
+}
+
+// EnterpriseSsoDiscoveryReadiness 是企业 SSO OIDC discovery 的只读预检结果。
+// 它只校验 issuer discovery contract，不创建 SSO provider、不写 session、不启用登录回调。
+type EnterpriseSsoDiscoveryReadiness struct {
+	Status                      EnterpriseSsoDiscoveryReadinessStatus `json:"status"`
+	SsoEnabled                  bool                                  `json:"sso_enabled"`
+	ProviderType                string                                `json:"provider_type"`
+	IssuerURL                   string                                `json:"issuer_url"`
+	ClientIDConfigured          bool                                  `json:"client_id_configured"`
+	RedirectURIConfigured       bool                                  `json:"redirect_uri_configured"`
+	DiscoveryURL                string                                `json:"discovery_url"`
+	DiscoveredIssuer            string                                `json:"discovered_issuer"`
+	AuthorizationEndpoint       string                                `json:"authorization_endpoint"`
+	TokenEndpoint               string                                `json:"token_endpoint"`
+	JWKSURI                     string                                `json:"jwks_uri"`
+	ResponseTypesSupportedCount int                                   `json:"response_types_supported_count"`
+	ScopesSupportedCount        int                                   `json:"scopes_supported_count"`
+	DiscoveryHTTPStatusCode     int                                   `json:"discovery_http_status_code"`
+	LoginCallbackEnabled        bool                                  `json:"login_callback_enabled"`
+	SessionNormalizationEnabled bool                                  `json:"session_normalization_enabled"`
+	AdminAuditWriteEnabled      bool                                  `json:"admin_audit_write_enabled"`
+	DiscoveryRequestPerformed   bool                                  `json:"discovery_request_performed"`
+	Message                     string                                `json:"message"`
+	Recovery                    string                                `json:"recovery"`
+}
+
+// EnterpriseProjectOwnershipReadiness 是项目归属迁移的只读 readiness 真源。
+// 当前 projects 表仍以 user_id 为唯一归属事实；该响应不得被解释为租户隔离已接线。
+type EnterpriseProjectOwnershipReadiness struct {
+	ProjectCount                int64                                     `json:"project_count"`
+	LegacyUserOwnedProjectCount int64                                     `json:"legacy_user_owned_project_count"`
+	OrganizationProjectCount    int64                                     `json:"organization_project_count"`
+	UnmigratedProjectCount      int64                                     `json:"unmigrated_project_count"`
+	OrganizationCount           int64                                     `json:"organization_count"`
+	TeamCount                   int64                                     `json:"team_count"`
+	MemberCount                 int64                                     `json:"member_count"`
+	ReadinessStatus             EnterpriseProjectOwnershipReadinessStatus `json:"readiness_status"`
+	Message                     string                                    `json:"message"`
+	Recovery                    string                                    `json:"recovery"`
+}
+
+type enterpriseSsoDiscoveryDocument struct {
+	Issuer                 string   `json:"issuer"`
+	AuthorizationEndpoint  string   `json:"authorization_endpoint"`
+	TokenEndpoint          string   `json:"token_endpoint"`
+	JWKSURI                string   `json:"jwks_uri"`
+	ResponseTypesSupported []string `json:"response_types_supported"`
+	ScopesSupported        []string `json:"scopes_supported"`
+}
+
+// EnterpriseProjectAccessGuardActivationAuditReadiness 是企业映射授权真实切换审计表的只读 schema readiness。
+// 它只证明 append-only 审计落点已存在并可计数，不执行 activation，也不写审计事件。
+type EnterpriseProjectAccessGuardActivationAuditReadiness struct {
+	AuditEventCount               int64                                                               `json:"audit_event_count"`
+	RequiredEventTypeCount        int                                                                 `json:"required_event_type_count"`
+	MissingRequiredEventTypeCount int                                                                 `json:"missing_required_event_type_count"`
+	RecentEventLimit              int                                                                 `json:"recent_event_limit"`
+	PayloadIntegrityStatus        EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus   `json:"payload_integrity_status"`
+	PayloadIntegrityIssueCount    int                                                                 `json:"payload_integrity_issue_count"`
+	PayloadIntegrityIssueLimit    int                                                                 `json:"payload_integrity_issue_limit"`
+	PayloadIntegrityIssues        []EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssue  `json:"payload_integrity_issues"`
+	MetadataIntegrityStatus       EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityStatus  `json:"metadata_integrity_status"`
+	MetadataIntegrityIssueCount   int                                                                 `json:"metadata_integrity_issue_count"`
+	MetadataIntegrityIssueLimit   int                                                                 `json:"metadata_integrity_issue_limit"`
+	MetadataIntegrityIssues       []EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue `json:"metadata_integrity_issues"`
+	RequiredEventItems            []EnterpriseProjectAccessGuardActivationAuditRequiredEvent          `json:"required_event_items"`
+	RecentEvents                  []EnterpriseProjectAccessGuardActivationAuditRecentEvent            `json:"recent_events"`
+	ReadinessStatus               EnterpriseProjectAccessGuardActivationAuditReadinessStatus          `json:"readiness_status"`
+	Message                       string                                                              `json:"message"`
+	Recovery                      string                                                              `json:"recovery"`
+}
+
+type EnterpriseProjectAccessGuardActivationAuditRequiredEvent struct {
+	EventType     EnterpriseProjectAccessGuardActivationAuditEventType   `json:"event_type"`
+	RecordedCount int64                                                  `json:"recorded_count"`
+	LatestStatus  EnterpriseProjectAccessGuardActivationAuditEventStatus `json:"latest_status"`
+	Missing       bool                                                   `json:"missing"`
+}
+
+type EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssue struct {
+	EventID   int64                                                         `json:"event_id"`
+	EventType EnterpriseProjectAccessGuardActivationAuditEventType          `json:"event_type"`
+	Source    EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource `json:"source"`
+	Message   string                                                        `json:"message"`
+}
+
+type EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue struct {
+	EventID   int64                                                          `json:"event_id"`
+	EventType string                                                         `json:"event_type"`
+	Source    EnterpriseProjectAccessGuardActivationAuditMetadataIssueSource `json:"source"`
+	Message   string                                                         `json:"message"`
+}
+
+type EnterpriseProjectAccessGuardActivationAuditRecentEvent struct {
+	ID                int64                                                  `json:"id"`
+	EventType         EnterpriseProjectAccessGuardActivationAuditEventType   `json:"event_type"`
+	Status            EnterpriseProjectAccessGuardActivationAuditEventStatus `json:"status"`
+	ActorAdminID      string                                                 `json:"actor_admin_id"`
+	ReadinessStatus   ProjectAccessGuardEnterpriseActivationReadinessStatus  `json:"readiness_status"`
+	CurrentMode       ProjectAccessGuardMode                                 `json:"current_mode"`
+	TargetMode        ProjectAccessGuardMode                                 `json:"target_mode"`
+	RollbackReference string                                                 `json:"rollback_reference"`
+	Source            string                                                 `json:"source"`
+	CreatedAt         time.Time                                              `json:"created_at"`
+}
+
+// EnterpriseAuditCoverageReadiness 聚合企业治理审计覆盖只读事实。
+// 它只回读 admin_audit_log 与 activation audit 现有真源，不新增写入口或改变授权。
+type EnterpriseAuditCoverageReadiness struct {
+	AdminAuditLogCount        int64                                  `json:"admin_audit_log_count"`
+	ActivationAuditEventCount int64                                  `json:"activation_audit_event_count"`
+	CoveredSourceCount        int                                    `json:"covered_source_count"`
+	RequiredSourceCount       int                                    `json:"required_source_count"`
+	ReadinessStatus           EnterpriseAuditCoverageReadinessStatus `json:"readiness_status"`
+	Message                   string                                 `json:"message"`
+	Recovery                  string                                 `json:"recovery"`
+}
+
+// EnterpriseAuditExportReadiness 聚合企业审计导出前置只读事实。
+// 它只回读既有审计日志与 activation audit 事件，不生成导出文件或写入审计记录。
+type EnterpriseAuditExportReadiness struct {
+	AdminAuditLogCount        int64                                `json:"admin_audit_log_count"`
+	ActivationAuditEventCount int64                                `json:"activation_audit_event_count"`
+	ExportSampleCount         int                                  `json:"export_sample_count"`
+	ExportSampleLimit         int                                  `json:"export_sample_limit"`
+	MaxExportWindow           int                                  `json:"max_export_window"`
+	CoveredSourceCount        int                                  `json:"covered_source_count"`
+	RequiredSourceCount       int                                  `json:"required_source_count"`
+	ReadinessStatus           EnterpriseAuditExportReadinessStatus `json:"readiness_status"`
+	Message                   string                               `json:"message"`
+	Recovery                  string                               `json:"recovery"`
+}
+
+// EnterpriseAuditExportQueryReadiness 聚合企业审计导出过滤条件只读事实。
+// 它只读取最近审计日志样本并声明受控导出查询字段，不创建导出任务或文件。
+type EnterpriseAuditExportQueryReadiness struct {
+	AdminAuditLogCount          int64                                     `json:"admin_audit_log_count"`
+	ActivationAuditEventCount   int64                                     `json:"activation_audit_event_count"`
+	QuerySampleCount            int                                       `json:"query_sample_count"`
+	QuerySampleLimit            int                                       `json:"query_sample_limit"`
+	MaxQueryWindow              int                                       `json:"max_query_window"`
+	SupportedFilterFields       []string                                  `json:"supported_filter_fields"`
+	SupportedFilterFieldCount   int                                       `json:"supported_filter_field_count"`
+	RequiredFilterFieldCount    int                                       `json:"required_filter_field_count"`
+	SampleActionCount           int                                       `json:"sample_action_count"`
+	SampleTargetTypeCount       int                                       `json:"sample_target_type_count"`
+	SampleActorCount            int                                       `json:"sample_actor_count"`
+	ExportTaskCreationEnabled   bool                                      `json:"export_task_creation_enabled"`
+	ExportFileGenerationEnabled bool                                      `json:"export_file_generation_enabled"`
+	CoveredSourceCount          int                                       `json:"covered_source_count"`
+	RequiredSourceCount         int                                       `json:"required_source_count"`
+	ReadinessStatus             EnterpriseAuditExportQueryReadinessStatus `json:"readiness_status"`
+	Message                     string                                    `json:"message"`
+	Recovery                    string                                    `json:"recovery"`
+}
+
+// EnterpriseAuditExportTaskPreflightReadiness 聚合企业审计导出任务创建前置只读事实。
+// 它只判断任务创建前的 query/retention/audit 覆盖条件，不创建任务或生成文件。
+type EnterpriseAuditExportTaskPreflightReadiness struct {
+	AdminAuditLogCount          int64                                             `json:"admin_audit_log_count"`
+	ActivationAuditEventCount   int64                                             `json:"activation_audit_event_count"`
+	QuerySampleCount            int                                               `json:"query_sample_count"`
+	QuerySampleLimit            int                                               `json:"query_sample_limit"`
+	SupportedFilterFieldCount   int                                               `json:"supported_filter_field_count"`
+	RequiredFilterFieldCount    int                                               `json:"required_filter_field_count"`
+	RetentionPolicyConfigured   bool                                              `json:"retention_policy_configured"`
+	RetentionDays               int                                               `json:"retention_days"`
+	MinimumRetentionDays        int                                               `json:"minimum_retention_days"`
+	MaximumRetentionDays        int                                               `json:"maximum_retention_days"`
+	ExportTaskCreationEnabled   bool                                              `json:"export_task_creation_enabled"`
+	ExportFileGenerationEnabled bool                                              `json:"export_file_generation_enabled"`
+	CoveredSourceCount          int                                               `json:"covered_source_count"`
+	RequiredSourceCount         int                                               `json:"required_source_count"`
+	ReadinessStatus             EnterpriseAuditExportTaskPreflightReadinessStatus `json:"readiness_status"`
+	Message                     string                                            `json:"message"`
+	Recovery                    string                                            `json:"recovery"`
+}
+
+// EnterpriseAuditExportFileFormatReadiness 聚合企业审计导出文件格式只读事实。
+// 它只声明文件格式契约和列契约，不创建任务、不生成文件。
+type EnterpriseAuditExportFileFormatReadiness struct {
+	AdminAuditLogCount          int64                                          `json:"admin_audit_log_count"`
+	ActivationAuditEventCount   int64                                          `json:"activation_audit_event_count"`
+	QuerySampleCount            int                                            `json:"query_sample_count"`
+	QuerySampleLimit            int                                            `json:"query_sample_limit"`
+	SupportedFilterFieldCount   int                                            `json:"supported_filter_field_count"`
+	RequiredFilterFieldCount    int                                            `json:"required_filter_field_count"`
+	RetentionPolicyConfigured   bool                                           `json:"retention_policy_configured"`
+	RetentionDays               int                                            `json:"retention_days"`
+	SupportedFileFormats        []string                                       `json:"supported_file_formats"`
+	SupportedFileFormatCount    int                                            `json:"supported_file_format_count"`
+	RequiredFileFormatCount     int                                            `json:"required_file_format_count"`
+	RequiredColumns             []string                                       `json:"required_columns"`
+	RequiredColumnCount         int                                            `json:"required_column_count"`
+	SchemaVersion               string                                         `json:"schema_version"`
+	ExportTaskCreationEnabled   bool                                           `json:"export_task_creation_enabled"`
+	ExportFileGenerationEnabled bool                                           `json:"export_file_generation_enabled"`
+	CoveredSourceCount          int                                            `json:"covered_source_count"`
+	RequiredSourceCount         int                                            `json:"required_source_count"`
+	ReadinessStatus             EnterpriseAuditExportFileFormatReadinessStatus `json:"readiness_status"`
+	Message                     string                                         `json:"message"`
+	Recovery                    string                                         `json:"recovery"`
+}
+
+// EnterpriseAuditExportFileGeneratorReadiness 聚合企业审计导出文件生成器只读事实。
+// 它只声明生成器输入、命名和校验契约，不写存储、不生成文件。
+type EnterpriseAuditExportFileGeneratorReadiness struct {
+	AdminAuditLogCount          int64                                             `json:"admin_audit_log_count"`
+	ActivationAuditEventCount   int64                                             `json:"activation_audit_event_count"`
+	QuerySampleCount            int                                               `json:"query_sample_count"`
+	QuerySampleLimit            int                                               `json:"query_sample_limit"`
+	RetentionPolicyConfigured   bool                                              `json:"retention_policy_configured"`
+	RetentionDays               int                                               `json:"retention_days"`
+	SupportedFileFormatCount    int                                               `json:"supported_file_format_count"`
+	RequiredFileFormatCount     int                                               `json:"required_file_format_count"`
+	RequiredColumnCount         int                                               `json:"required_column_count"`
+	SchemaVersion               string                                            `json:"schema_version"`
+	OutputPathPrefix            string                                            `json:"output_path_prefix"`
+	FileNameTemplate            string                                            `json:"file_name_template"`
+	ChecksumAlgorithm           string                                            `json:"checksum_algorithm"`
+	MaxRowsPerFile              int                                               `json:"max_rows_per_file"`
+	GeneratorDryRunEnabled      bool                                              `json:"generator_dry_run_enabled"`
+	OutputStorageWriteEnabled   bool                                              `json:"output_storage_write_enabled"`
+	ExportTaskCreationEnabled   bool                                              `json:"export_task_creation_enabled"`
+	ExportFileGenerationEnabled bool                                              `json:"export_file_generation_enabled"`
+	CoveredSourceCount          int                                               `json:"covered_source_count"`
+	RequiredSourceCount         int                                               `json:"required_source_count"`
+	ReadinessStatus             EnterpriseAuditExportFileGeneratorReadinessStatus `json:"readiness_status"`
+	Message                     string                                            `json:"message"`
+	Recovery                    string                                            `json:"recovery"`
+}
+
+// EnterpriseAuditExportTaskCreateRequestReadiness 聚合企业审计导出任务创建请求契约只读事实。
+// 它只声明未来受控任务创建 API 的请求、幂等和确认契约，不创建任务。
+type EnterpriseAuditExportTaskCreateRequestReadiness struct {
+	AdminAuditLogCount          int64                                                 `json:"admin_audit_log_count"`
+	ActivationAuditEventCount   int64                                                 `json:"activation_audit_event_count"`
+	QuerySampleCount            int                                                   `json:"query_sample_count"`
+	QuerySampleLimit            int                                                   `json:"query_sample_limit"`
+	SupportedFilterFieldCount   int                                                   `json:"supported_filter_field_count"`
+	RequiredFilterFieldCount    int                                                   `json:"required_filter_field_count"`
+	RetentionPolicyConfigured   bool                                                  `json:"retention_policy_configured"`
+	RetentionDays               int                                                   `json:"retention_days"`
+	SupportedFileFormatCount    int                                                   `json:"supported_file_format_count"`
+	RequiredFileFormatCount     int                                                   `json:"required_file_format_count"`
+	RequiredColumnCount         int                                                   `json:"required_column_count"`
+	FileFormatSchemaVersion     string                                                `json:"file_format_schema_version"`
+	OutputPathPrefix            string                                                `json:"output_path_prefix"`
+	FileNameTemplate            string                                                `json:"file_name_template"`
+	ChecksumAlgorithm           string                                                `json:"checksum_algorithm"`
+	MaxRowsPerFile              int                                                   `json:"max_rows_per_file"`
+	RequestSchemaVersion        string                                                `json:"request_schema_version"`
+	RequiredRequestFields       []string                                              `json:"required_request_fields"`
+	RequiredRequestFieldCount   int                                                   `json:"required_request_field_count"`
+	IdempotencyKeyRequired      bool                                                  `json:"idempotency_key_required"`
+	RequestConfirmationRequired bool                                                  `json:"request_confirmation_required"`
+	ExportTaskCreationEnabled   bool                                                  `json:"export_task_creation_enabled"`
+	ExportFileGenerationEnabled bool                                                  `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled   bool                                                  `json:"output_storage_write_enabled"`
+	AuditWriteEnabled           bool                                                  `json:"audit_write_enabled"`
+	CoveredSourceCount          int                                                   `json:"covered_source_count"`
+	RequiredSourceCount         int                                                   `json:"required_source_count"`
+	ReadinessStatus             EnterpriseAuditExportTaskCreateRequestReadinessStatus `json:"readiness_status"`
+	Message                     string                                                `json:"message"`
+	Recovery                    string                                                `json:"recovery"`
+}
+
+// EnterpriseAuditExportTaskPersistenceReadiness 聚合企业审计导出任务持久化只读事实。
+// 它只确认任务表、字段契约和前置 readiness，不创建任务、不写 storage 或 audit。
+type EnterpriseAuditExportTaskPersistenceReadiness struct {
+	AdminAuditLogCount                int64                                               `json:"admin_audit_log_count"`
+	ActivationAuditEventCount         int64                                               `json:"activation_audit_event_count"`
+	ExistingTaskCount                 int64                                               `json:"existing_task_count"`
+	TableName                         string                                              `json:"table_name"`
+	PersistenceSchemaVersion          string                                              `json:"persistence_schema_version"`
+	RequestSchemaVersion              string                                              `json:"request_schema_version"`
+	FileFormatSchemaVersion           string                                              `json:"file_format_schema_version"`
+	RequiredPersistenceFields         []string                                            `json:"required_persistence_fields"`
+	RequiredPersistenceFieldCount     int                                                 `json:"required_persistence_field_count"`
+	IdempotencyKeyUnique              bool                                                `json:"idempotency_key_unique"`
+	RequestedByAdminRequired          bool                                                `json:"requested_by_admin_required"`
+	TimeRangeRequired                 bool                                                `json:"time_range_required"`
+	FiltersSnapshotRequired           bool                                                `json:"filters_snapshot_required"`
+	OutputPathPrefix                  string                                              `json:"output_path_prefix"`
+	ChecksumAlgorithm                 string                                              `json:"checksum_algorithm"`
+	ExportTaskCreationEnabled         bool                                                `json:"export_task_creation_enabled"`
+	ExportTaskPersistenceWriteEnabled bool                                                `json:"export_task_persistence_write_enabled"`
+	ExportFileGenerationEnabled       bool                                                `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled         bool                                                `json:"output_storage_write_enabled"`
+	AuditWriteEnabled                 bool                                                `json:"audit_write_enabled"`
+	ProjectWriteEnabled               bool                                                `json:"project_write_enabled"`
+	CoveredSourceCount                int                                                 `json:"covered_source_count"`
+	RequiredSourceCount               int                                                 `json:"required_source_count"`
+	ReadinessStatus                   EnterpriseAuditExportTaskPersistenceReadinessStatus `json:"readiness_status"`
+	Message                           string                                              `json:"message"`
+	Recovery                          string                                              `json:"recovery"`
+}
+
+// EnterpriseAuditExportTaskCreateResult 表示导出任务已受控创建或命中幂等既有任务。
+// 该结果只持久化 queued task 与 admin audit，不生成导出文件、不写 storage、不写 projects。
+type EnterpriseAuditExportTaskCreateResult struct {
+	Status                      string                                              `json:"status"`
+	Task                        model.EnterpriseAuditExportTask                     `json:"task"`
+	PersistenceReadinessStatus  EnterpriseAuditExportTaskPersistenceReadinessStatus `json:"persistence_readiness_status"`
+	ExportFileGenerationStarted bool                                                `json:"export_file_generation_started"`
+	OutputStorageWriteStarted   bool                                                `json:"output_storage_write_started"`
+	ProjectWriteEnabled         bool                                                `json:"project_write_enabled"`
+	Message                     string                                              `json:"message"`
+	Recovery                    string                                              `json:"recovery"`
+}
+
+// EnterpriseAuditExportTaskStatusTransitionResult 表示任务状态已受控转移。
+// 该结果只修改任务状态并写 admin audit，不启动 worker、不生成文件、不写 output storage 或 projects。
+type EnterpriseAuditExportTaskStatusTransitionResult struct {
+	Status                      string                                                   `json:"status"`
+	Task                        model.EnterpriseAuditExportTask                          `json:"task"`
+	PreviousStatus              string                                                   `json:"previous_status"`
+	TargetStatus                string                                                   `json:"target_status"`
+	Transition                  string                                                   `json:"transition"`
+	ReadinessStatus             EnterpriseAuditExportTaskStatusTransitionReadinessStatus `json:"readiness_status"`
+	TaskStatusMutationWritten   bool                                                     `json:"task_status_mutation_written"`
+	TaskStatusAuditWritten      bool                                                     `json:"task_status_audit_written"`
+	WorkerExecutionStarted      bool                                                     `json:"worker_execution_started"`
+	ExportFileGenerationStarted bool                                                     `json:"export_file_generation_started"`
+	OutputStorageWriteStarted   bool                                                     `json:"output_storage_write_started"`
+	ArchiveDeletionStarted      bool                                                     `json:"archive_deletion_started"`
+	ProjectWriteStarted         bool                                                     `json:"project_write_started"`
+	Message                     string                                                   `json:"message"`
+	Recovery                    string                                                   `json:"recovery"`
+}
+
+// EnterpriseAuditExportTaskListResult 表示最近审计导出任务的只读回读结果。
+// 它只读取 queued/completed/failed task 记录，不生成导出文件、不写 storage、不写 projects。
+type EnterpriseAuditExportTaskListResult struct {
+	Status                      string                                              `json:"status"`
+	Tasks                       []model.EnterpriseAuditExportTask                   `json:"tasks"`
+	TaskCount                   int                                                 `json:"task_count"`
+	TotalCount                  int64                                               `json:"total_count"`
+	Limit                       int                                                 `json:"limit"`
+	PersistenceReadinessStatus  EnterpriseAuditExportTaskPersistenceReadinessStatus `json:"persistence_readiness_status"`
+	ExportFileGenerationStarted bool                                                `json:"export_file_generation_started"`
+	OutputStorageWriteStarted   bool                                                `json:"output_storage_write_started"`
+	ProjectWriteEnabled         bool                                                `json:"project_write_enabled"`
+	Message                     string                                              `json:"message"`
+	Recovery                    string                                              `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerReadiness 聚合企业审计导出 worker 只读 readiness。
+// 它只确认 worker 输入队列和执行契约，不启动 worker、不生成文件、不写 storage。
+type EnterpriseAuditExportWorkerReadiness struct {
+	AdminAuditLogCount          int64                                      `json:"admin_audit_log_count"`
+	ActivationAuditEventCount   int64                                      `json:"activation_audit_event_count"`
+	TaskReadbackStatus          string                                     `json:"task_readback_status"`
+	TaskCount                   int                                        `json:"task_count"`
+	QueuedTaskCount             int                                        `json:"queued_task_count"`
+	WorkerMode                  string                                     `json:"worker_mode"`
+	WorkerBatchSize             int                                        `json:"worker_batch_size"`
+	WorkerLeaseSeconds          int                                        `json:"worker_lease_seconds"`
+	OutputPathPrefix            string                                     `json:"output_path_prefix"`
+	ChecksumAlgorithm           string                                     `json:"checksum_algorithm"`
+	WorkerDryRunEnabled         bool                                       `json:"worker_dry_run_enabled"`
+	WorkerExecutionEnabled      bool                                       `json:"worker_execution_enabled"`
+	ExportFileGenerationEnabled bool                                       `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled   bool                                       `json:"output_storage_write_enabled"`
+	AuditWriteEnabled           bool                                       `json:"audit_write_enabled"`
+	ProjectWriteEnabled         bool                                       `json:"project_write_enabled"`
+	CoveredSourceCount          int                                        `json:"covered_source_count"`
+	RequiredSourceCount         int                                        `json:"required_source_count"`
+	ReadinessStatus             EnterpriseAuditExportWorkerReadinessStatus `json:"readiness_status"`
+	Message                     string                                     `json:"message"`
+	Recovery                    string                                     `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionRequestReadiness 声明后续受控 worker 执行请求契约。
+// 它只读确认请求字段、确认要求和执行前置，不启动 worker、不生成文件、不写 storage。
+type EnterpriseAuditExportWorkerExecutionRequestReadiness struct {
+	AdminAuditLogCount              int64                                                      `json:"admin_audit_log_count"`
+	ActivationAuditEventCount       int64                                                      `json:"activation_audit_event_count"`
+	WorkerReadinessStatus           EnterpriseAuditExportWorkerReadinessStatus                 `json:"worker_readiness_status"`
+	StatusTransitionReadinessStatus EnterpriseAuditExportTaskStatusTransitionReadinessStatus   `json:"status_transition_readiness_status"`
+	TaskReadbackStatus              string                                                     `json:"task_readback_status"`
+	QueuedTaskCount                 int                                                        `json:"queued_task_count"`
+	RequestSchemaVersion            string                                                     `json:"request_schema_version"`
+	RequiredRequestFields           []string                                                   `json:"required_request_fields"`
+	RequiredRequestFieldCount       int                                                        `json:"required_request_field_count"`
+	RequestConfirmationRequired     bool                                                       `json:"request_confirmation_required"`
+	IdempotencyKeyRequired          bool                                                       `json:"idempotency_key_required"`
+	MaxReasonLength                 int                                                        `json:"max_reason_length"`
+	BatchLimit                      int                                                        `json:"batch_limit"`
+	WorkerMode                      string                                                     `json:"worker_mode"`
+	WorkerLeaseSeconds              int                                                        `json:"worker_lease_seconds"`
+	OutputPathPrefix                string                                                     `json:"output_path_prefix"`
+	ChecksumAlgorithm               string                                                     `json:"checksum_algorithm"`
+	RequestExecutionEnabled         bool                                                       `json:"request_execution_enabled"`
+	WorkerExecutionEnabled          bool                                                       `json:"worker_execution_enabled"`
+	TaskStatusMutationEnabled       bool                                                       `json:"task_status_mutation_enabled"`
+	ExportFileGenerationEnabled     bool                                                       `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled       bool                                                       `json:"output_storage_write_enabled"`
+	AuditWriteEnabled               bool                                                       `json:"audit_write_enabled"`
+	ProjectWriteEnabled             bool                                                       `json:"project_write_enabled"`
+	CoveredSourceCount              int                                                        `json:"covered_source_count"`
+	RequiredSourceCount             int                                                        `json:"required_source_count"`
+	ReadinessStatus                 EnterpriseAuditExportWorkerExecutionRequestReadinessStatus `json:"readiness_status"`
+	Message                         string                                                     `json:"message"`
+	Recovery                        string                                                     `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness 声明 worker 执行请求持久化落点 readiness。
+// 它只读确认幂等表、引用约束和快照字段，不写执行请求、不启动 worker、不生成文件。
+type EnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness struct {
+	AdminAuditLogCount              int64                                                                 `json:"admin_audit_log_count"`
+	ActivationAuditEventCount       int64                                                                 `json:"activation_audit_event_count"`
+	ExecutionRequestReadinessStatus EnterpriseAuditExportWorkerExecutionRequestReadinessStatus            `json:"execution_request_readiness_status"`
+	ExistingExecutionRequestCount   int64                                                                 `json:"existing_execution_request_count"`
+	TableName                       string                                                                `json:"table_name"`
+	PersistenceSchemaVersion        string                                                                `json:"persistence_schema_version"`
+	RequestSchemaVersion            string                                                                `json:"request_schema_version"`
+	RequiredPersistenceFields       []string                                                              `json:"required_persistence_fields"`
+	RequiredPersistenceFieldCount   int                                                                   `json:"required_persistence_field_count"`
+	IdempotencyKeyUnique            bool                                                                  `json:"idempotency_key_unique"`
+	TaskReferenceRequired           bool                                                                  `json:"task_reference_required"`
+	AdminReferenceRequired          bool                                                                  `json:"admin_reference_required"`
+	RequestPayloadSnapshotRequired  bool                                                                  `json:"request_payload_snapshot_required"`
+	ReadinessSnapshotRequired       bool                                                                  `json:"readiness_snapshot_required"`
+	ExecutionResultSnapshotRequired bool                                                                  `json:"execution_result_snapshot_required"`
+	RequestPersistenceWriteEnabled  bool                                                                  `json:"request_persistence_write_enabled"`
+	WorkerExecutionEnabled          bool                                                                  `json:"worker_execution_enabled"`
+	TaskStatusMutationEnabled       bool                                                                  `json:"task_status_mutation_enabled"`
+	ExportFileGenerationEnabled     bool                                                                  `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled       bool                                                                  `json:"output_storage_write_enabled"`
+	AuditWriteEnabled               bool                                                                  `json:"audit_write_enabled"`
+	ProjectWriteEnabled             bool                                                                  `json:"project_write_enabled"`
+	CoveredSourceCount              int                                                                   `json:"covered_source_count"`
+	RequiredSourceCount             int                                                                   `json:"required_source_count"`
+	ReadinessStatus                 EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus `json:"readiness_status"`
+	Message                         string                                                                `json:"message"`
+	Recovery                        string                                                                `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionRequestPersistResult 表示 worker execution request 已受控持久化或命中幂等既有请求。
+// 该结果只写执行请求证据与 admin audit，不启动 worker、不生成文件、不写 output storage、不修改任务状态。
+type EnterpriseAuditExportWorkerExecutionRequestPersistResult struct {
+	Status                            string                                                                `json:"status"`
+	Request                           model.EnterpriseAuditExportWorkerExecutionRequest                     `json:"request"`
+	PersistenceReadinessStatus        EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus `json:"persistence_readiness_status"`
+	ExecutionRequestReadinessStatus   EnterpriseAuditExportWorkerExecutionRequestReadinessStatus            `json:"execution_request_readiness_status"`
+	WorkerReadinessStatus             EnterpriseAuditExportWorkerReadinessStatus                            `json:"worker_readiness_status"`
+	StatusTransitionReadinessStatus   EnterpriseAuditExportTaskStatusTransitionReadinessStatus              `json:"status_transition_readiness_status"`
+	RequestPersistenceWritten         bool                                                                  `json:"request_persistence_written"`
+	RequestAuditWritten               bool                                                                  `json:"request_audit_written"`
+	WorkerExecutionStarted            bool                                                                  `json:"worker_execution_started"`
+	TaskStatusMutationStarted         bool                                                                  `json:"task_status_mutation_started"`
+	ExportFileGenerationStarted       bool                                                                  `json:"export_file_generation_started"`
+	OutputStorageWriteStarted         bool                                                                  `json:"output_storage_write_started"`
+	DeliveryReportStorageWriteStarted bool                                                                  `json:"delivery_report_storage_write_started"`
+	ArchiveDeletionStarted            bool                                                                  `json:"archive_deletion_started"`
+	ProjectWriteStarted               bool                                                                  `json:"project_write_started"`
+	Message                           string                                                                `json:"message"`
+	Recovery                          string                                                                `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionDryRunReadiness 声明 worker execution dry-run 的受控前置。
+// 它只确认已有 request 可以被 dry-run 消费，不启动真实 worker、不生成文件、不写 output storage。
+type EnterpriseAuditExportWorkerExecutionDryRunReadiness struct {
+	AdminAuditLogCount                int64                                                                 `json:"admin_audit_log_count"`
+	ActivationAuditEventCount         int64                                                                 `json:"activation_audit_event_count"`
+	PersistenceReadinessStatus        EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus `json:"persistence_readiness_status"`
+	ExistingExecutionRequestCount     int64                                                                 `json:"existing_execution_request_count"`
+	ExecutionDryRunSchemaVersion      string                                                                `json:"execution_dry_run_schema_version"`
+	WorkerExecutionDryRunEnabled      bool                                                                  `json:"worker_execution_dry_run_enabled"`
+	WorkerExecutionEnabled            bool                                                                  `json:"worker_execution_enabled"`
+	ExecutionResultPersistenceEnabled bool                                                                  `json:"execution_result_persistence_enabled"`
+	TaskStatusMutationEnabled         bool                                                                  `json:"task_status_mutation_enabled"`
+	ExportFileGenerationEnabled       bool                                                                  `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled         bool                                                                  `json:"output_storage_write_enabled"`
+	DeliveryReportStorageWriteEnabled bool                                                                  `json:"delivery_report_storage_write_enabled"`
+	ArchiveDeletionEnabled            bool                                                                  `json:"archive_deletion_enabled"`
+	ProjectWriteEnabled               bool                                                                  `json:"project_write_enabled"`
+	CoveredSourceCount                int                                                                   `json:"covered_source_count"`
+	RequiredSourceCount               int                                                                   `json:"required_source_count"`
+	ReadinessStatus                   EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus             `json:"readiness_status"`
+	Message                           string                                                                `json:"message"`
+	Recovery                          string                                                                `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionDryRunResult 表示 worker execution request 已完成受控 dry-run execution result 写入。
+// 该结果只写 request execution_result，不启动真实 worker、不生成文件、不写 output storage、不修改任务状态。
+type EnterpriseAuditExportWorkerExecutionDryRunResult struct {
+	Status                            string                                                                `json:"status"`
+	Request                           model.EnterpriseAuditExportWorkerExecutionRequest                     `json:"request"`
+	ReadinessStatus                   EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus             `json:"readiness_status"`
+	PersistenceReadinessStatus        EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessStatus `json:"persistence_readiness_status"`
+	ExecutionDryRunSchemaVersion      string                                                                `json:"execution_dry_run_schema_version"`
+	ChecksumSHA256                    string                                                                `json:"checksum_sha256"`
+	RowCount                          int64                                                                 `json:"row_count"`
+	ExecutionResultWritten            bool                                                                  `json:"execution_result_written"`
+	ExecutionAuditWritten             bool                                                                  `json:"execution_audit_written"`
+	WorkerExecutionDryRunStarted      bool                                                                  `json:"worker_execution_dry_run_started"`
+	WorkerExecutionStarted            bool                                                                  `json:"worker_execution_started"`
+	TaskStatusMutationStarted         bool                                                                  `json:"task_status_mutation_started"`
+	ExportFileGenerationStarted       bool                                                                  `json:"export_file_generation_started"`
+	OutputStorageWriteStarted         bool                                                                  `json:"output_storage_write_started"`
+	DeliveryReportStorageWriteStarted bool                                                                  `json:"delivery_report_storage_write_started"`
+	ArchiveDeletionStarted            bool                                                                  `json:"archive_deletion_started"`
+	ProjectWriteStarted               bool                                                                  `json:"project_write_started"`
+	Message                           string                                                                `json:"message"`
+	Recovery                          string                                                                `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionArtifactReadiness 声明真实 worker execution artifact 生成前置。
+// 它只冻结文件 artifact 输入/命名/checksum 契约，不启动真实 worker、不生成文件、不写 output storage。
+type EnterpriseAuditExportWorkerExecutionArtifactReadiness struct {
+	AdminAuditLogCount                int64                                                       `json:"admin_audit_log_count"`
+	ActivationAuditEventCount         int64                                                       `json:"activation_audit_event_count"`
+	DryRunReadinessStatus             EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus   `json:"dry_run_readiness_status"`
+	ExistingExecutionRequestCount     int64                                                       `json:"existing_execution_request_count"`
+	DryRunCompletedRequestCount       int64                                                       `json:"dry_run_completed_request_count"`
+	ExecutionArtifactSchemaVersion    string                                                      `json:"execution_artifact_schema_version"`
+	OutputPathPrefix                  string                                                      `json:"output_path_prefix"`
+	FileNameTemplate                  string                                                      `json:"file_name_template"`
+	ChecksumAlgorithm                 string                                                      `json:"checksum_algorithm"`
+	MaxRowsPerFile                    int                                                         `json:"max_rows_per_file"`
+	WorkerExecutionEnabled            bool                                                        `json:"worker_execution_enabled"`
+	ExecutionResultPersistenceEnabled bool                                                        `json:"execution_result_persistence_enabled"`
+	TaskStatusMutationEnabled         bool                                                        `json:"task_status_mutation_enabled"`
+	ExportFileGenerationEnabled       bool                                                        `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled         bool                                                        `json:"output_storage_write_enabled"`
+	DeliveryReportStorageWriteEnabled bool                                                        `json:"delivery_report_storage_write_enabled"`
+	ArchiveDeletionEnabled            bool                                                        `json:"archive_deletion_enabled"`
+	ProjectWriteEnabled               bool                                                        `json:"project_write_enabled"`
+	CoveredSourceCount                int                                                         `json:"covered_source_count"`
+	RequiredSourceCount               int                                                         `json:"required_source_count"`
+	ReadinessStatus                   EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus `json:"readiness_status"`
+	Message                           string                                                      `json:"message"`
+	Recovery                          string                                                      `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionArtifactGenerateResult 表示受控 artifact snapshot 已生成并写回 execution request。
+// 该结果不写 output storage、不修改 task status、不落报告文件。
+type EnterpriseAuditExportWorkerExecutionArtifactGenerateResult struct {
+	Status                            string                                                      `json:"status"`
+	Request                           model.EnterpriseAuditExportWorkerExecutionRequest           `json:"request"`
+	ReadinessStatus                   EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus `json:"readiness_status"`
+	DryRunReadinessStatus             EnterpriseAuditExportWorkerExecutionDryRunReadinessStatus   `json:"dry_run_readiness_status"`
+	ExecutionArtifactSchemaVersion    string                                                      `json:"execution_artifact_schema_version"`
+	OutputPath                        string                                                      `json:"output_path"`
+	FileName                          string                                                      `json:"file_name"`
+	ChecksumSHA256                    string                                                      `json:"checksum_sha256"`
+	RowCount                          int64                                                       `json:"row_count"`
+	ExecutionResultWritten            bool                                                        `json:"execution_result_written"`
+	ExecutionAuditWritten             bool                                                        `json:"execution_audit_written"`
+	WorkerExecutionStarted            bool                                                        `json:"worker_execution_started"`
+	TaskStatusMutationStarted         bool                                                        `json:"task_status_mutation_started"`
+	ExportFileGenerationStarted       bool                                                        `json:"export_file_generation_started"`
+	OutputStorageWriteStarted         bool                                                        `json:"output_storage_write_started"`
+	DeliveryReportStorageWriteStarted bool                                                        `json:"delivery_report_storage_write_started"`
+	ArchiveDeletionStarted            bool                                                        `json:"archive_deletion_started"`
+	ProjectWriteStarted               bool                                                        `json:"project_write_started"`
+	Message                           string                                                      `json:"message"`
+	Recovery                          string                                                      `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionOutputStorageReadiness 声明 artifact output storage 写入前置。
+// 它只冻结 output storage 写入契约，不写外部 storage、不修改任务状态。
+type EnterpriseAuditExportWorkerExecutionOutputStorageReadiness struct {
+	AdminAuditLogCount                int64                                                            `json:"admin_audit_log_count"`
+	ActivationAuditEventCount         int64                                                            `json:"activation_audit_event_count"`
+	ArtifactReadinessStatus           EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus      `json:"artifact_readiness_status"`
+	ExistingExecutionRequestCount     int64                                                            `json:"existing_execution_request_count"`
+	ArtifactGeneratedRequestCount     int64                                                            `json:"artifact_generated_request_count"`
+	OutputStorageSchemaVersion        string                                                           `json:"output_storage_schema_version"`
+	OutputStoragePathPrefix           string                                                           `json:"output_storage_path_prefix"`
+	RequiredStorageFields             []string                                                         `json:"required_storage_fields"`
+	RequiredStorageFieldCount         int                                                              `json:"required_storage_field_count"`
+	ChecksumAlgorithm                 string                                                           `json:"checksum_algorithm"`
+	MetadataWriteRequired             bool                                                             `json:"metadata_write_required"`
+	WorkerExecutionEnabled            bool                                                             `json:"worker_execution_enabled"`
+	ExecutionResultPersistenceEnabled bool                                                             `json:"execution_result_persistence_enabled"`
+	TaskStatusMutationEnabled         bool                                                             `json:"task_status_mutation_enabled"`
+	ExportFileGenerationEnabled       bool                                                             `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled         bool                                                             `json:"output_storage_write_enabled"`
+	DeliveryReportStorageWriteEnabled bool                                                             `json:"delivery_report_storage_write_enabled"`
+	ArchiveDeletionEnabled            bool                                                             `json:"archive_deletion_enabled"`
+	ProjectWriteEnabled               bool                                                             `json:"project_write_enabled"`
+	CoveredSourceCount                int                                                              `json:"covered_source_count"`
+	RequiredSourceCount               int                                                              `json:"required_source_count"`
+	ReadinessStatus                   EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus `json:"readiness_status"`
+	Message                           string                                                           `json:"message"`
+	Recovery                          string                                                           `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionOutputStorageStoreInput 表示受控 output storage metadata 写入请求。
+type EnterpriseAuditExportWorkerExecutionOutputStorageStoreInput struct {
+	RequestID                           string
+	Reason                              string
+	ConfirmWorkerExecutionOutputStorage bool
+}
+
+// EnterpriseAuditExportWorkerExecutionOutputStorageStoreResult 表示 output storage metadata 已写回 execution request。
+// 该结果只写 storage metadata snapshot 和 admin audit，不生成真实文件、不修改 task status。
+type EnterpriseAuditExportWorkerExecutionOutputStorageStoreResult struct {
+	Status                            string                                                           `json:"status"`
+	Request                           model.EnterpriseAuditExportWorkerExecutionRequest                `json:"request"`
+	ReadinessStatus                   EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus `json:"readiness_status"`
+	ArtifactReadinessStatus           EnterpriseAuditExportWorkerExecutionArtifactReadinessStatus      `json:"artifact_readiness_status"`
+	OutputStorageSchemaVersion        string                                                           `json:"output_storage_schema_version"`
+	OutputStoragePath                 string                                                           `json:"output_storage_path"`
+	OutputPath                        string                                                           `json:"output_path"`
+	ChecksumSHA256                    string                                                           `json:"checksum_sha256"`
+	RowCount                          int64                                                            `json:"row_count"`
+	MetadataWritten                   bool                                                             `json:"metadata_written"`
+	OutputStorageWriteStarted         bool                                                             `json:"output_storage_write_started"`
+	ExecutionAuditWritten             bool                                                             `json:"execution_audit_written"`
+	WorkerExecutionStarted            bool                                                             `json:"worker_execution_started"`
+	TaskStatusMutationStarted         bool                                                             `json:"task_status_mutation_started"`
+	ExportFileGenerationStarted       bool                                                             `json:"export_file_generation_started"`
+	DeliveryReportStorageWriteStarted bool                                                             `json:"delivery_report_storage_write_started"`
+	ArchiveDeletionStarted            bool                                                             `json:"archive_deletion_started"`
+	ProjectWriteStarted               bool                                                             `json:"project_write_started"`
+	Message                           string                                                           `json:"message"`
+	Recovery                          string                                                           `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionTaskCompletionResult 表示 output_stored request 已受控推进 task completed。
+// 该结果只修改 task status/source 并写 admin audit，不启动 worker、不生成文件、不写 storage 或 report。
+type EnterpriseAuditExportWorkerExecutionTaskCompletionResult struct {
+	Status                            string                                                            `json:"status"`
+	Request                           model.EnterpriseAuditExportWorkerExecutionRequest                 `json:"request"`
+	Task                              model.EnterpriseAuditExportTask                                   `json:"task"`
+	PreviousTaskStatus                string                                                            `json:"previous_task_status"`
+	TargetTaskStatus                  string                                                            `json:"target_task_status"`
+	RequiredRequestStatus             string                                                            `json:"required_request_status"`
+	Transition                        string                                                            `json:"transition"`
+	ReadinessStatus                   EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus `json:"readiness_status"`
+	OutputStorageReadinessStatus      EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus  `json:"output_storage_readiness_status"`
+	OutputPath                        string                                                            `json:"output_path"`
+	ChecksumSHA256                    string                                                            `json:"checksum_sha256"`
+	RowCount                          int64                                                             `json:"row_count"`
+	RequestTaskMatched                bool                                                              `json:"request_task_matched"`
+	OutputStorageMetadataVerified     bool                                                              `json:"output_storage_metadata_verified"`
+	TaskStatusMutationWritten         bool                                                              `json:"task_status_mutation_written"`
+	TaskStatusAuditWritten            bool                                                              `json:"task_status_audit_written"`
+	WorkerExecutionStarted            bool                                                              `json:"worker_execution_started"`
+	ExportFileGenerationStarted       bool                                                              `json:"export_file_generation_started"`
+	OutputStorageWriteStarted         bool                                                              `json:"output_storage_write_started"`
+	DeliveryReportStorageWriteStarted bool                                                              `json:"delivery_report_storage_write_started"`
+	ArchiveDeletionStarted            bool                                                              `json:"archive_deletion_started"`
+	ProjectWriteStarted               bool                                                              `json:"project_write_started"`
+	Message                           string                                                            `json:"message"`
+	Recovery                          string                                                            `json:"recovery"`
+}
+
+// EnterpriseAuditExportWorkerExecutionTaskCompletionReadiness 声明 output_stored request 推进 task completed 的只读前置。
+// 它只冻结 request->task 完成推进契约，不修改任务状态、不写 audit、不生成报告。
+type EnterpriseAuditExportWorkerExecutionTaskCompletionReadiness struct {
+	AdminAuditLogCount                   int64                                                             `json:"admin_audit_log_count"`
+	ActivationAuditEventCount            int64                                                             `json:"activation_audit_event_count"`
+	OutputStorageReadinessStatus         EnterpriseAuditExportWorkerExecutionOutputStorageReadinessStatus  `json:"output_storage_readiness_status"`
+	TaskReadbackStatus                   string                                                            `json:"task_readback_status"`
+	ExistingExecutionRequestCount        int64                                                             `json:"existing_execution_request_count"`
+	OutputStoredRequestCount             int64                                                             `json:"output_stored_request_count"`
+	TaskCount                            int                                                               `json:"task_count"`
+	QueuedTaskCount                      int                                                               `json:"queued_task_count"`
+	TargetTaskStatus                     string                                                            `json:"target_task_status"`
+	RequiredRequestStatus                string                                                            `json:"required_request_status"`
+	TaskCompletionSource                 string                                                            `json:"task_completion_source"`
+	RequestTaskMatchRequired             bool                                                              `json:"request_task_match_required"`
+	OutputStorageMetadataRequired        bool                                                              `json:"output_storage_metadata_required"`
+	StatusTransitionConfirmationRequired bool                                                              `json:"status_transition_confirmation_required"`
+	TaskStatusMutationEnabled            bool                                                              `json:"task_status_mutation_enabled"`
+	TaskStatusAuditWriteEnabled          bool                                                              `json:"task_status_audit_write_enabled"`
+	WorkerExecutionEnabled               bool                                                              `json:"worker_execution_enabled"`
+	ExportFileGenerationEnabled          bool                                                              `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled            bool                                                              `json:"output_storage_write_enabled"`
+	DeliveryReportStorageWriteEnabled    bool                                                              `json:"delivery_report_storage_write_enabled"`
+	ArchiveDeletionEnabled               bool                                                              `json:"archive_deletion_enabled"`
+	ProjectWriteEnabled                  bool                                                              `json:"project_write_enabled"`
+	CoveredSourceCount                   int                                                               `json:"covered_source_count"`
+	RequiredSourceCount                  int                                                               `json:"required_source_count"`
+	ReadinessStatus                      EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessStatus `json:"readiness_status"`
+	Message                              string                                                            `json:"message"`
+	Recovery                             string                                                            `json:"recovery"`
+}
+
+// EnterpriseAuditExportTaskStatusTransitionReadiness 聚合导出任务状态转移只读 preflight。
+// 它只声明允许状态、允许转移和候选任务，不修改任务状态、不写 audit。
+type EnterpriseAuditExportTaskStatusTransitionReadiness struct {
+	AdminAuditLogCount                   int64                                                    `json:"admin_audit_log_count"`
+	ActivationAuditEventCount            int64                                                    `json:"activation_audit_event_count"`
+	WorkerReadinessStatus                EnterpriseAuditExportWorkerReadinessStatus               `json:"worker_readiness_status"`
+	TaskReadbackStatus                   string                                                   `json:"task_readback_status"`
+	TaskCount                            int                                                      `json:"task_count"`
+	QueuedTaskCount                      int                                                      `json:"queued_task_count"`
+	ProcessingTaskCount                  int                                                      `json:"processing_task_count"`
+	TerminalTaskCount                    int                                                      `json:"terminal_task_count"`
+	AllowedTaskStatuses                  []string                                                 `json:"allowed_task_statuses"`
+	AllowedTaskStatusCount               int                                                      `json:"allowed_task_status_count"`
+	AllowedTransitions                   []string                                                 `json:"allowed_transitions"`
+	AllowedTransitionCount               int                                                      `json:"allowed_transition_count"`
+	TaskDetailReadEnabled                bool                                                     `json:"task_detail_read_enabled"`
+	StatusTransitionConfirmationRequired bool                                                     `json:"status_transition_confirmation_required"`
+	TaskStatusMutationEnabled            bool                                                     `json:"task_status_mutation_enabled"`
+	WorkerExecutionEnabled               bool                                                     `json:"worker_execution_enabled"`
+	ExportFileGenerationEnabled          bool                                                     `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled            bool                                                     `json:"output_storage_write_enabled"`
+	AuditWriteEnabled                    bool                                                     `json:"audit_write_enabled"`
+	ProjectWriteEnabled                  bool                                                     `json:"project_write_enabled"`
+	CoveredSourceCount                   int                                                      `json:"covered_source_count"`
+	RequiredSourceCount                  int                                                      `json:"required_source_count"`
+	ReadinessStatus                      EnterpriseAuditExportTaskStatusTransitionReadinessStatus `json:"readiness_status"`
+	Message                              string                                                   `json:"message"`
+	Recovery                             string                                                   `json:"recovery"`
+}
+
+// EnterpriseAuditExportArchiveExpirationReadiness 聚合导出任务归档/过期扫描只读 preflight。
+// 它只声明保留窗口、扫描模式和候选数量，不删除审计数据、不修改任务状态。
+type EnterpriseAuditExportArchiveExpirationReadiness struct {
+	AdminAuditLogCount          int64                                                 `json:"admin_audit_log_count"`
+	ActivationAuditEventCount   int64                                                 `json:"activation_audit_event_count"`
+	RetentionReadinessStatus    EnterpriseAuditRetentionReadinessStatus               `json:"retention_readiness_status"`
+	TaskReadbackStatus          string                                                `json:"task_readback_status"`
+	TaskCount                   int                                                   `json:"task_count"`
+	TerminalTaskCount           int                                                   `json:"terminal_task_count"`
+	CompletedTaskCount          int                                                   `json:"completed_task_count"`
+	FailedTaskCount             int                                                   `json:"failed_task_count"`
+	CancelledTaskCount          int                                                   `json:"cancelled_task_count"`
+	ExpirationCandidateCount    int                                                   `json:"expiration_candidate_count"`
+	RetentionPolicyKey          string                                                `json:"retention_policy_key"`
+	RetentionDays               int                                                   `json:"retention_days"`
+	ScanMode                    string                                                `json:"scan_mode"`
+	CandidateLimit              int                                                   `json:"candidate_limit"`
+	ArchiveScanEnabled          bool                                                  `json:"archive_scan_enabled"`
+	RetentionDeletionEnabled    bool                                                  `json:"retention_deletion_enabled"`
+	TaskStatusMutationEnabled   bool                                                  `json:"task_status_mutation_enabled"`
+	WorkerExecutionEnabled      bool                                                  `json:"worker_execution_enabled"`
+	ExportFileGenerationEnabled bool                                                  `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled   bool                                                  `json:"output_storage_write_enabled"`
+	AuditWriteEnabled           bool                                                  `json:"audit_write_enabled"`
+	ProjectWriteEnabled         bool                                                  `json:"project_write_enabled"`
+	CoveredSourceCount          int                                                   `json:"covered_source_count"`
+	RequiredSourceCount         int                                                   `json:"required_source_count"`
+	ReadinessStatus             EnterpriseAuditExportArchiveExpirationReadinessStatus `json:"readiness_status"`
+	Message                     string                                                `json:"message"`
+	Recovery                    string                                                `json:"recovery"`
+}
+
+// EnterpriseAuditExportDeliveryReportReadiness 聚合企业审计导出交付报告只读 readiness。
+// 它只声明报告章节和上游证据，不生成报告文件、不写 storage 或 audit。
+type EnterpriseAuditExportDeliveryReportReadiness struct {
+	AdminAuditLogCount               int64                                                    `json:"admin_audit_log_count"`
+	ActivationAuditEventCount        int64                                                    `json:"activation_audit_event_count"`
+	WorkerReadinessStatus            EnterpriseAuditExportWorkerReadinessStatus               `json:"worker_readiness_status"`
+	StatusTransitionReadinessStatus  EnterpriseAuditExportTaskStatusTransitionReadinessStatus `json:"status_transition_readiness_status"`
+	ArchiveExpirationReadinessStatus EnterpriseAuditExportArchiveExpirationReadinessStatus    `json:"archive_expiration_readiness_status"`
+	RetentionReadinessStatus         EnterpriseAuditRetentionReadinessStatus                  `json:"retention_readiness_status"`
+	TaskReadbackStatus               string                                                   `json:"task_readback_status"`
+	TaskCount                        int                                                      `json:"task_count"`
+	QueuedTaskCount                  int                                                      `json:"queued_task_count"`
+	ProcessingTaskCount              int                                                      `json:"processing_task_count"`
+	TerminalTaskCount                int                                                      `json:"terminal_task_count"`
+	ExpirationCandidateCount         int                                                      `json:"expiration_candidate_count"`
+	ReportFormat                     string                                                   `json:"report_format"`
+	RequiredReportSections           []string                                                 `json:"required_report_sections"`
+	RequiredReportSectionCount       int                                                      `json:"required_report_section_count"`
+	ReportGenerationEnabled          bool                                                     `json:"report_generation_enabled"`
+	ReportStorageWriteEnabled        bool                                                     `json:"report_storage_write_enabled"`
+	ReportAuditWriteEnabled          bool                                                     `json:"report_audit_write_enabled"`
+	WorkerExecutionEnabled           bool                                                     `json:"worker_execution_enabled"`
+	TaskStatusMutationEnabled        bool                                                     `json:"task_status_mutation_enabled"`
+	ArchiveDeletionEnabled           bool                                                     `json:"archive_deletion_enabled"`
+	ExportFileGenerationEnabled      bool                                                     `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled        bool                                                     `json:"output_storage_write_enabled"`
+	AuditWriteEnabled                bool                                                     `json:"audit_write_enabled"`
+	ProjectWriteEnabled              bool                                                     `json:"project_write_enabled"`
+	CoveredSourceCount               int                                                      `json:"covered_source_count"`
+	RequiredSourceCount              int                                                      `json:"required_source_count"`
+	ReadinessStatus                  EnterpriseAuditExportDeliveryReportReadinessStatus       `json:"readiness_status"`
+	Message                          string                                                   `json:"message"`
+	Recovery                         string                                                   `json:"recovery"`
+}
+
+// EnterpriseAuditExportDeliveryReportCompletedTaskReadiness 声明 completed task 可作为交付报告输入证据。
+// 它只读校验 completed task 来源，不生成报告、不写 report storage 或 audit。
+type EnterpriseAuditExportDeliveryReportCompletedTaskReadiness struct {
+	AdminAuditLogCount                int64                                                           `json:"admin_audit_log_count"`
+	ActivationAuditEventCount         int64                                                           `json:"activation_audit_event_count"`
+	DeliveryReportReadinessStatus     EnterpriseAuditExportDeliveryReportReadinessStatus              `json:"delivery_report_readiness_status"`
+	TaskReadbackStatus                string                                                          `json:"task_readback_status"`
+	TaskCount                         int                                                             `json:"task_count"`
+	CompletedTaskCount                int                                                             `json:"completed_task_count"`
+	WorkerExecutionCompletedTaskCount int                                                             `json:"worker_execution_completed_task_count"`
+	RequiredTaskStatus                string                                                          `json:"required_task_status"`
+	RequiredTaskSource                string                                                          `json:"required_task_source"`
+	CompletedTaskEvidenceRequired     bool                                                            `json:"completed_task_evidence_required"`
+	WorkerExecutionTaskSourceRequired bool                                                            `json:"worker_execution_task_source_required"`
+	ReportFormat                      string                                                          `json:"report_format"`
+	RequiredReportSections            []string                                                        `json:"required_report_sections"`
+	RequiredReportSectionCount        int                                                             `json:"required_report_section_count"`
+	ReportGenerationEnabled           bool                                                            `json:"report_generation_enabled"`
+	ReportStorageWriteEnabled         bool                                                            `json:"report_storage_write_enabled"`
+	ReportAuditWriteEnabled           bool                                                            `json:"report_audit_write_enabled"`
+	WorkerExecutionEnabled            bool                                                            `json:"worker_execution_enabled"`
+	TaskStatusMutationEnabled         bool                                                            `json:"task_status_mutation_enabled"`
+	ArchiveDeletionEnabled            bool                                                            `json:"archive_deletion_enabled"`
+	ExportFileGenerationEnabled       bool                                                            `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled         bool                                                            `json:"output_storage_write_enabled"`
+	AuditWriteEnabled                 bool                                                            `json:"audit_write_enabled"`
+	ProjectWriteEnabled               bool                                                            `json:"project_write_enabled"`
+	CoveredSourceCount                int                                                             `json:"covered_source_count"`
+	RequiredSourceCount               int                                                             `json:"required_source_count"`
+	ReadinessStatus                   EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus `json:"readiness_status"`
+	Message                           string                                                          `json:"message"`
+	Recovery                          string                                                          `json:"recovery"`
+}
+
+// EnterpriseAuditExportDeliveryReportGenerateRequestReadiness 声明交付报告生成请求契约 readiness。
+// 它只声明未来受控请求字段，不生成报告、不写 report storage 或 audit。
+type EnterpriseAuditExportDeliveryReportGenerateRequestReadiness struct {
+	AdminAuditLogCount                int64                                                             `json:"admin_audit_log_count"`
+	ActivationAuditEventCount         int64                                                             `json:"activation_audit_event_count"`
+	DeliveryReportReadinessStatus     EnterpriseAuditExportDeliveryReportReadinessStatus                `json:"delivery_report_readiness_status"`
+	CompletedTaskReadinessStatus      EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus   `json:"completed_task_readiness_status"`
+	TaskReadbackStatus                string                                                            `json:"task_readback_status"`
+	CompletedTaskCount                int                                                               `json:"completed_task_count"`
+	WorkerExecutionCompletedTaskCount int                                                               `json:"worker_execution_completed_task_count"`
+	RequiredTaskStatus                string                                                            `json:"required_task_status"`
+	RequiredTaskSource                string                                                            `json:"required_task_source"`
+	CompletedTaskEvidenceRequired     bool                                                              `json:"completed_task_evidence_required"`
+	WorkerExecutionTaskSourceRequired bool                                                              `json:"worker_execution_task_source_required"`
+	ReportFormat                      string                                                            `json:"report_format"`
+	RequiredReportSections            []string                                                          `json:"required_report_sections"`
+	RequiredReportSectionCount        int                                                               `json:"required_report_section_count"`
+	RequestSchemaVersion              string                                                            `json:"request_schema_version"`
+	RequiredGenerateRequestFields     []string                                                          `json:"required_generate_request_fields"`
+	RequiredGenerateRequestFieldCount int                                                               `json:"required_generate_request_field_count"`
+	ConfirmGenerateReportRequired     bool                                                              `json:"confirm_generate_report_required"`
+	ReasonRequired                    bool                                                              `json:"reason_required"`
+	MaximumReasonLength               int                                                               `json:"maximum_reason_length"`
+	IdempotencyKeyRequired            bool                                                              `json:"idempotency_key_required"`
+	IdempotencyKeyPattern             string                                                            `json:"idempotency_key_pattern"`
+	RequestExecutionEnabled           bool                                                              `json:"request_execution_enabled"`
+	ReportGenerationEnabled           bool                                                              `json:"report_generation_enabled"`
+	ReportStorageWriteEnabled         bool                                                              `json:"report_storage_write_enabled"`
+	ReportAuditWriteEnabled           bool                                                              `json:"report_audit_write_enabled"`
+	WorkerExecutionEnabled            bool                                                              `json:"worker_execution_enabled"`
+	TaskStatusMutationEnabled         bool                                                              `json:"task_status_mutation_enabled"`
+	ArchiveDeletionEnabled            bool                                                              `json:"archive_deletion_enabled"`
+	ExportFileGenerationEnabled       bool                                                              `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled         bool                                                              `json:"output_storage_write_enabled"`
+	AuditWriteEnabled                 bool                                                              `json:"audit_write_enabled"`
+	ProjectWriteEnabled               bool                                                              `json:"project_write_enabled"`
+	CoveredSourceCount                int                                                               `json:"covered_source_count"`
+	RequiredSourceCount               int                                                               `json:"required_source_count"`
+	ReadinessStatus                   EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus `json:"readiness_status"`
+	Message                           string                                                            `json:"message"`
+	Recovery                          string                                                            `json:"recovery"`
+}
+
+// EnterpriseAuditExportDeliveryReportStorageReadiness 声明交付报告存储契约 readiness。
+// 它只声明后续存储字段、路径和 checksum 契约，不写 report storage 或 audit。
+type EnterpriseAuditExportDeliveryReportStorageReadiness struct {
+	AdminAuditLogCount                int64                                                             `json:"admin_audit_log_count"`
+	ActivationAuditEventCount         int64                                                             `json:"activation_audit_event_count"`
+	GenerateRequestReadinessStatus    EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus `json:"generate_request_readiness_status"`
+	DeliveryReportReadinessStatus     EnterpriseAuditExportDeliveryReportReadinessStatus                `json:"delivery_report_readiness_status"`
+	CompletedTaskReadinessStatus      EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus   `json:"completed_task_readiness_status"`
+	TaskReadbackStatus                string                                                            `json:"task_readback_status"`
+	CompletedTaskCount                int                                                               `json:"completed_task_count"`
+	WorkerExecutionCompletedTaskCount int                                                               `json:"worker_execution_completed_task_count"`
+	RequiredTaskStatus                string                                                            `json:"required_task_status"`
+	RequiredTaskSource                string                                                            `json:"required_task_source"`
+	CompletedTaskEvidenceRequired     bool                                                              `json:"completed_task_evidence_required"`
+	WorkerExecutionTaskSourceRequired bool                                                              `json:"worker_execution_task_source_required"`
+	ReportFormat                      string                                                            `json:"report_format"`
+	RequiredReportSections            []string                                                          `json:"required_report_sections"`
+	RequiredReportSectionCount        int                                                               `json:"required_report_section_count"`
+	StorageSchemaVersion              string                                                            `json:"storage_schema_version"`
+	RequiredStorageFields             []string                                                          `json:"required_storage_fields"`
+	RequiredStorageFieldCount         int                                                               `json:"required_storage_field_count"`
+	ExistingReportCount               int64                                                             `json:"existing_report_count"`
+	StoragePathPrefix                 string                                                            `json:"storage_path_prefix"`
+	ChecksumAlgorithm                 string                                                            `json:"checksum_algorithm"`
+	MetadataWriteRequired             bool                                                              `json:"metadata_write_required"`
+	ReportStorageWriteEnabled         bool                                                              `json:"report_storage_write_enabled"`
+	ReportAuditWriteEnabled           bool                                                              `json:"report_audit_write_enabled"`
+	ReportFileWriteEnabled            bool                                                              `json:"report_file_write_enabled"`
+	WorkerExecutionEnabled            bool                                                              `json:"worker_execution_enabled"`
+	TaskStatusMutationEnabled         bool                                                              `json:"task_status_mutation_enabled"`
+	ArchiveDeletionEnabled            bool                                                              `json:"archive_deletion_enabled"`
+	ExportFileGenerationEnabled       bool                                                              `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled         bool                                                              `json:"output_storage_write_enabled"`
+	AuditWriteEnabled                 bool                                                              `json:"audit_write_enabled"`
+	ProjectWriteEnabled               bool                                                              `json:"project_write_enabled"`
+	CoveredSourceCount                int                                                               `json:"covered_source_count"`
+	RequiredSourceCount               int                                                               `json:"required_source_count"`
+	ReadinessStatus                   EnterpriseAuditExportDeliveryReportStorageReadinessStatus         `json:"readiness_status"`
+	Message                           string                                                            `json:"message"`
+	Recovery                          string                                                            `json:"recovery"`
+}
+
+// EnterpriseAuditExportDeliveryReportStoredReadiness 声明已存交付报告可作为后续 delivery/archive 输入证据。
+// 它只读校验 report storage row、metadata evidence 和 admin audit evidence，不写文件、不启动 worker、不修改任务状态。
+type EnterpriseAuditExportDeliveryReportStoredReadiness struct {
+	AdminAuditLogCount                int64                                                           `json:"admin_audit_log_count"`
+	ActivationAuditEventCount         int64                                                           `json:"activation_audit_event_count"`
+	StorageReadinessStatus            EnterpriseAuditExportDeliveryReportStorageReadinessStatus       `json:"storage_readiness_status"`
+	CompletedTaskReadinessStatus      EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus `json:"completed_task_readiness_status"`
+	StoredReportCount                 int64                                                           `json:"stored_report_count"`
+	ReadReportCount                   int                                                             `json:"read_report_count"`
+	LatestReportID                    string                                                          `json:"latest_report_id"`
+	LatestReportIdempotencyKey        string                                                          `json:"latest_report_idempotency_key"`
+	LatestReportGeneratedAt           string                                                          `json:"latest_report_generated_at"`
+	LatestReportStoragePath           string                                                          `json:"latest_report_storage_path"`
+	LatestReportChecksumSHA256        string                                                          `json:"latest_report_checksum_sha256"`
+	LatestReportStorageSchemaVersion  string                                                          `json:"latest_report_storage_schema_version"`
+	LatestReportSource                string                                                          `json:"latest_report_source"`
+	LatestReportMetadataJSON          string                                                          `json:"latest_report_metadata_json"`
+	LatestReportStorageContractReady  bool                                                            `json:"latest_report_storage_contract_ready"`
+	LatestReportChecksumMatched       bool                                                            `json:"latest_report_checksum_matched"`
+	MetadataEvidenceReady             bool                                                            `json:"metadata_evidence_ready"`
+	AdminAuditEvidenceReady           bool                                                            `json:"admin_audit_evidence_ready"`
+	AdminAuditEvidenceCount           int                                                             `json:"admin_audit_evidence_count"`
+	CompletedTaskCount                int                                                             `json:"completed_task_count"`
+	WorkerExecutionCompletedTaskCount int                                                             `json:"worker_execution_completed_task_count"`
+	RequiredTaskStatus                string                                                          `json:"required_task_status"`
+	RequiredTaskSource                string                                                          `json:"required_task_source"`
+	CompletedTaskEvidenceRequired     bool                                                            `json:"completed_task_evidence_required"`
+	WorkerExecutionTaskSourceRequired bool                                                            `json:"worker_execution_task_source_required"`
+	ReportFormat                      string                                                          `json:"report_format"`
+	RequiredReportSections            []string                                                        `json:"required_report_sections"`
+	RequiredReportSectionCount        int                                                             `json:"required_report_section_count"`
+	StorageSchemaVersion              string                                                          `json:"storage_schema_version"`
+	StoragePathPrefix                 string                                                          `json:"storage_path_prefix"`
+	ChecksumAlgorithm                 string                                                          `json:"checksum_algorithm"`
+	ReportStorageWriteEnabled         bool                                                            `json:"report_storage_write_enabled"`
+	ReportAuditWriteEnabled           bool                                                            `json:"report_audit_write_enabled"`
+	ReportFileWriteEnabled            bool                                                            `json:"report_file_write_enabled"`
+	WorkerExecutionEnabled            bool                                                            `json:"worker_execution_enabled"`
+	TaskStatusMutationEnabled         bool                                                            `json:"task_status_mutation_enabled"`
+	ArchiveDeletionEnabled            bool                                                            `json:"archive_deletion_enabled"`
+	ExportFileGenerationEnabled       bool                                                            `json:"export_file_generation_enabled"`
+	OutputStorageWriteEnabled         bool                                                            `json:"output_storage_write_enabled"`
+	AuditWriteEnabled                 bool                                                            `json:"audit_write_enabled"`
+	ProjectWriteEnabled               bool                                                            `json:"project_write_enabled"`
+	CoveredSourceCount                int                                                             `json:"covered_source_count"`
+	RequiredSourceCount               int                                                             `json:"required_source_count"`
+	ReadinessStatus                   EnterpriseAuditExportDeliveryReportStoredReadinessStatus        `json:"readiness_status"`
+	Message                           string                                                          `json:"message"`
+	Recovery                          string                                                          `json:"recovery"`
+}
+
+// EnterpriseAuditExportDeliveryReportGenerateResult 表示受控生成的内存 markdown 交付报告。
+// 该结果不落报告文件、不写 report storage、不写 audit、不修改任务状态。
+type EnterpriseAuditExportDeliveryReportGenerateResult struct {
+	Status                            string                                                            `json:"status"`
+	IdempotencyKey                    string                                                            `json:"idempotency_key"`
+	Reason                            string                                                            `json:"reason"`
+	GeneratedAt                       string                                                            `json:"generated_at"`
+	ReportFormat                      string                                                            `json:"report_format"`
+	ReportContent                     string                                                            `json:"report_content"`
+	ReportContentByteCount            int                                                               `json:"report_content_byte_count"`
+	RequiredReportSections            []string                                                          `json:"required_report_sections"`
+	RequiredReportSectionCount        int                                                               `json:"required_report_section_count"`
+	DeliveryReportReadinessStatus     EnterpriseAuditExportDeliveryReportReadinessStatus                `json:"delivery_report_readiness_status"`
+	CompletedTaskReadinessStatus      EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus   `json:"completed_task_readiness_status"`
+	GenerateRequestReadinessStatus    EnterpriseAuditExportDeliveryReportGenerateRequestReadinessStatus `json:"generate_request_readiness_status"`
+	CompletedTaskCount                int                                                               `json:"completed_task_count"`
+	WorkerExecutionCompletedTaskCount int                                                               `json:"worker_execution_completed_task_count"`
+	RequiredTaskStatus                string                                                            `json:"required_task_status"`
+	RequiredTaskSource                string                                                            `json:"required_task_source"`
+	CompletedTaskEvidenceRequired     bool                                                              `json:"completed_task_evidence_required"`
+	WorkerExecutionTaskSourceRequired bool                                                              `json:"worker_execution_task_source_required"`
+	ReportFileWritten                 bool                                                              `json:"report_file_written"`
+	ReportStorageWriteStarted         bool                                                              `json:"report_storage_write_started"`
+	ReportAuditWriteStarted           bool                                                              `json:"report_audit_write_started"`
+	WorkerExecutionStarted            bool                                                              `json:"worker_execution_started"`
+	TaskStatusMutationStarted         bool                                                              `json:"task_status_mutation_started"`
+	ArchiveDeletionStarted            bool                                                              `json:"archive_deletion_started"`
+	ExportFileGenerationStarted       bool                                                              `json:"export_file_generation_started"`
+	OutputStorageWriteStarted         bool                                                              `json:"output_storage_write_started"`
+	AuditWriteStarted                 bool                                                              `json:"audit_write_started"`
+	ProjectWriteStarted               bool                                                              `json:"project_write_started"`
+	Message                           string                                                            `json:"message"`
+	Recovery                          string                                                            `json:"recovery"`
+}
+
+// EnterpriseAuditExportDeliveryReportStoreResult 表示交付报告已受控写入 report storage 或命中幂等既有报告。
+// 该结果只写 report storage 数据库表与 admin audit，不写报告文件、不启动 worker、不修改任务状态。
+type EnterpriseAuditExportDeliveryReportStoreResult struct {
+	Status                            string                                                          `json:"status"`
+	Report                            model.EnterpriseAuditExportDeliveryReport                       `json:"report"`
+	StorageReadinessStatus            EnterpriseAuditExportDeliveryReportStorageReadinessStatus       `json:"storage_readiness_status"`
+	CompletedTaskReadinessStatus      EnterpriseAuditExportDeliveryReportCompletedTaskReadinessStatus `json:"completed_task_readiness_status"`
+	CompletedTaskCount                int                                                             `json:"completed_task_count"`
+	WorkerExecutionCompletedTaskCount int                                                             `json:"worker_execution_completed_task_count"`
+	RequiredTaskStatus                string                                                          `json:"required_task_status"`
+	RequiredTaskSource                string                                                          `json:"required_task_source"`
+	CompletedTaskEvidenceRequired     bool                                                            `json:"completed_task_evidence_required"`
+	WorkerExecutionTaskSourceRequired bool                                                            `json:"worker_execution_task_source_required"`
+	ChecksumAlgorithm                 string                                                          `json:"checksum_algorithm"`
+	ChecksumSHA256                    string                                                          `json:"checksum_sha256"`
+	StoragePath                       string                                                          `json:"storage_path"`
+	ReportStorageWritten              bool                                                            `json:"report_storage_written"`
+	ReportAuditWritten                bool                                                            `json:"report_audit_written"`
+	ReportFileWritten                 bool                                                            `json:"report_file_written"`
+	WorkerExecutionStarted            bool                                                            `json:"worker_execution_started"`
+	TaskStatusMutationStarted         bool                                                            `json:"task_status_mutation_started"`
+	ArchiveDeletionStarted            bool                                                            `json:"archive_deletion_started"`
+	ExportFileGenerationStarted       bool                                                            `json:"export_file_generation_started"`
+	OutputStorageWriteStarted         bool                                                            `json:"output_storage_write_started"`
+	AdminAuditWriteStarted            bool                                                            `json:"admin_audit_write_started"`
+	ProjectWriteStarted               bool                                                            `json:"project_write_started"`
+	Message                           string                                                          `json:"message"`
+	Recovery                          string                                                          `json:"recovery"`
+}
+
+// EnterpriseAuditRetentionReadiness 聚合企业审计保留策略只读事实。
+// 它只读取 system_config、admin_audit_log 与 activation audit 事件，不删除审计数据。
+type EnterpriseAuditRetentionReadiness struct {
+	AdminAuditLogCount        int64                                   `json:"admin_audit_log_count"`
+	ActivationAuditEventCount int64                                   `json:"activation_audit_event_count"`
+	RetentionPolicyKey        string                                  `json:"retention_policy_key"`
+	RetentionPolicyConfigured bool                                    `json:"retention_policy_configured"`
+	RetentionDays             int                                     `json:"retention_days"`
+	MinimumRetentionDays      int                                     `json:"minimum_retention_days"`
+	MaximumRetentionDays      int                                     `json:"maximum_retention_days"`
+	RetentionDeletionEnabled  bool                                    `json:"retention_deletion_enabled"`
+	CoveredSourceCount        int                                     `json:"covered_source_count"`
+	RequiredSourceCount       int                                     `json:"required_source_count"`
+	ReadinessStatus           EnterpriseAuditRetentionReadinessStatus `json:"readiness_status"`
+	Message                   string                                  `json:"message"`
+	Recovery                  string                                  `json:"recovery"`
+}
+
+// EnterpriseProjectAccessGuardActivationManualApprovalResult 表示人工审批证据已写入 activation audit。
+// 该结果不代表企业映射授权、租户隔离或组织级 RBAC 已启用。
+type EnterpriseProjectAccessGuardActivationManualApprovalResult struct {
+	Status          string                                                `json:"status"`
+	EventID         int64                                                 `json:"event_id"`
+	EventType       EnterpriseProjectAccessGuardActivationAuditEventType  `json:"event_type"`
+	ReadinessStatus ProjectAccessGuardEnterpriseActivationReadinessStatus `json:"readiness_status"`
+	CurrentMode     ProjectAccessGuardMode                                `json:"current_mode"`
+	TargetMode      ProjectAccessGuardMode                                `json:"target_mode"`
+	Message         string                                                `json:"message"`
+	Recovery        string                                                `json:"recovery"`
+}
+
+// EnterpriseProjectAccessGuardActivationExecutionResult 表示 activation execution 审计证据已写入。
+// 该结果只记录 execution 计划确认，不执行企业映射授权切换。
+type EnterpriseProjectAccessGuardActivationExecutionResult struct {
+	Status          string                                                `json:"status"`
+	EventID         int64                                                 `json:"event_id"`
+	EventType       EnterpriseProjectAccessGuardActivationAuditEventType  `json:"event_type"`
+	ReadinessStatus ProjectAccessGuardEnterpriseActivationReadinessStatus `json:"readiness_status"`
+	CurrentMode     ProjectAccessGuardMode                                `json:"current_mode"`
+	TargetMode      ProjectAccessGuardMode                                `json:"target_mode"`
+	Message         string                                                `json:"message"`
+	Recovery        string                                                `json:"recovery"`
+}
+
+// EnterpriseProjectAccessGuardPostActivationValidationResult 表示 post-activation validation 审计证据已写入。
+// 该结果只记录验证计划确认，不执行企业映射授权切换后的真实访问验证。
+type EnterpriseProjectAccessGuardPostActivationValidationResult struct {
+	Status          string                                                `json:"status"`
+	EventID         int64                                                 `json:"event_id"`
+	EventType       EnterpriseProjectAccessGuardActivationAuditEventType  `json:"event_type"`
+	ReadinessStatus ProjectAccessGuardEnterpriseActivationReadinessStatus `json:"readiness_status"`
+	CurrentMode     ProjectAccessGuardMode                                `json:"current_mode"`
+	TargetMode      ProjectAccessGuardMode                                `json:"target_mode"`
+	Message         string                                                `json:"message"`
+	Recovery        string                                                `json:"recovery"`
+}
+
+// EnterpriseProjectAccessGuardRollbackEvidenceResult 表示 rollback evidence 审计证据已写入。
+// 该结果只记录 rollback runbook 证据，不执行真实回滚或企业映射授权切换。
+type EnterpriseProjectAccessGuardRollbackEvidenceResult struct {
+	Status            string                                                `json:"status"`
+	EventID           int64                                                 `json:"event_id"`
+	EventType         EnterpriseProjectAccessGuardActivationAuditEventType  `json:"event_type"`
+	ReadinessStatus   ProjectAccessGuardEnterpriseActivationReadinessStatus `json:"readiness_status"`
+	CurrentMode       ProjectAccessGuardMode                                `json:"current_mode"`
+	TargetMode        ProjectAccessGuardMode                                `json:"target_mode"`
+	RollbackReference string                                                `json:"rollback_reference"`
+	Message           string                                                `json:"message"`
+	Recovery          string                                                `json:"recovery"`
+}
+
+// EnterpriseProjectAccessGuardAuthorizationActivationResult 表示 enterprise authorization 已受控激活。
+// 该结果只切换 Project Access Guard 授权模式，不写 projects、不启用租户隔离或组织级 RBAC。
+type EnterpriseProjectAccessGuardAuthorizationActivationResult struct {
+	Status                        string                                                `json:"status"`
+	EventID                       int64                                                 `json:"event_id"`
+	EventType                     EnterpriseProjectAccessGuardActivationAuditEventType  `json:"event_type"`
+	ReadinessStatus               ProjectAccessGuardEnterpriseActivationReadinessStatus `json:"readiness_status"`
+	PreviousMode                  ProjectAccessGuardMode                                `json:"previous_mode"`
+	CurrentMode                   ProjectAccessGuardMode                                `json:"current_mode"`
+	TargetMode                    ProjectAccessGuardMode                                `json:"target_mode"`
+	EnterpriseAuthorizationActive bool                                                  `json:"enterprise_authorization_active"`
+	ConfigKey                     string                                                `json:"config_key"`
+	ConfigWritten                 bool                                                  `json:"config_written"`
+	ProjectsWritten               bool                                                  `json:"projects_written"`
+	TenantIsolationEnabled        bool                                                  `json:"tenant_isolation_enabled"`
+	OrganizationRBACEnabled       bool                                                  `json:"organization_rbac_enabled"`
+	Message                       string                                                `json:"message"`
+	Recovery                      string                                                `json:"recovery"`
+}
+
+// EnterpriseProjectOwnershipPreflightCandidate 是企业项目归属迁移前的只读候选事实。
+// 它只暴露当前 legacy 项目的身份，不写映射表，也不改变 owner guard。
+type EnterpriseProjectOwnershipPreflightCandidate struct {
+	ProjectRecordID string `json:"project_record_id"`
+	ProjectID       string `json:"project_id"`
+	Name            string `json:"name"`
+	OwnerUserID     string `json:"owner_user_id"`
+}
+
+// EnterpriseProjectOwnershipPreflight 是项目归属迁移入口前的只读预检。
+type EnterpriseProjectOwnershipPreflight struct {
+	ProjectCount           int64                                          `json:"project_count"`
+	ExistingOwnershipCount int64                                          `json:"existing_ownership_count"`
+	CandidateProjectCount  int64                                          `json:"candidate_project_count"`
+	OrganizationCount      int64                                          `json:"organization_count"`
+	TeamCount              int64                                          `json:"team_count"`
+	MemberCount            int64                                          `json:"member_count"`
+	CandidateLimit         int                                            `json:"candidate_limit"`
+	Candidates             []EnterpriseProjectOwnershipPreflightCandidate `json:"candidates"`
+	PreflightStatus        EnterpriseProjectOwnershipPreflightStatus      `json:"preflight_status"`
+	Message                string                                         `json:"message"`
+	Recovery               string                                         `json:"recovery"`
+}
+
+type EnterpriseProjectOwnershipMigrationStatus string
+
+const EnterpriseProjectOwnershipMigrationMigrated EnterpriseProjectOwnershipMigrationStatus = "migrated"
+
+// EnterpriseProjectOwnershipMigrationResult 是项目归属迁移受控执行结果。
+// 该结果只表示映射表写入成功，不代表 owner guard、租户隔离或组织级 RBAC 已接线。
+type EnterpriseProjectOwnershipMigrationResult struct {
+	Status    EnterpriseProjectOwnershipMigrationStatus `json:"status"`
+	Ownership model.EnterpriseProjectOwnership          `json:"ownership"`
+	Message   string                                    `json:"message"`
+	Recovery  string                                    `json:"recovery"`
+}
+
+// EnterpriseProjectOwnershipMapping 是显式项目归属映射的只读回读行。
+// 它用于迁移审计和后续 owner guard 改造前查证，不参与项目访问控制。
+type EnterpriseProjectOwnershipMapping struct {
+	OwnershipID             int64     `json:"ownership_id"`
+	ProjectRecordID         string    `json:"project_record_id"`
+	ProjectID               string    `json:"project_id"`
+	ProjectName             string    `json:"project_name"`
+	OwnerUserID             string    `json:"owner_user_id"`
+	ProjectFound            bool      `json:"project_found"`
+	OrganizationID          string    `json:"organization_id"`
+	OrganizationSlug        string    `json:"organization_slug"`
+	OrganizationDisplayName string    `json:"organization_display_name"`
+	TeamID                  *string   `json:"team_id,omitempty"`
+	TeamSlug                string    `json:"team_slug"`
+	TeamDisplayName         string    `json:"team_display_name"`
+	Status                  string    `json:"status"`
+	Source                  string    `json:"source"`
+	CreatedAt               time.Time `json:"created_at"`
+	UpdatedAt               time.Time `json:"updated_at"`
+}
+
+// EnterpriseProjectOwnershipMappings 是项目归属映射迁移后的只读审计回读。
+type EnterpriseProjectOwnershipMappings struct {
+	OwnershipCount       int64                                   `json:"ownership_count"`
+	ReturnedMappingCount int                                     `json:"returned_mapping_count"`
+	MissingProjectCount  int64                                   `json:"missing_project_count"`
+	MappingLimit         int                                     `json:"mapping_limit"`
+	Mappings             []EnterpriseProjectOwnershipMapping     `json:"mappings"`
+	MappingStatus        EnterpriseProjectOwnershipMappingStatus `json:"mapping_status"`
+	Message              string                                  `json:"message"`
+	Recovery             string                                  `json:"recovery"`
+}
+
+type EnterpriseProjectOwnershipOwnerGuardReadinessCandidate struct {
+	ProjectRecordID string `json:"project_record_id"`
+	ProjectID       string `json:"project_id"`
+	ProjectName     string `json:"project_name"`
+	OwnerUserID     string `json:"owner_user_id"`
+}
+
+// EnterpriseProjectOwnershipOwnerGuardReadiness 是 owner guard 接线前的只读覆盖率预检。
+// 它只评估显式映射是否覆盖现有项目真源，不改变项目访问控制。
+type EnterpriseProjectOwnershipOwnerGuardReadiness struct {
+	ProjectCount         int64                                                    `json:"project_count"`
+	OwnershipCount       int64                                                    `json:"ownership_count"`
+	MappedProjectCount   int64                                                    `json:"mapped_project_count"`
+	UnmappedProjectCount int64                                                    `json:"unmapped_project_count"`
+	ExtraOwnershipCount  int64                                                    `json:"extra_ownership_count"`
+	PreviewLimit         int                                                      `json:"preview_limit"`
+	UnmappedProjects     []EnterpriseProjectOwnershipOwnerGuardReadinessCandidate `json:"unmapped_projects"`
+	OwnerGuardStatus     EnterpriseProjectOwnershipOwnerGuardReadinessStatus      `json:"owner_guard_status"`
+	Message              string                                                   `json:"message"`
+	Recovery             string                                                   `json:"recovery"`
+}
+
+// EnterpriseProjectAccessGuardSwitchReadiness 是 Project Access Guard 切换企业映射授权前的只读 readiness。
+// 它只表达未来切换条件，不激活企业映射授权。
+type EnterpriseProjectAccessGuardSwitchReadiness struct {
+	Status                        ProjectAccessGuardEnterpriseSwitchReadinessStatus `json:"status"`
+	CurrentMode                   ProjectAccessGuardMode                            `json:"current_mode"`
+	TargetMode                    ProjectAccessGuardMode                            `json:"target_mode"`
+	CanSwitchToEnterpriseOwned    bool                                              `json:"can_switch_to_enterprise_owned"`
+	ProjectCount                  int64                                             `json:"project_count"`
+	OwnershipCount                int64                                             `json:"ownership_count"`
+	MappedProjectCount            int64                                             `json:"mapped_project_count"`
+	UnmappedProjectCount          int64                                             `json:"unmapped_project_count"`
+	ExtraOwnershipCount           int64                                             `json:"extra_ownership_count"`
+	OwnershipLookupAvailable      bool                                              `json:"ownership_lookup_available"`
+	EnterpriseAuthorizationActive bool                                              `json:"enterprise_authorization_active"`
+	Message                       string                                            `json:"message"`
+	Recovery                      string                                            `json:"recovery"`
+}
+
+type EnterpriseProjectAccessGuardAuthorizationDryRunDriftCandidate struct {
+	ProjectRecordID string                                           `json:"project_record_id"`
+	ProjectID       string                                           `json:"project_id"`
+	ProjectName     string                                           `json:"project_name"`
+	OwnerUserID     string                                           `json:"owner_user_id"`
+	DryRunStatus    ProjectAccessEnterpriseAuthorizationDryRunStatus `json:"dry_run_status"`
+	DryRunDecision  ProjectAccessDecisionStatus                      `json:"dry_run_decision"`
+	DriftStatus     ProjectAccessEnterpriseAuthorizationDriftStatus  `json:"drift_status"`
+}
+
+type EnterpriseProjectAccessGuardActivationBlockerCandidate struct {
+	Source          ProjectAccessGuardEnterpriseActivationBlockerSource `json:"source"`
+	ProjectRecordID string                                              `json:"project_record_id"`
+	ProjectID       string                                              `json:"project_id"`
+	ProjectName     string                                              `json:"project_name"`
+	OwnerUserID     string                                              `json:"owner_user_id"`
+	DryRunStatus    ProjectAccessEnterpriseAuthorizationDryRunStatus    `json:"dry_run_status"`
+	DryRunDecision  ProjectAccessDecisionStatus                         `json:"dry_run_decision"`
+	DriftStatus     ProjectAccessEnterpriseAuthorizationDriftStatus     `json:"drift_status"`
+}
+
+type EnterpriseProjectAccessGuardActivationReviewItem struct {
+	Source   ProjectAccessGuardEnterpriseActivationReviewItemSource `json:"source"`
+	Status   ProjectAccessGuardEnterpriseActivationReviewItemStatus `json:"status"`
+	Message  string                                                 `json:"message"`
+	Recovery string                                                 `json:"recovery"`
+}
+
+type EnterpriseProjectAccessGuardActivationAuditPlanItem struct {
+	Source   ProjectAccessGuardEnterpriseActivationAuditPlanItemSource `json:"source"`
+	Status   ProjectAccessGuardEnterpriseActivationAuditPlanItemStatus `json:"status"`
+	Message  string                                                    `json:"message"`
+	Recovery string                                                    `json:"recovery"`
+}
+
+// EnterpriseProjectAccessGuardAuthorizationDryRunEvidence 是 Project Access Guard 企业映射授权 dry-run 的只读 evidence。
+// 它只聚合 legacy owner 维度的 hypothetical enterprise decision，不改变真实授权结果。
+type EnterpriseProjectAccessGuardAuthorizationDryRunEvidence struct {
+	Status                              ProjectAccessGuardEnterpriseAuthorizationDryRunEvidenceStatus   `json:"status"`
+	CurrentMode                         ProjectAccessGuardMode                                          `json:"current_mode"`
+	TargetMode                          ProjectAccessGuardMode                                          `json:"target_mode"`
+	ProjectCount                        int64                                                           `json:"project_count"`
+	ComparedProjectCount                int64                                                           `json:"compared_project_count"`
+	AlignedProjectCount                 int64                                                           `json:"aligned_project_count"`
+	EnterpriseUnavailableProjectCount   int64                                                           `json:"enterprise_unavailable_project_count"`
+	LegacyGrantedEnterpriseBlockedCount int64                                                           `json:"legacy_granted_enterprise_blocked_count"`
+	LegacyBlockedEnterpriseGrantedCount int64                                                           `json:"legacy_blocked_enterprise_granted_count"`
+	DriftPreviewLimit                   int                                                             `json:"drift_preview_limit"`
+	DriftCandidates                     []EnterpriseProjectAccessGuardAuthorizationDryRunDriftCandidate `json:"drift_candidates"`
+	EnterpriseAuthorizationActive       bool                                                            `json:"enterprise_authorization_active"`
+	Message                             string                                                          `json:"message"`
+	Recovery                            string                                                          `json:"recovery"`
+}
+
+// EnterpriseProjectAccessGuardActivationReadiness 是企业映射授权真实切换前的合成只读门禁。
+// 它聚合 switch readiness 与 authorization dry-run evidence，不改变真实访问控制。
+type EnterpriseProjectAccessGuardActivationReadiness struct {
+	Status                        ProjectAccessGuardEnterpriseActivationReadinessStatus         `json:"status"`
+	CurrentMode                   ProjectAccessGuardMode                                        `json:"current_mode"`
+	TargetMode                    ProjectAccessGuardMode                                        `json:"target_mode"`
+	CanActivateEnterpriseOwned    bool                                                          `json:"can_activate_enterprise_owned"`
+	SwitchStatus                  ProjectAccessGuardEnterpriseSwitchReadinessStatus             `json:"switch_status"`
+	AuthorizationDryRunStatus     ProjectAccessGuardEnterpriseAuthorizationDryRunEvidenceStatus `json:"authorization_dry_run_status"`
+	ProjectCount                  int64                                                         `json:"project_count"`
+	MappedProjectCount            int64                                                         `json:"mapped_project_count"`
+	UnmappedProjectCount          int64                                                         `json:"unmapped_project_count"`
+	ExtraOwnershipCount           int64                                                         `json:"extra_ownership_count"`
+	ComparedProjectCount          int64                                                         `json:"compared_project_count"`
+	AlignedProjectCount           int64                                                         `json:"aligned_project_count"`
+	EnterpriseUnavailableCount    int64                                                         `json:"enterprise_unavailable_count"`
+	AuthorizationDriftCount       int64                                                         `json:"authorization_drift_count"`
+	BlockerPreviewLimit           int                                                           `json:"blocker_preview_limit"`
+	BlockerCandidates             []EnterpriseProjectAccessGuardActivationBlockerCandidate      `json:"blocker_candidates"`
+	ReviewItems                   []EnterpriseProjectAccessGuardActivationReviewItem            `json:"review_items"`
+	AuditPlanItems                []EnterpriseProjectAccessGuardActivationAuditPlanItem         `json:"audit_plan_items"`
+	EnterpriseAuthorizationActive bool                                                          `json:"enterprise_authorization_active"`
+	Message                       string                                                        `json:"message"`
+	Recovery                      string                                                        `json:"recovery"`
+}
+
+// GetEnterpriseSsoDiscoveryReadiness 获取企业 SSO OIDC discovery 只读预检。
+func (s *AdminConsoleService) GetEnterpriseSsoDiscoveryReadiness(ctx context.Context) (*EnterpriseSsoDiscoveryReadiness, error) {
+	return s.getEnterpriseSsoDiscoveryReadinessWithClient(ctx, http.DefaultClient)
+}
+
+func (s *AdminConsoleService) getEnterpriseSsoDiscoveryReadinessWithClient(ctx context.Context, client *http.Client) (*EnterpriseSsoDiscoveryReadiness, error) {
+	if s == nil || s.systemConfigService == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	if client == nil {
+		return nil, fmt.Errorf("http client not available")
+	}
+	configItems, err := s.systemConfigService.ListConfigItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	values := readEnterpriseSsoConfigValues(configItems)
+	result := &EnterpriseSsoDiscoveryReadiness{
+		Status:                      EnterpriseSsoDiscoveryMissingConfig,
+		SsoEnabled:                  strings.EqualFold(values[enterpriseSsoEnabledConfigKey], "true"),
+		ProviderType:                values[enterpriseSsoProviderTypeConfigKey],
+		IssuerURL:                   values[enterpriseSsoIssuerURLConfigKey],
+		ClientIDConfigured:          strings.TrimSpace(values[enterpriseSsoClientIDConfigKey]) != "",
+		RedirectURIConfigured:       strings.TrimSpace(values[enterpriseSsoRedirectURIConfigKey]) != "",
+		LoginCallbackEnabled:        false,
+		SessionNormalizationEnabled: false,
+		AdminAuditWriteEnabled:      false,
+	}
+	if result.SsoEnabled == false {
+		result.Status = EnterpriseSsoDiscoveryDisabled
+		result.Message = "Enterprise SSO is disabled in system_config."
+		result.Recovery = "Enable enterprise.sso.enabled and configure issuer/client/redirect before running OIDC discovery."
+		return result, nil
+	}
+	if strings.TrimSpace(result.IssuerURL) == "" || result.ClientIDConfigured == false || result.RedirectURIConfigured == false {
+		result.Status = EnterpriseSsoDiscoveryMissingConfig
+		result.Message = "Enterprise SSO is enabled, but issuer_url, client_id or redirect_uri is incomplete."
+		result.Recovery = "Configure enterprise.sso.issuer_url, enterprise.sso.client_id and enterprise.sso.redirect_uri; discovery will not call upstream while required config is missing."
+		return result, nil
+	}
+	discoveryURL, normalizedIssuer, err := buildEnterpriseSsoDiscoveryURL(result.IssuerURL)
+	if err != nil {
+		result.Status = EnterpriseSsoDiscoveryFailed
+		result.Message = fmt.Sprintf("Enterprise SSO issuer_url is invalid: %s", err.Error())
+		result.Recovery = "Use an https issuer URL without query or fragment, then rerun SSO discovery readiness."
+		return result, nil
+	}
+	result.IssuerURL = normalizedIssuer
+	result.DiscoveryURL = discoveryURL
+	result.DiscoveryRequestPerformed = true
+
+	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(enterpriseSsoDiscoveryRequestTimeoutSeconds)*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		result.Status = EnterpriseSsoDiscoveryFailed
+		result.Message = fmt.Sprintf("Failed to build OIDC discovery request: %s", err.Error())
+		result.Recovery = "Check issuer URL format and retry discovery readiness."
+		return result, nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		result.Status = EnterpriseSsoDiscoveryFailed
+		result.Message = fmt.Sprintf("OIDC discovery request failed: %s", err.Error())
+		result.Recovery = "Check identity provider network reachability, TLS certificate and issuer URL, then retry."
+		return result, nil
+	}
+	defer resp.Body.Close()
+	result.DiscoveryHTTPStatusCode = resp.StatusCode
+	if resp.StatusCode != http.StatusOK {
+		result.Status = EnterpriseSsoDiscoveryFailed
+		result.Message = fmt.Sprintf("OIDC discovery endpoint returned HTTP %d.", resp.StatusCode)
+		result.Recovery = "Check identity provider discovery endpoint availability and retry."
+		return result, nil
+	}
+	var document enterpriseSsoDiscoveryDocument
+	if err := json.NewDecoder(resp.Body).Decode(&document); err != nil {
+		result.Status = EnterpriseSsoDiscoveryFailed
+		result.Message = fmt.Sprintf("OIDC discovery document is not valid JSON: %s", err.Error())
+		result.Recovery = "Check identity provider discovery response format and retry."
+		return result, nil
+	}
+	result.DiscoveredIssuer = strings.TrimSpace(document.Issuer)
+	result.AuthorizationEndpoint = strings.TrimSpace(document.AuthorizationEndpoint)
+	result.TokenEndpoint = strings.TrimSpace(document.TokenEndpoint)
+	result.JWKSURI = strings.TrimSpace(document.JWKSURI)
+	result.ResponseTypesSupportedCount = len(document.ResponseTypesSupported)
+	result.ScopesSupportedCount = len(document.ScopesSupported)
+	if normalizeEnterpriseSsoIssuer(result.DiscoveredIssuer) != normalizeEnterpriseSsoIssuer(result.IssuerURL) {
+		result.Status = EnterpriseSsoDiscoveryFailed
+		result.Message = "OIDC discovery issuer does not match enterprise.sso.issuer_url."
+		result.Recovery = "Align enterprise.sso.issuer_url with the provider issuer value before enabling login callback."
+		return result, nil
+	}
+	if result.AuthorizationEndpoint == "" || result.TokenEndpoint == "" || result.JWKSURI == "" {
+		result.Status = EnterpriseSsoDiscoveryFailed
+		result.Message = "OIDC discovery document is missing authorization_endpoint, token_endpoint or jwks_uri."
+		result.Recovery = "Fix provider discovery metadata before enabling SSO login callback."
+		return result, nil
+	}
+	result.Status = EnterpriseSsoDiscoveryReady
+	result.Message = "OIDC discovery document is reachable and contains required issuer, authorization, token and JWKS metadata."
+	result.Recovery = "Next step is implementing controlled login callback, session normalization and admin audit writes; this readiness does not enable SSO login."
+	return result, nil
+}
+
+func readEnterpriseSsoConfigValues(configs []model.SystemConfig) map[string]string {
+	values := map[string]string{
+		enterpriseSsoEnabledConfigKey:      "",
+		enterpriseSsoProviderTypeConfigKey: "",
+		enterpriseSsoIssuerURLConfigKey:    "",
+		enterpriseSsoClientIDConfigKey:     "",
+		enterpriseSsoRedirectURIConfigKey:  "",
+	}
+	for _, config := range configs {
+		key := strings.TrimSpace(config.Key)
+		if _, ok := values[key]; ok {
+			values[key] = strings.TrimSpace(config.Value)
+		}
+	}
+	return values
+}
+
+func buildEnterpriseSsoDiscoveryURL(issuer string) (string, string, error) {
+	normalizedIssuer := normalizeEnterpriseSsoIssuer(issuer)
+	parsed, err := url.Parse(normalizedIssuer)
+	if err != nil {
+		return "", "", err
+	}
+	if parsed.Scheme != "https" {
+		return "", "", fmt.Errorf("issuer must use https")
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return "", "", fmt.Errorf("issuer host is required")
+	}
+	if strings.TrimSpace(parsed.RawQuery) != "" || strings.TrimSpace(parsed.Fragment) != "" {
+		return "", "", fmt.Errorf("issuer must not contain query or fragment")
+	}
+	return normalizedIssuer + "/.well-known/openid-configuration", normalizedIssuer, nil
+}
+
+func normalizeEnterpriseSsoIssuer(value string) string {
+	return strings.TrimRight(strings.TrimSpace(value), "/")
+}
+
+// GetEnterprisePrivateDeploymentReadiness 获取私有部署只读 readiness。
+func (s *AdminConsoleService) GetEnterprisePrivateDeploymentReadiness(ctx context.Context) (*EnterprisePrivateDeploymentReadiness, error) {
+	cfg := config.Get()
+	result := &EnterprisePrivateDeploymentReadiness{
+		ReadinessStatus:                 EnterprisePrivateDeploymentReady,
+		DatabaseType:                    strings.ToLower(strings.TrimSpace(cfg.Database.Type)),
+		DatabaseConfigured:              isEnterprisePrivateDeploymentDatabaseConfigured(cfg),
+		SupabaseConfigured:              isEnterprisePrivateDeploymentSupabaseConfigured(cfg),
+		JWTConfigured:                   strings.TrimSpace(cfg.JWT.Secret) != "",
+		ContainerEnabled:                cfg.Container.Enabled,
+		ContainerRuntime:                strings.ToLower(strings.TrimSpace(cfg.Container.Runtime)),
+		ContainerSocketConfigured:       strings.TrimSpace(cfg.Container.SocketPath) != "",
+		ProjectDirectoryConfigured:      strings.TrimSpace(cfg.Container.ProjectDir) != "",
+		PreviewGatewayConfigured:        cfg.Container.PreviewPort > 0 && strings.TrimSpace(cfg.Container.PreviewBindHost) != "",
+		RequiredRuntimeConfigKeyCount:   len(enterprisePrivateDeploymentRequiredRuntimeConfigKeys),
+		MigrationSchemaCheckCount:       5,
+		EnvironmentVariableWriteEnabled: false,
+		DatabaseMigrationWriteEnabled:   false,
+		ContainerMutationEnabled:        false,
+		ExternalNetworkProbeEnabled:     false,
+		Message:                         "私有部署 readiness 已完成只读聚合",
+		Recovery:                        "该 readiness 只读取启动配置、system_config、企业治理表 schema 与容器/Preview 边界；不会写环境变量、执行 migration、启动容器或访问外部网络。",
+	}
+
+	if s == nil || s.systemConfigService == nil {
+		result.ReadinessStatus = EnterprisePrivateDeploymentSystemConfigUnavailable
+		result.Message = "system_config 服务不可用，无法确认运行期配置已从 env 收口到后台真源"
+		result.Recovery = "请先确认 SystemConfigService 与数据库仓储可用；当前不会写入 system_config 或修改 env。"
+		return result, nil
+	}
+
+	configItems, err := s.systemConfigService.ListConfigItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result.SystemConfigAvailable = true
+	result.RuntimeConfigKeyCount = countEnterprisePrivateDeploymentRuntimeConfigKeys(configItems)
+	result.RuntimeConfigCovered = result.RuntimeConfigKeyCount >= result.RequiredRuntimeConfigKeyCount
+
+	result.MigrationSchemaAvailableCheckCount = s.countEnterprisePrivateDeploymentSchemaChecks(ctx)
+	result.MigrationSchemaAvailable = result.MigrationSchemaAvailableCheckCount == result.MigrationSchemaCheckCount
+
+	if !result.DatabaseConfigured || !result.JWTConfigured {
+		result.ReadinessStatus = EnterprisePrivateDeploymentBootstrapConfigMissing
+		result.Message = "私有部署 bootstrap 配置不完整"
+		result.Recovery = "请补齐数据库连接和 JWT secret；当前只读检查不会修改 .env、system_config 或数据库。"
+		return result, nil
+	}
+	if !result.RuntimeConfigCovered {
+		result.ReadinessStatus = EnterprisePrivateDeploymentRuntimeConfigMissing
+		result.Message = "后台运行期配置覆盖不足"
+		result.Recovery = "请通过 migration/default seed 补齐 system/project/capability/container/enterprise.* 运行期配置；不得把运行期策略重新放回 .env.example。"
+		return result, nil
+	}
+	if !result.MigrationSchemaAvailable {
+		result.ReadinessStatus = EnterprisePrivateDeploymentMigrationSchemaMissing
+		result.Message = "企业治理 migration schema 尚未全部可读"
+		result.Recovery = "请确认数据库 migration 已执行且 SQL manifest 与实际表结构一致；当前 readiness 不执行 migration 或 DDL。"
+		return result, nil
+	}
+	if result.ContainerEnabled && (!hasEnterprisePrivateDeploymentText(result.ContainerRuntime) || !result.ContainerSocketConfigured || !result.ProjectDirectoryConfigured || !result.PreviewGatewayConfigured) {
+		result.ReadinessStatus = EnterprisePrivateDeploymentContainerBoundaryMissing
+		result.Message = "容器运行时或 Preview Gateway 边界配置不完整"
+		result.Recovery = "请补齐容器 runtime、socket、project_dir 与 Preview Gateway 监听配置；当前 readiness 不启动容器、不探测外部网络。"
+		return result, nil
+	}
+
+	return result, nil
+}
+
+func isEnterprisePrivateDeploymentDatabaseConfigured(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	dbType := strings.ToLower(strings.TrimSpace(cfg.Database.Type))
+	switch dbType {
+	case "supabase":
+		return isEnterprisePrivateDeploymentSupabaseConfigured(cfg)
+	case "postgres":
+		return hasEnterprisePrivateDeploymentText(cfg.Database.Host) &&
+			hasEnterprisePrivateDeploymentText(cfg.Database.User) &&
+			hasEnterprisePrivateDeploymentText(cfg.Database.Database)
+	case "mysql":
+		return hasEnterprisePrivateDeploymentText(cfg.Database.Host) &&
+			hasEnterprisePrivateDeploymentText(cfg.Database.User) &&
+			hasEnterprisePrivateDeploymentText(cfg.Database.Database)
+	default:
+		return false
+	}
+}
+
+func isEnterprisePrivateDeploymentSupabaseConfigured(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	return hasEnterprisePrivateDeploymentText(cfg.Database.SupabaseURL) &&
+		hasEnterprisePrivateDeploymentText(cfg.Database.SupabaseAnonKey) &&
+		hasEnterprisePrivateDeploymentText(cfg.Database.SupabaseServiceKey)
+}
+
+func hasEnterprisePrivateDeploymentText(value string) bool {
+	return strings.TrimSpace(value) != ""
+}
+
+func countEnterprisePrivateDeploymentRuntimeConfigKeys(configs []model.SystemConfig) int {
+	available := make(map[string]struct{}, len(configs))
+	for _, configItem := range configs {
+		available[strings.TrimSpace(configItem.Key)] = struct{}{}
+	}
+	count := 0
+	for _, requiredKey := range enterprisePrivateDeploymentRequiredRuntimeConfigKeys {
+		if _, ok := available[requiredKey]; ok {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *AdminConsoleService) countEnterprisePrivateDeploymentSchemaChecks(ctx context.Context) int {
+	if s == nil || s.adminRepo == nil {
+		return 0
+	}
+	count := 0
+	if _, err := s.adminRepo.CountEnterpriseOrganizations(ctx); err == nil {
+		count++
+	}
+	if _, err := s.adminRepo.CountEnterpriseProjectOwnerships(ctx); err == nil {
+		count++
+	}
+	if _, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx); err == nil {
+		count++
+	}
+	if _, err := s.adminRepo.CountEnterpriseAuditExportTasks(ctx); err == nil {
+		count++
+	}
+	if _, err := s.adminRepo.CountEnterpriseAuditExportDeliveryReports(ctx); err == nil {
+		count++
+	}
+	return count
+}
+
+// GetEnterpriseCommercialReadiness 获取商业化发布前只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseCommercialReadiness(ctx context.Context) (*EnterpriseCommercialReadiness, error) {
+	projectOwnershipReadiness, err := s.GetEnterpriseProjectAccessGuardActivationReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	auditComplianceReadiness, err := s.GetEnterpriseAuditExportDeliveryReportStoredReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	privateDeploymentReadiness, err := s.GetEnterprisePrivateDeploymentReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	projectOwnershipReady := projectOwnershipReadiness.Status == ProjectAccessGuardEnterpriseActivationReadinessReady ||
+		projectOwnershipReadiness.EnterpriseAuthorizationActive
+	auditComplianceReady := auditComplianceReadiness.ReadinessStatus == EnterpriseAuditExportDeliveryReportStoredReadinessReady
+	privateDeploymentReady := privateDeploymentReadiness.ReadinessStatus == EnterprisePrivateDeploymentReady
+
+	result := &EnterpriseCommercialReadiness{
+		ReadinessStatus:               EnterpriseCommercialReadinessReady,
+		ProjectOwnershipStatus:        projectOwnershipReadiness.Status,
+		EnterpriseAuthorizationActive: projectOwnershipReadiness.EnterpriseAuthorizationActive,
+		AuditComplianceStatus:         auditComplianceReadiness.ReadinessStatus,
+		PrivateDeploymentStatus:       privateDeploymentReadiness.ReadinessStatus,
+		ProjectOwnershipReady:         projectOwnershipReady,
+		AuditComplianceReady:          auditComplianceReady,
+		PrivateDeploymentReady:        privateDeploymentReady,
+		BillingProviderConfigured:     false,
+		SubscriptionWriteEnabled:      false,
+		ContractWriteEnabled:          false,
+		PaymentCollectionEnabled:      false,
+		CommercialLaunchReady:         false,
+		Message:                       "商业化 readiness 已完成只读聚合",
+		Recovery:                      "该 readiness 只聚合企业治理、审计合规与私有部署证据；当前不接入计费、订阅、合同或收款写入。",
+	}
+
+	if !projectOwnershipReady {
+		result.ReadinessStatus = EnterpriseCommercialReadinessProjectOwnershipNotReady
+		result.Message = "项目归属治理尚未满足商业化前置条件"
+		result.Recovery = "请先完成 Project Ownership mapping、owner guard 与 Project Access Guard activation readiness；当前不会写订阅、合同或收款记录。"
+		return result, nil
+	}
+	if !auditComplianceReady {
+		result.ReadinessStatus = EnterpriseCommercialReadinessAuditComplianceNotReady
+		result.Message = "审计合规交付证据尚未满足商业化前置条件"
+		result.Recovery = "请先完成审计导出任务、worker execution、completed task 和 stored delivery report evidence；当前不会生成合同或收费记录。"
+		return result, nil
+	}
+	if !privateDeploymentReady {
+		result.ReadinessStatus = EnterpriseCommercialReadinessPrivateDeploymentNotReady
+		result.Message = "私有部署 readiness 尚未满足商业化前置条件"
+		result.Recovery = "请先补齐 bootstrap 配置、DB-backed runtime config、migration schema 和容器/Preview 边界；当前不会修改部署环境。"
+		return result, nil
+	}
+
+	result.ReadinessStatus = EnterpriseCommercialReadinessContractMissing
+	result.Message = "企业治理、审计合规和私有部署前置证据已具备，但商业合同/计费契约尚未接入"
+	result.Recovery = "下一步应设计受控的 billing provider、subscription、contract 和 payment collection schema；在该契约完成前不得声明商业化正式可发布。"
+	return result, nil
+}
+
+// GetEnterpriseOrganizationReadiness 获取企业组织 / 团队 / 成员模型只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseOrganizationReadiness(ctx context.Context) (*EnterpriseOrganizationReadiness, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	organizationCount, err := s.adminRepo.CountEnterpriseOrganizations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	teamCount, err := s.adminRepo.CountEnterpriseTeams(ctx)
+	if err != nil {
+		return nil, err
+	}
+	memberCount, err := s.adminRepo.CountEnterpriseMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	readiness := &EnterpriseOrganizationReadiness{
+		OrganizationCount: organizationCount,
+		TeamCount:         teamCount,
+		MemberCount:       memberCount,
+	}
+	if organizationCount == 0 {
+		readiness.ReadinessStatus = EnterpriseOrganizationReadinessSchemaReadyNoData
+		readiness.Message = "企业组织、团队与成员表结构已存在，但尚未观测到组织数据。"
+		readiness.Recovery = "先通过受控入口创建企业组织、团队并绑定成员，不能仅凭 schema 将组织治理标记为 ready。"
+		return readiness, nil
+	}
+	if memberCount == 0 {
+		readiness.ReadinessStatus = EnterpriseOrganizationReadinessTeamReadyNoMembers
+		readiness.Message = "已观测到企业组织或团队数据，但尚未观测到成员绑定。"
+		readiness.Recovery = "先补齐 enterprise_members 成员绑定，再推进组织级 RBAC、项目归属和租户隔离。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseOrganizationReadinessMemberReady
+	readiness.Message = "已观测到企业组织、团队和成员真源。"
+	readiness.Recovery = "继续推进组织级 RBAC、项目归属迁移、租户隔离和企业审计增强。"
+	return readiness, nil
+}
+
+// GetEnterpriseProjectOwnershipReadiness 获取项目归属迁移只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseProjectOwnershipReadiness(ctx context.Context) (*EnterpriseProjectOwnershipReadiness, error) {
+	if s == nil || s.adminRepo == nil || s.projectRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	organizationCount, err := s.adminRepo.CountEnterpriseOrganizations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	teamCount, err := s.adminRepo.CountEnterpriseTeams(ctx)
+	if err != nil {
+		return nil, err
+	}
+	memberCount, err := s.adminRepo.CountEnterpriseMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	_, projectCount, err := s.projectRepo.ListAll(ctx, 1, 1)
+	if err != nil {
+		return nil, err
+	}
+	organizationProjectCount, err := s.adminRepo.CountEnterpriseProjectOwnerships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	unmigratedProjectCount := projectCount - organizationProjectCount
+	if unmigratedProjectCount < 0 {
+		unmigratedProjectCount = 0
+	}
+
+	readiness := &EnterpriseProjectOwnershipReadiness{
+		ProjectCount:                projectCount,
+		LegacyUserOwnedProjectCount: unmigratedProjectCount,
+		OrganizationProjectCount:    organizationProjectCount,
+		UnmigratedProjectCount:      unmigratedProjectCount,
+		OrganizationCount:           organizationCount,
+		TeamCount:                   teamCount,
+		MemberCount:                 memberCount,
+	}
+	if projectCount == 0 {
+		readiness.ReadinessStatus = EnterpriseProjectOwnershipReadinessNoProjects
+		readiness.Message = "当前没有可观测项目，项目归属迁移尚无执行对象。"
+		readiness.Recovery = "先确认 Admin Projects 能读取项目真源；有项目后再设计 organization/team ownership contract。"
+		return readiness, nil
+	}
+	if organizationCount == 0 || teamCount == 0 || memberCount == 0 {
+		readiness.ReadinessStatus = EnterpriseProjectOwnershipReadinessOrganizationModelNotReady
+		readiness.Message = "已观测到项目，但企业组织、团队或成员真源尚未完整。"
+		readiness.Recovery = "先补齐企业组织、团队和成员绑定，再开放项目归属迁移入口。"
+		return readiness, nil
+	}
+	if unmigratedProjectCount == 0 {
+		readiness.ReadinessStatus = EnterpriseProjectOwnershipReadinessOwnershipSchemaReady
+		readiness.Message = "已观测项目均存在显式企业项目归属映射，但租户隔离和组织级 RBAC 尚未接线。"
+		readiness.Recovery = "继续通过受控入口查证映射来源，再推进租户隔离、组织级 RBAC 与 owner guard 改造。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseProjectOwnershipReadinessLegacyUserOwned
+	readiness.Message = "已观测到项目和企业组织治理真源，但仍有项目缺少显式企业归属映射。"
+	readiness.Recovery = "下一步需要开放受控项目归属迁移入口；迁移完成前不得启用租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+// GetEnterpriseProjectAccessGuardActivationAuditReadiness 获取 Project Access Guard activation audit schema 只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseProjectAccessGuardActivationAuditReadiness(ctx context.Context) (*EnterpriseProjectAccessGuardActivationAuditReadiness, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	auditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	auditEvents, err := s.adminRepo.ListEnterpriseProjectAccessGuardActivationAudits(ctx, enterpriseProjectAccessGuardActivationAuditCoverageScanLimit)
+	if err != nil {
+		return nil, err
+	}
+	requiredEventItems, missingRequiredEventTypeCount := buildEnterpriseProjectAccessGuardActivationAuditRequiredEventItems(auditEvents)
+	payloadIssues, payloadIssueCount := buildEnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssues(auditEvents)
+	payloadIntegrityStatus := resolveEnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus(auditEventCount, missingRequiredEventTypeCount, payloadIssueCount)
+	metadataIssues, metadataIssueCount := buildEnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssues(auditEvents)
+	metadataIntegrityStatus := resolveEnterpriseProjectAccessGuardActivationAuditMetadataIntegrityStatus(auditEventCount, metadataIssueCount)
+	recentEvents := auditEvents
+	if len(recentEvents) > enterpriseProjectAccessGuardActivationAuditRecentEventLimit {
+		recentEvents = recentEvents[:enterpriseProjectAccessGuardActivationAuditRecentEventLimit]
+	}
+	readiness := &EnterpriseProjectAccessGuardActivationAuditReadiness{
+		AuditEventCount:               auditEventCount,
+		RequiredEventTypeCount:        enterpriseProjectAccessGuardActivationAuditRequiredEventTypeCount,
+		MissingRequiredEventTypeCount: missingRequiredEventTypeCount,
+		RecentEventLimit:              enterpriseProjectAccessGuardActivationAuditRecentEventLimit,
+		PayloadIntegrityStatus:        payloadIntegrityStatus,
+		PayloadIntegrityIssueCount:    payloadIssueCount,
+		PayloadIntegrityIssueLimit:    enterpriseProjectAccessGuardActivationAuditPayloadIssueLimit,
+		PayloadIntegrityIssues:        payloadIssues,
+		MetadataIntegrityStatus:       metadataIntegrityStatus,
+		MetadataIntegrityIssueCount:   metadataIssueCount,
+		MetadataIntegrityIssueLimit:   enterpriseProjectAccessGuardActivationAuditMetadataIssueLimit,
+		MetadataIntegrityIssues:       metadataIssues,
+		RequiredEventItems:            requiredEventItems,
+		RecentEvents:                  buildEnterpriseProjectAccessGuardActivationAuditRecentEvents(recentEvents),
+	}
+	if auditEventCount == 0 {
+		readiness.ReadinessStatus = EnterpriseProjectAccessGuardActivationAuditSchemaReadyNoEvents
+		readiness.Message = "Project Access Guard activation audit schema 已可计数，但尚未记录真实切换审计事件。"
+		readiness.Recovery = "后续 activation execution 任务必须显式写入 readiness snapshot、blocker snapshot、manual approval、execution、post-activation validation 和 rollback evidence；当前 readiness 不写 audit 记录。"
+		return readiness, nil
+	}
+	if missingRequiredEventTypeCount != 0 {
+		readiness.ReadinessStatus = EnterpriseProjectAccessGuardActivationAuditPartialEvents
+		readiness.Message = "Project Access Guard activation audit schema 已存在部分审计事件，但真实切换审计事件类型尚未完整。"
+		readiness.Recovery = "继续只读核对缺失事件类型和 payload integrity issues；真实 activation execution 任务必须补齐全部 required event types 和对应 snapshot payload 后才能作为完整审计证据。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseProjectAccessGuardActivationAuditEventsRecorded
+	if metadataIssueCount != 0 {
+		readiness.Message = "Project Access Guard activation audit schema 已记录完整 required event type 覆盖，但 metadata integrity 仍存在问题。"
+		readiness.Recovery = "继续只读核对 metadata integrity issues；event type/status、current/target mode 或 source 不符合契约时不得作为完整 activation audit 证据。"
+		return readiness, nil
+	}
+	if payloadIssueCount != 0 {
+		readiness.Message = "Project Access Guard activation audit schema 已记录完整 required event type 覆盖，但 payload integrity 仍存在问题。"
+		readiness.Recovery = "继续只读核对 payload integrity issues；不得把缺少 snapshot payload、非法 JSON object 或缺少 rollback reference 的事件视为完整 activation audit 证据。"
+		return readiness, nil
+	}
+	readiness.Message = "Project Access Guard activation audit schema 已记录完整 required event type 覆盖，且 required payload integrity 已通过只读检查。"
+	readiness.Recovery = "继续核对每个 activation audit event 的 snapshot 内容，再评估企业授权、租户隔离和组织级 RBAC 的真实接线证据。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditCoverageReadiness 获取企业治理审计覆盖只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditCoverageReadiness(ctx context.Context) (*EnterpriseAuditCoverageReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	adminAuditLogCount, err := s.auditRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	activationAuditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	coveredSourceCount := 0
+	if adminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if activationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditCoverageReadiness{
+		AdminAuditLogCount:        adminAuditLogCount,
+		ActivationAuditEventCount: activationAuditEventCount,
+		CoveredSourceCount:        coveredSourceCount,
+		RequiredSourceCount:       enterpriseAuditCoverageRequiredSourceCount,
+	}
+	if adminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditCoverageNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可观测记录，企业治理审计覆盖不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作写入 admin_audit_log，再核对企业治理审计覆盖；本 readiness 不新增写入口。"
+		return readiness, nil
+	}
+	if activationAuditEventCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditCoverageActivationMissing
+		readiness.Message = "Admin audit log 已可观测，但 Project Access Guard activation audit 事件尚未形成覆盖。"
+		readiness.Recovery = "继续通过 manual approval、activation execution、post-activation validation 与 rollback evidence 受控入口补齐 activation audit 事件；不得在此处写入审计记录。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditCoverageReady
+	readiness.Message = "Admin audit log 与 Project Access Guard activation audit 事件均已可观测，企业治理审计覆盖具备只读聚合证据。"
+	readiness.Recovery = "继续扩展企业审计筛选、导出和高风险操作 coverage；当前 readiness 不改变授权、activation、projects、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportReadiness 获取企业治理审计导出前置只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditExportReadiness(ctx context.Context) (*EnterpriseAuditExportReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	adminAuditLogCount, err := s.auditRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recentAuditLogs, err := s.auditRepo.List(ctx, 0, enterpriseAuditExportSampleLimit)
+	if err != nil {
+		return nil, err
+	}
+	activationAuditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	exportSampleCount := len(recentAuditLogs)
+	coveredSourceCount := 0
+	if adminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if activationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if exportSampleCount > 0 {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportReadiness{
+		AdminAuditLogCount:        adminAuditLogCount,
+		ActivationAuditEventCount: activationAuditEventCount,
+		ExportSampleCount:         exportSampleCount,
+		ExportSampleLimit:         enterpriseAuditExportSampleLimit,
+		MaxExportWindow:           enterpriseAuditExportMaxWindow,
+		CoveredSourceCount:        coveredSourceCount,
+		RequiredSourceCount:       enterpriseAuditExportRequiredSourceCount,
+	}
+	if adminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可导出真源，企业审计导出 readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源，再评估导出窗口；本 readiness 不新增写入口或生成导出文件。"
+		return readiness, nil
+	}
+	if activationAuditEventCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportActivationMissing
+		readiness.Message = "Admin audit log 已可导出，但 Project Access Guard activation audit 事件尚未形成企业导出覆盖。"
+		readiness.Recovery = "继续通过受控 activation audit evidence 入口补齐 manual approval、execution、post-validation 与 rollback 事件；当前导出 readiness 只读。"
+		return readiness, nil
+	}
+	if exportSampleCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportSampleMissing
+		readiness.Message = "Admin audit log 计数存在，但最近导出样本回读为空，不能确认导出列表窗口可用。"
+		readiness.Recovery = "先核对 admin_audit_log 列表回读与分页权限；不得通过写入新审计记录来掩盖样本回读问题。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportReadinessAvailable
+	readiness.Message = "Admin audit log、activation audit 事件与最近导出样本均可只读回读，企业审计导出前置 readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控导出任务、格式和保留策略；当前 readiness 不生成文件、不写 audit 记录、不改变授权、activation、projects、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportQueryReadiness 获取企业治理审计导出查询条件只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditExportQueryReadiness(ctx context.Context) (*EnterpriseAuditExportQueryReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	adminAuditLogCount, err := s.auditRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recentAuditLogs, err := s.auditRepo.List(ctx, 0, enterpriseAuditExportQuerySampleLimit)
+	if err != nil {
+		return nil, err
+	}
+	activationAuditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	supportedFilterFields := enterpriseAuditExportQuerySupportedFilterFields()
+	querySampleCount := len(recentAuditLogs)
+	sampleActionCount := countEnterpriseAuditExportQueryDistinctActions(recentAuditLogs)
+	sampleTargetTypeCount := countEnterpriseAuditExportQueryDistinctTargetTypes(recentAuditLogs)
+	sampleActorCount := countEnterpriseAuditExportQueryDistinctActors(recentAuditLogs)
+	coveredSourceCount := 0
+	if adminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if activationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if querySampleCount > 0 {
+		coveredSourceCount++
+	}
+	if len(supportedFilterFields) >= enterpriseAuditExportQueryRequiredFilterFieldCount {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportQueryReadiness{
+		AdminAuditLogCount:          adminAuditLogCount,
+		ActivationAuditEventCount:   activationAuditEventCount,
+		QuerySampleCount:            querySampleCount,
+		QuerySampleLimit:            enterpriseAuditExportQuerySampleLimit,
+		MaxQueryWindow:              enterpriseAuditExportQueryMaxWindow,
+		SupportedFilterFields:       supportedFilterFields,
+		SupportedFilterFieldCount:   len(supportedFilterFields),
+		RequiredFilterFieldCount:    enterpriseAuditExportQueryRequiredFilterFieldCount,
+		SampleActionCount:           sampleActionCount,
+		SampleTargetTypeCount:       sampleTargetTypeCount,
+		SampleActorCount:            sampleActorCount,
+		ExportTaskCreationEnabled:   false,
+		ExportFileGenerationEnabled: false,
+		CoveredSourceCount:          coveredSourceCount,
+		RequiredSourceCount:         enterpriseAuditExportQueryRequiredSourceCount,
+	}
+	if adminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportQueryNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可筛选真源，企业审计导出查询 readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源，再评估导出查询字段；本 readiness 不创建导出任务或生成文件。"
+		return readiness, nil
+	}
+	if activationAuditEventCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportQueryActivationMissing
+		readiness.Message = "Admin audit log 已可筛选，但 activation audit 事件尚未形成企业导出查询覆盖。"
+		readiness.Recovery = "继续补齐 Project Access Guard activation audit evidence 后再推进导出查询条件；当前 readiness 只读。"
+		return readiness, nil
+	}
+	if querySampleCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportQuerySampleMissing
+		readiness.Message = "Admin audit log 计数存在，但导出查询样本回读为空，不能确认过滤条件可用。"
+		readiness.Recovery = "先核对 admin_audit_log 列表回读和分页权限；不得通过写入新审计记录来掩盖查询样本问题。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportQueryReady
+	readiness.Message = "企业审计导出查询字段、最近样本和 activation audit 覆盖均可只读回读，查询 readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控导出任务创建、过滤请求校验和文件生成流程；当前 readiness 不创建任务、不生成文件、不写 audit 记录、不改变授权、activation、projects、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+func enterpriseAuditExportQuerySupportedFilterFields() []string {
+	return []string{"created_at_range", "action", "target_type", "target_id", "admin_id"}
+}
+
+func countEnterpriseAuditExportQueryDistinctActions(logs []model.AdminAuditLog) int {
+	actions := map[string]bool{}
+	for _, log := range logs {
+		action := strings.TrimSpace(log.Action)
+		if action != "" {
+			actions[action] = true
+		}
+	}
+	return len(actions)
+}
+
+func countEnterpriseAuditExportQueryDistinctTargetTypes(logs []model.AdminAuditLog) int {
+	targetTypes := map[string]bool{}
+	for _, log := range logs {
+		targetType := strings.TrimSpace(log.TargetType)
+		if targetType != "" {
+			targetTypes[targetType] = true
+		}
+	}
+	return len(targetTypes)
+}
+
+func countEnterpriseAuditExportQueryDistinctActors(logs []model.AdminAuditLog) int {
+	actors := map[string]bool{}
+	for _, log := range logs {
+		actor := strings.TrimSpace(log.AdminID)
+		if actor != "" {
+			actors[actor] = true
+		}
+	}
+	return len(actors)
+}
+
+// GetEnterpriseAuditExportTaskPreflightReadiness 获取企业治理审计导出任务创建前置只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditExportTaskPreflightReadiness(ctx context.Context) (*EnterpriseAuditExportTaskPreflightReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil || s.systemConfigService == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	adminAuditLogCount, err := s.auditRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recentAuditLogs, err := s.auditRepo.List(ctx, 0, enterpriseAuditExportQuerySampleLimit)
+	if err != nil {
+		return nil, err
+	}
+	activationAuditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configItems, err := s.systemConfigService.ListConfigItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	retentionPolicyValue, retentionPolicyConfigured := readEnterpriseAuditRetentionPolicyValue(configItems)
+	retentionDays, retentionPolicyValid := parseEnterpriseAuditRetentionDays(retentionPolicyValue)
+	querySampleCount := len(recentAuditLogs)
+	supportedFilterFieldCount := len(enterpriseAuditExportQuerySupportedFilterFields())
+	coveredSourceCount := 0
+	if adminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if activationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if querySampleCount > 0 {
+		coveredSourceCount++
+	}
+	if supportedFilterFieldCount >= enterpriseAuditExportQueryRequiredFilterFieldCount {
+		coveredSourceCount++
+	}
+	if retentionPolicyConfigured && retentionPolicyValid {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportTaskPreflightReadiness{
+		AdminAuditLogCount:          adminAuditLogCount,
+		ActivationAuditEventCount:   activationAuditEventCount,
+		QuerySampleCount:            querySampleCount,
+		QuerySampleLimit:            enterpriseAuditExportQuerySampleLimit,
+		SupportedFilterFieldCount:   supportedFilterFieldCount,
+		RequiredFilterFieldCount:    enterpriseAuditExportQueryRequiredFilterFieldCount,
+		RetentionPolicyConfigured:   retentionPolicyConfigured,
+		RetentionDays:               retentionDays,
+		MinimumRetentionDays:        enterpriseAuditRetentionMinimumDays,
+		MaximumRetentionDays:        enterpriseAuditRetentionMaximumDays,
+		ExportTaskCreationEnabled:   false,
+		ExportFileGenerationEnabled: false,
+		CoveredSourceCount:          coveredSourceCount,
+		RequiredSourceCount:         enterpriseAuditExportTaskPreflightRequiredSourceCount,
+	}
+	if adminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskPreflightNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可创建导出任务的真源，导出任务 preflight readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；本 preflight 不创建导出任务、不生成文件。"
+		return readiness, nil
+	}
+	if activationAuditEventCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskPreflightActivationMissing
+		readiness.Message = "Admin audit log 已可回读，但 activation audit 事件尚未形成导出任务创建覆盖。"
+		readiness.Recovery = "继续补齐 Project Access Guard activation audit evidence 后再评估导出任务创建前置条件；当前 preflight 只读。"
+		return readiness, nil
+	}
+	if querySampleCount == 0 || supportedFilterFieldCount < enterpriseAuditExportQueryRequiredFilterFieldCount {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskPreflightQueryNotReady
+		readiness.Message = "企业审计导出查询条件尚未具备创建任务的前置证据。"
+		readiness.Recovery = "先确认 admin_audit_log 最近样本和 supported filter fields 均可只读回读；不得通过创建任务来掩盖查询 readiness 问题。"
+		return readiness, nil
+	}
+	if retentionPolicyConfigured == false || retentionPolicyValid == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskPreflightRetentionNotReady
+		readiness.Message = "企业审计保留策略未就绪，不能确认导出任务创建后的保留边界。"
+		readiness.Recovery = "先补齐有效的 enterprise.audit.retention_days 配置；当前 preflight 不自动写入配置、不删除审计数据。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportTaskPreflightReady
+	readiness.Message = "审计真源、activation audit、导出查询条件和保留策略均可只读回读，导出任务创建 preflight readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控导出任务创建 API、请求确认和文件生成格式；当前 preflight 不创建导出任务、不生成文件、不写 audit 记录、不改变授权、activation、projects、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportFileFormatReadiness 获取企业治理审计导出文件格式只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditExportFileFormatReadiness(ctx context.Context) (*EnterpriseAuditExportFileFormatReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil || s.systemConfigService == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	adminAuditLogCount, err := s.auditRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recentAuditLogs, err := s.auditRepo.List(ctx, 0, enterpriseAuditExportQuerySampleLimit)
+	if err != nil {
+		return nil, err
+	}
+	activationAuditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configItems, err := s.systemConfigService.ListConfigItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	retentionPolicyValue, retentionPolicyConfigured := readEnterpriseAuditRetentionPolicyValue(configItems)
+	retentionDays, retentionPolicyValid := parseEnterpriseAuditRetentionDays(retentionPolicyValue)
+	querySampleCount := len(recentAuditLogs)
+	supportedFilterFieldCount := len(enterpriseAuditExportQuerySupportedFilterFields())
+	supportedFileFormats := enterpriseAuditExportFileFormatSupportedFormats()
+	requiredColumns := enterpriseAuditExportFileFormatRequiredColumns()
+	formatContractReady := len(supportedFileFormats) >= enterpriseAuditExportFileFormatRequiredFormatCount && len(requiredColumns) > 0
+	taskPreflightReady := activationAuditEventCount > 0 &&
+		querySampleCount > 0 &&
+		supportedFilterFieldCount >= enterpriseAuditExportQueryRequiredFilterFieldCount &&
+		retentionPolicyConfigured &&
+		retentionPolicyValid
+	coveredSourceCount := 0
+	if adminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if activationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if querySampleCount > 0 {
+		coveredSourceCount++
+	}
+	if supportedFilterFieldCount >= enterpriseAuditExportQueryRequiredFilterFieldCount {
+		coveredSourceCount++
+	}
+	if retentionPolicyConfigured && retentionPolicyValid {
+		coveredSourceCount++
+	}
+	if formatContractReady {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportFileFormatReadiness{
+		AdminAuditLogCount:          adminAuditLogCount,
+		ActivationAuditEventCount:   activationAuditEventCount,
+		QuerySampleCount:            querySampleCount,
+		QuerySampleLimit:            enterpriseAuditExportQuerySampleLimit,
+		SupportedFilterFieldCount:   supportedFilterFieldCount,
+		RequiredFilterFieldCount:    enterpriseAuditExportQueryRequiredFilterFieldCount,
+		RetentionPolicyConfigured:   retentionPolicyConfigured,
+		RetentionDays:               retentionDays,
+		SupportedFileFormats:        supportedFileFormats,
+		SupportedFileFormatCount:    len(supportedFileFormats),
+		RequiredFileFormatCount:     enterpriseAuditExportFileFormatRequiredFormatCount,
+		RequiredColumns:             requiredColumns,
+		RequiredColumnCount:         len(requiredColumns),
+		SchemaVersion:               enterpriseAuditExportFileFormatSchemaVersion,
+		ExportTaskCreationEnabled:   false,
+		ExportFileGenerationEnabled: false,
+		CoveredSourceCount:          coveredSourceCount,
+		RequiredSourceCount:         enterpriseAuditExportFileFormatRequiredSourceCount,
+	}
+	if adminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportFileFormatNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可声明导出文件格式的真源，文件格式 readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；本 readiness 不创建任务、不生成导出文件。"
+		return readiness, nil
+	}
+	if taskPreflightReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportFileFormatTaskPreflightMissing
+		readiness.Message = "导出任务创建 preflight 前置尚未就绪，不能确认导出文件格式契约可用于后续任务。"
+		readiness.Recovery = "先补齐 activation audit、导出查询样本/过滤字段和有效 retention policy；当前 readiness 只读，不创建任务、不写配置。"
+		return readiness, nil
+	}
+	if formatContractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportFileFormatContractMissing
+		readiness.Message = "企业审计导出文件格式契约尚不完整。"
+		readiness.Recovery = "先补齐受支持文件格式、必备列和 schema version；当前 readiness 不生成文件、不写 audit 记录。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportFileFormatReady
+	readiness.Message = "企业审计导出文件格式、必备列、schema version 和任务创建前置证据均可只读回读，文件格式 readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控导出任务创建 API 和文件生成器；当前 readiness 不创建任务、不生成文件、不写 audit 记录、不改变授权、activation、projects、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+func enterpriseAuditExportFileFormatSupportedFormats() []string {
+	return []string{"csv", "jsonl"}
+}
+
+func enterpriseAuditExportFileFormatRequiredColumns() []string {
+	return []string{"id", "created_at", "admin_id", "action", "target_type", "target_id", "details"}
+}
+
+func enterpriseAuditExportTaskCreateRequestRequiredFields() []string {
+	return []string{"format", "filters", "time_range", "reason", "idempotency_key", "confirm_create_task", "requested_by_admin_id"}
+}
+
+func enterpriseAuditExportTaskPersistenceRequiredFields() []string {
+	return []string{
+		"id",
+		"idempotency_key",
+		"requested_by_admin_id",
+		"status",
+		"format",
+		"reason",
+		"filters_snapshot",
+		"time_range_start",
+		"time_range_end",
+		"request_schema_version",
+		"file_schema_version",
+		"output_path",
+		"checksum_sha256",
+		"row_count",
+		"source",
+		"created_at",
+	}
+}
+
+// GetEnterpriseAuditExportFileGeneratorReadiness 获取企业治理审计导出文件生成器只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditExportFileGeneratorReadiness(ctx context.Context) (*EnterpriseAuditExportFileGeneratorReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil || s.systemConfigService == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	adminAuditLogCount, err := s.auditRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recentAuditLogs, err := s.auditRepo.List(ctx, 0, enterpriseAuditExportQuerySampleLimit)
+	if err != nil {
+		return nil, err
+	}
+	activationAuditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configItems, err := s.systemConfigService.ListConfigItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	retentionPolicyValue, retentionPolicyConfigured := readEnterpriseAuditRetentionPolicyValue(configItems)
+	retentionDays, retentionPolicyValid := parseEnterpriseAuditRetentionDays(retentionPolicyValue)
+	querySampleCount := len(recentAuditLogs)
+	supportedFilterFieldCount := len(enterpriseAuditExportQuerySupportedFilterFields())
+	supportedFileFormats := enterpriseAuditExportFileFormatSupportedFormats()
+	requiredColumns := enterpriseAuditExportFileFormatRequiredColumns()
+	formatContractReady := len(supportedFileFormats) >= enterpriseAuditExportFileFormatRequiredFormatCount &&
+		len(requiredColumns) > 0 &&
+		enterpriseAuditExportFileFormatSchemaVersion != ""
+	fileFormatReady := adminAuditLogCount > 0 &&
+		activationAuditEventCount > 0 &&
+		querySampleCount > 0 &&
+		supportedFilterFieldCount >= enterpriseAuditExportQueryRequiredFilterFieldCount &&
+		retentionPolicyConfigured &&
+		retentionPolicyValid &&
+		formatContractReady
+	generatorContractReady := enterpriseAuditExportFileGeneratorOutputPathPrefix != "" &&
+		enterpriseAuditExportFileGeneratorFileNameTemplate != "" &&
+		enterpriseAuditExportFileGeneratorChecksumAlgorithm != "" &&
+		enterpriseAuditExportFileGeneratorMaxRowsPerFile > 0
+	coveredSourceCount := 0
+	if adminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if activationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if querySampleCount > 0 {
+		coveredSourceCount++
+	}
+	if retentionPolicyConfigured && retentionPolicyValid {
+		coveredSourceCount++
+	}
+	if formatContractReady {
+		coveredSourceCount++
+	}
+	if supportedFilterFieldCount >= enterpriseAuditExportQueryRequiredFilterFieldCount {
+		coveredSourceCount++
+	}
+	if generatorContractReady {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportFileGeneratorReadiness{
+		AdminAuditLogCount:          adminAuditLogCount,
+		ActivationAuditEventCount:   activationAuditEventCount,
+		QuerySampleCount:            querySampleCount,
+		QuerySampleLimit:            enterpriseAuditExportQuerySampleLimit,
+		RetentionPolicyConfigured:   retentionPolicyConfigured,
+		RetentionDays:               retentionDays,
+		SupportedFileFormatCount:    len(supportedFileFormats),
+		RequiredFileFormatCount:     enterpriseAuditExportFileFormatRequiredFormatCount,
+		RequiredColumnCount:         len(requiredColumns),
+		SchemaVersion:               enterpriseAuditExportFileFormatSchemaVersion,
+		OutputPathPrefix:            enterpriseAuditExportFileGeneratorOutputPathPrefix,
+		FileNameTemplate:            enterpriseAuditExportFileGeneratorFileNameTemplate,
+		ChecksumAlgorithm:           enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		MaxRowsPerFile:              enterpriseAuditExportFileGeneratorMaxRowsPerFile,
+		GeneratorDryRunEnabled:      false,
+		OutputStorageWriteEnabled:   false,
+		ExportTaskCreationEnabled:   false,
+		ExportFileGenerationEnabled: false,
+		CoveredSourceCount:          coveredSourceCount,
+		RequiredSourceCount:         enterpriseAuditExportFileGeneratorRequiredSourceCount,
+	}
+	if adminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportFileGeneratorNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供文件生成器读取的真源，文件生成器 readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；本 readiness 不创建任务、不生成文件、不写存储。"
+		return readiness, nil
+	}
+	if fileFormatReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportFileGeneratorFileFormatMissing
+		readiness.Message = "企业审计导出文件格式 readiness 尚未具备，不能确认文件生成器输入契约。"
+		readiness.Recovery = "先补齐 activation audit、查询样本、过滤字段、retention policy 与文件格式契约；当前 readiness 只读，不写配置、不生成文件。"
+		return readiness, nil
+	}
+	if generatorContractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportFileGeneratorContractMissing
+		readiness.Message = "企业审计导出文件生成器契约尚不完整。"
+		readiness.Recovery = "先补齐输出路径前缀、文件名模板、checksum algorithm 与单文件行数上限；当前 readiness 不写 storage、不生成文件。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportFileGeneratorReady
+	readiness.Message = "企业审计导出文件生成器输入、格式、命名、checksum 和行数上限契约均可只读回读，文件生成器 readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控导出任务创建 API 或真实文件生成器；当前 readiness 不创建任务、不生成文件、不写 storage、不写 audit 记录、不改变授权、activation、projects、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportTaskCreateRequestReadiness 获取企业治理审计导出任务创建请求契约只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditExportTaskCreateRequestReadiness(ctx context.Context) (*EnterpriseAuditExportTaskCreateRequestReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil || s.systemConfigService == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	adminAuditLogCount, err := s.auditRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recentAuditLogs, err := s.auditRepo.List(ctx, 0, enterpriseAuditExportQuerySampleLimit)
+	if err != nil {
+		return nil, err
+	}
+	activationAuditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configItems, err := s.systemConfigService.ListConfigItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	retentionPolicyValue, retentionPolicyConfigured := readEnterpriseAuditRetentionPolicyValue(configItems)
+	retentionDays, retentionPolicyValid := parseEnterpriseAuditRetentionDays(retentionPolicyValue)
+	querySampleCount := len(recentAuditLogs)
+	supportedFilterFieldCount := len(enterpriseAuditExportQuerySupportedFilterFields())
+	supportedFileFormats := enterpriseAuditExportFileFormatSupportedFormats()
+	requiredColumns := enterpriseAuditExportFileFormatRequiredColumns()
+	requiredRequestFields := enterpriseAuditExportTaskCreateRequestRequiredFields()
+	formatContractReady := len(supportedFileFormats) >= enterpriseAuditExportFileFormatRequiredFormatCount &&
+		len(requiredColumns) > 0 &&
+		enterpriseAuditExportFileFormatSchemaVersion != ""
+	generatorContractReady := enterpriseAuditExportFileGeneratorOutputPathPrefix != "" &&
+		enterpriseAuditExportFileGeneratorFileNameTemplate != "" &&
+		enterpriseAuditExportFileGeneratorChecksumAlgorithm != "" &&
+		enterpriseAuditExportFileGeneratorMaxRowsPerFile > 0
+	fileGeneratorReady := adminAuditLogCount > 0 &&
+		activationAuditEventCount > 0 &&
+		querySampleCount > 0 &&
+		supportedFilterFieldCount >= enterpriseAuditExportQueryRequiredFilterFieldCount &&
+		retentionPolicyConfigured &&
+		retentionPolicyValid &&
+		formatContractReady &&
+		generatorContractReady
+	requestContractReady := enterpriseAuditExportTaskCreateRequestSchemaVersion != "" &&
+		len(requiredRequestFields) >= enterpriseAuditExportTaskCreateRequestRequiredFieldCount
+	coveredSourceCount := 0
+	if adminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if activationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if querySampleCount > 0 {
+		coveredSourceCount++
+	}
+	if retentionPolicyConfigured && retentionPolicyValid {
+		coveredSourceCount++
+	}
+	if formatContractReady {
+		coveredSourceCount++
+	}
+	if supportedFilterFieldCount >= enterpriseAuditExportQueryRequiredFilterFieldCount {
+		coveredSourceCount++
+	}
+	if generatorContractReady {
+		coveredSourceCount++
+	}
+	if requestContractReady {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportTaskCreateRequestReadiness{
+		AdminAuditLogCount:          adminAuditLogCount,
+		ActivationAuditEventCount:   activationAuditEventCount,
+		QuerySampleCount:            querySampleCount,
+		QuerySampleLimit:            enterpriseAuditExportQuerySampleLimit,
+		SupportedFilterFieldCount:   supportedFilterFieldCount,
+		RequiredFilterFieldCount:    enterpriseAuditExportQueryRequiredFilterFieldCount,
+		RetentionPolicyConfigured:   retentionPolicyConfigured,
+		RetentionDays:               retentionDays,
+		SupportedFileFormatCount:    len(supportedFileFormats),
+		RequiredFileFormatCount:     enterpriseAuditExportFileFormatRequiredFormatCount,
+		RequiredColumnCount:         len(requiredColumns),
+		FileFormatSchemaVersion:     enterpriseAuditExportFileFormatSchemaVersion,
+		OutputPathPrefix:            enterpriseAuditExportFileGeneratorOutputPathPrefix,
+		FileNameTemplate:            enterpriseAuditExportFileGeneratorFileNameTemplate,
+		ChecksumAlgorithm:           enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		MaxRowsPerFile:              enterpriseAuditExportFileGeneratorMaxRowsPerFile,
+		RequestSchemaVersion:        enterpriseAuditExportTaskCreateRequestSchemaVersion,
+		RequiredRequestFields:       requiredRequestFields,
+		RequiredRequestFieldCount:   len(requiredRequestFields),
+		IdempotencyKeyRequired:      true,
+		RequestConfirmationRequired: true,
+		ExportTaskCreationEnabled:   false,
+		ExportFileGenerationEnabled: false,
+		OutputStorageWriteEnabled:   false,
+		AuditWriteEnabled:           false,
+		CoveredSourceCount:          coveredSourceCount,
+		RequiredSourceCount:         enterpriseAuditExportTaskCreateRequestRequiredSourceCount,
+	}
+	if adminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskCreateRequestNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可创建导出任务请求的真源，任务创建请求契约 readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；本 readiness 不创建导出任务、不生成文件、不写 storage。"
+		return readiness, nil
+	}
+	if fileGeneratorReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskCreateRequestFileGeneratorMissing
+		readiness.Message = "企业审计导出文件生成器 readiness 尚未具备，不能确认任务创建请求可绑定后续文件生成契约。"
+		readiness.Recovery = "先补齐 audit export query、retention、file format 和 file generator readiness；当前 readiness 只读，不创建任务、不写 audit。"
+		return readiness, nil
+	}
+	if requestContractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskCreateRequestContractMissing
+		readiness.Message = "企业审计导出任务创建请求契约尚不完整。"
+		readiness.Recovery = "先补齐请求 schema version、必备请求字段、idempotency key 和确认字段；当前 readiness 不创建任务、不生成文件。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportTaskCreateRequestReadinessReady
+	readiness.Message = "企业审计导出任务创建请求契约、幂等键、确认字段和后续文件生成约束均可只读回读，任务创建请求 readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控 POST 任务创建 API；当前 readiness 不创建任务、不生成文件、不写 storage、不写 audit 记录、不改变授权、activation、projects、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportTaskPersistenceReadiness 获取企业治理审计导出任务持久化只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditExportTaskPersistenceReadiness(ctx context.Context) (*EnterpriseAuditExportTaskPersistenceReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil || s.systemConfigService == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	requestReadiness, err := s.GetEnterpriseAuditExportTaskCreateRequestReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	existingTaskCount, err := s.adminRepo.CountEnterpriseAuditExportTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	requiredPersistenceFields := enterpriseAuditExportTaskPersistenceRequiredFields()
+	idempotencyKeyUnique := true
+	requestedByAdminRequired := true
+	timeRangeRequired := true
+	filtersSnapshotRequired := true
+	noWriteBoundaryActive := true
+	persistenceContractReady := enterpriseAuditExportTaskPersistenceTableName != "" &&
+		enterpriseAuditExportTaskPersistenceSchemaVersion != "" &&
+		len(requiredPersistenceFields) >= enterpriseAuditExportTaskPersistenceRequiredFieldCount &&
+		idempotencyKeyUnique &&
+		requestedByAdminRequired &&
+		timeRangeRequired &&
+		filtersSnapshotRequired &&
+		enterpriseAuditExportTaskCreateRequestSchemaVersion != "" &&
+		enterpriseAuditExportFileFormatSchemaVersion != "" &&
+		enterpriseAuditExportFileGeneratorOutputPathPrefix != "" &&
+		enterpriseAuditExportFileGeneratorChecksumAlgorithm != ""
+	coveredSourceCount := 1
+	if requestReadiness.AdminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if requestReadiness.ActivationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if requestReadiness.ReadinessStatus == EnterpriseAuditExportTaskCreateRequestReadinessReady {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportTaskPersistenceTableName != "" && enterpriseAuditExportTaskPersistenceSchemaVersion != "" {
+		coveredSourceCount++
+	}
+	if len(requiredPersistenceFields) >= enterpriseAuditExportTaskPersistenceRequiredFieldCount {
+		coveredSourceCount++
+	}
+	if idempotencyKeyUnique {
+		coveredSourceCount++
+	}
+	if requestedByAdminRequired {
+		coveredSourceCount++
+	}
+	if timeRangeRequired && filtersSnapshotRequired {
+		coveredSourceCount++
+	}
+	if noWriteBoundaryActive {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportTaskPersistenceReadiness{
+		AdminAuditLogCount:                requestReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:         requestReadiness.ActivationAuditEventCount,
+		ExistingTaskCount:                 existingTaskCount,
+		TableName:                         enterpriseAuditExportTaskPersistenceTableName,
+		PersistenceSchemaVersion:          enterpriseAuditExportTaskPersistenceSchemaVersion,
+		RequestSchemaVersion:              enterpriseAuditExportTaskCreateRequestSchemaVersion,
+		FileFormatSchemaVersion:           enterpriseAuditExportFileFormatSchemaVersion,
+		RequiredPersistenceFields:         requiredPersistenceFields,
+		RequiredPersistenceFieldCount:     len(requiredPersistenceFields),
+		IdempotencyKeyUnique:              idempotencyKeyUnique,
+		RequestedByAdminRequired:          requestedByAdminRequired,
+		TimeRangeRequired:                 timeRangeRequired,
+		FiltersSnapshotRequired:           filtersSnapshotRequired,
+		OutputPathPrefix:                  enterpriseAuditExportFileGeneratorOutputPathPrefix,
+		ChecksumAlgorithm:                 enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		ExportTaskCreationEnabled:         false,
+		ExportTaskPersistenceWriteEnabled: false,
+		ExportFileGenerationEnabled:       false,
+		OutputStorageWriteEnabled:         false,
+		AuditWriteEnabled:                 false,
+		ProjectWriteEnabled:               false,
+		CoveredSourceCount:                coveredSourceCount,
+		RequiredSourceCount:               enterpriseAuditExportTaskPersistenceRequiredSourceCount,
+	}
+	if requestReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskPersistenceNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可支撑导出任务持久化评估的真源，任务持久化 readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；本 readiness 不创建导出任务、不写任务表。"
+		return readiness, nil
+	}
+	if requestReadiness.ReadinessStatus != EnterpriseAuditExportTaskCreateRequestReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskPersistenceCreateRequestMissing
+		readiness.Message = "企业审计导出任务创建请求 readiness 尚未具备，不能确认任务持久化输入契约。"
+		readiness.Recovery = "先补齐文件生成器 readiness、请求 schema、必备字段、幂等键和确认字段；当前不创建任务、不写 audit。"
+		return readiness, nil
+	}
+	if persistenceContractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskPersistenceContractMissing
+		readiness.Message = "企业审计导出任务持久化 schema 契约尚不完整。"
+		readiness.Recovery = "先补齐 enterprise_audit_export_tasks 表名、schema version、幂等唯一键、请求人、时间范围、过滤快照和输出校验字段；当前不写任务表。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportTaskPersistenceReadinessReady
+	readiness.Message = "企业审计导出任务持久化表、字段、幂等唯一键、请求人、时间范围和输出校验契约均可只读回读，任务持久化 readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控 POST 任务创建 API；当前 readiness 不创建导出任务、不生成文件、不写 storage、不写 audit 记录、不写 projects、不改变授权、activation、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+// CreateEnterpriseAuditExportTask 受控创建企业审计导出任务。
+// 它只写 queued task 与 admin audit，不生成导出文件、不写 storage、不写 projects。
+func (s *AdminConsoleService) CreateEnterpriseAuditExportTask(ctx context.Context, operatorID string, input EnterpriseAuditExportTaskCreateInput, ip string) (*EnterpriseAuditExportTaskCreateResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if !input.ConfirmCreateTask {
+		return nil, newEnterpriseAuditExportTaskCreateValidationError("confirm_create_task is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseAuditExportTaskCreateValidationError("operator admin id is required")
+	}
+	readiness, err := s.GetEnterpriseAuditExportTaskPersistenceReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportTaskPersistenceReadinessReady {
+		return nil, newEnterpriseAuditExportTaskCreateValidationError("audit export task persistence readiness is not ready")
+	}
+	format := strings.ToLower(strings.TrimSpace(input.Format))
+	if !isEnterpriseAuditExportTaskCreateFormatSupported(format) {
+		return nil, newEnterpriseAuditExportTaskCreateValidationError("format must be jsonl or csv")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportTaskCreateValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportTaskCreateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportTaskCreateValidationError("reason must be at most 1000 characters")
+	}
+	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	if !enterpriseAuditExportTaskIdempotencyKeyPattern.MatchString(idempotencyKey) {
+		return nil, newEnterpriseAuditExportTaskCreateValidationError("idempotency_key must be 8-128 chars and contain only letters, numbers, dot, underscore, colon or hyphen")
+	}
+	timeRangeStart, timeRangeEnd, err := parseEnterpriseAuditExportTaskCreateTimeRange(input.TimeRangeStart, input.TimeRangeEnd)
+	if err != nil {
+		return nil, err
+	}
+	filtersSnapshot, err := marshalEnterpriseAuditExportTaskCreateFilters(input.Filters)
+	if err != nil {
+		return nil, err
+	}
+	existingTask, err := s.adminRepo.FindEnterpriseAuditExportTaskByIdempotencyKey(ctx, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if existingTask != nil {
+		return &EnterpriseAuditExportTaskCreateResult{
+			Status:                      "idempotent_existing",
+			Task:                        *existingTask,
+			PersistenceReadinessStatus:  readiness.ReadinessStatus,
+			ExportFileGenerationStarted: false,
+			OutputStorageWriteStarted:   false,
+			ProjectWriteEnabled:         false,
+			Message:                     "Enterprise audit export task already exists for the provided idempotency key.",
+			Recovery:                    "Reuse the returned queued task or provide a new idempotency key; this endpoint does not generate files or write storage.",
+		}, nil
+	}
+	taskID := utils.GenerateUUID()
+	task := &model.EnterpriseAuditExportTask{
+		ID:                   taskID,
+		IdempotencyKey:       idempotencyKey,
+		RequestedByAdminID:   operatorID,
+		Status:               "queued",
+		Format:               format,
+		Reason:               reason,
+		FiltersSnapshot:      filtersSnapshot,
+		TimeRangeStart:       timeRangeStart,
+		TimeRangeEnd:         timeRangeEnd,
+		RequestSchemaVersion: enterpriseAuditExportTaskCreateRequestSchemaVersion,
+		FileSchemaVersion:    enterpriseAuditExportFileFormatSchemaVersion,
+		OutputPath:           fmt.Sprintf("%s/%s/pending.%s", enterpriseAuditExportFileGeneratorOutputPathPrefix, taskID, format),
+		ChecksumSHA256:       "",
+		RowCount:             0,
+		ErrorMessage:         "",
+		Source:               enterpriseAuditExportTaskCreateSource,
+	}
+	if err := s.adminRepo.CreateEnterpriseAuditExportTask(ctx, task); err != nil {
+		return nil, err
+	}
+	auditDetail := fmt.Sprintf("Created enterprise audit export task %s with format=%s; file generation, storage writes and project writes were not started.", task.ID, task.Format)
+	s.writeAudit(ctx, operatorID, "create_enterprise_audit_export_task", "enterprise_audit_export_task", task.ID, auditDetail, ip)
+	return &EnterpriseAuditExportTaskCreateResult{
+		Status:                      "queued",
+		Task:                        *task,
+		PersistenceReadinessStatus:  readiness.ReadinessStatus,
+		ExportFileGenerationStarted: false,
+		OutputStorageWriteStarted:   false,
+		ProjectWriteEnabled:         false,
+		Message:                     "Enterprise audit export task has been queued without starting file generation or storage writes.",
+		Recovery:                    "A separate controlled worker/generator task must process queued tasks; this endpoint only persists the request and admin audit evidence.",
+	}, nil
+}
+
+// TransitionEnterpriseAuditExportTaskStatus 受控修改企业审计导出任务状态。
+// 它只写任务 status/source 与 admin audit，不启动 worker、不生成文件、不写 storage、不删除归档。
+func (s *AdminConsoleService) TransitionEnterpriseAuditExportTaskStatus(ctx context.Context, operatorID string, input EnterpriseAuditExportTaskStatusTransitionInput, ip string) (*EnterpriseAuditExportTaskStatusTransitionResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if !input.ConfirmStatusTransition {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("confirm_status_transition is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("operator admin id is required")
+	}
+	readiness, err := s.GetEnterpriseAuditExportTaskStatusTransitionReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportTaskStatusTransitionReadinessReady {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("audit export task status transition readiness is not ready")
+	}
+	taskID := strings.TrimSpace(input.TaskID)
+	if taskID == "" {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("task_id is required")
+	}
+	targetStatus := strings.ToLower(strings.TrimSpace(input.TargetStatus))
+	if !isEnterpriseAuditExportTaskStatusAllowed(targetStatus) {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("target_status is not allowed")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportTaskCreateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("reason must be at most 1000 characters")
+	}
+	task, err := s.adminRepo.FindEnterpriseAuditExportTaskByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("task_id was not found")
+	}
+	previousStatus := strings.ToLower(strings.TrimSpace(task.Status))
+	transition := previousStatus + "->" + targetStatus
+	if !isEnterpriseAuditExportTaskTransitionAllowed(transition) {
+		return nil, newEnterpriseAuditExportTaskStatusTransitionValidationError("target_status is not allowed for the current task status")
+	}
+	task.Status = targetStatus
+	task.Source = enterpriseAuditExportTaskStatusTransitionSource
+	if err := s.adminRepo.UpdateEnterpriseAuditExportTaskStatus(ctx, task); err != nil {
+		return nil, err
+	}
+	auditDetail := fmt.Sprintf("Transitioned enterprise audit export task %s from %s to %s; reason=%s; worker execution, file generation, output storage writes, archive deletion and project writes were not started.", task.ID, previousStatus, targetStatus, reason)
+	s.writeAudit(ctx, operatorID, "transition_enterprise_audit_export_task_status", "enterprise_audit_export_task", task.ID, auditDetail, ip)
+	return &EnterpriseAuditExportTaskStatusTransitionResult{
+		Status:                      "transitioned",
+		Task:                        *task,
+		PreviousStatus:              previousStatus,
+		TargetStatus:                targetStatus,
+		Transition:                  transition,
+		ReadinessStatus:             readiness.ReadinessStatus,
+		TaskStatusMutationWritten:   true,
+		TaskStatusAuditWritten:      true,
+		WorkerExecutionStarted:      false,
+		ExportFileGenerationStarted: false,
+		OutputStorageWriteStarted:   false,
+		ArchiveDeletionStarted:      false,
+		ProjectWriteStarted:         false,
+		Message:                     "Enterprise audit export task status has been transitioned under controlled admin governance.",
+		Recovery:                    "A separate controlled worker, file generation, storage write, or archive execution entry must be implemented explicitly; this endpoint only mutates task status and writes admin audit evidence.",
+	}, nil
+}
+
+// ListEnterpriseAuditExportTasks 只读回读最近审计导出任务。
+// 它不生成导出文件、不写 storage、不写 projects，也不改变任务状态。
+func (s *AdminConsoleService) ListEnterpriseAuditExportTasks(ctx context.Context) (*EnterpriseAuditExportTaskListResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	readiness, err := s.GetEnterpriseAuditExportTaskPersistenceReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportTaskPersistenceReadinessReady {
+		return &EnterpriseAuditExportTaskListResult{
+			Status:                      "task_persistence_not_ready",
+			Tasks:                       []model.EnterpriseAuditExportTask{},
+			TaskCount:                   0,
+			TotalCount:                  readiness.ExistingTaskCount,
+			Limit:                       enterpriseAuditExportTaskReadbackLimit,
+			PersistenceReadinessStatus:  readiness.ReadinessStatus,
+			ExportFileGenerationStarted: false,
+			OutputStorageWriteStarted:   false,
+			ProjectWriteEnabled:         false,
+			Message:                     "Enterprise audit export task persistence is not ready for readback.",
+			Recovery:                    "Resolve the persistence readiness blockers before reading queued audit export tasks.",
+		}, nil
+	}
+	tasks, err := s.adminRepo.ListEnterpriseAuditExportTasks(ctx, enterpriseAuditExportTaskReadbackLimit)
+	if err != nil {
+		return nil, err
+	}
+	status := "audit_export_task_readback_ready"
+	message := "Enterprise audit export tasks are available for readback without starting file generation or storage writes."
+	recovery := "Use the returned queued tasks as input evidence for a separate controlled worker/generator readiness task."
+	if len(tasks) == 0 {
+		status = "no_audit_export_tasks"
+		message = "No enterprise audit export tasks have been created yet."
+		recovery = "Create a task through the controlled POST endpoint before expecting queued task readback evidence."
+	}
+	return &EnterpriseAuditExportTaskListResult{
+		Status:                      status,
+		Tasks:                       tasks,
+		TaskCount:                   len(tasks),
+		TotalCount:                  readiness.ExistingTaskCount,
+		Limit:                       enterpriseAuditExportTaskReadbackLimit,
+		PersistenceReadinessStatus:  readiness.ReadinessStatus,
+		ExportFileGenerationStarted: false,
+		OutputStorageWriteStarted:   false,
+		ProjectWriteEnabled:         false,
+		Message:                     message,
+		Recovery:                    recovery,
+	}, nil
+}
+
+// GetEnterpriseAuditExportWorkerReadiness 只读评估企业审计导出 worker readiness。
+// 它不启动 worker、不生成导出文件、不写 storage、不写 projects。
+func (s *AdminConsoleService) GetEnterpriseAuditExportWorkerReadiness(ctx context.Context) (*EnterpriseAuditExportWorkerReadiness, error) {
+	fileGeneratorReadiness, err := s.GetEnterpriseAuditExportFileGeneratorReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskReadback, err := s.ListEnterpriseAuditExportTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	queuedTaskCount := countEnterpriseAuditExportQueuedTasks(taskReadback.Tasks)
+	workerContractReady := enterpriseAuditExportWorkerMode != "" &&
+		enterpriseAuditExportWorkerBatchSize > 0 &&
+		enterpriseAuditExportWorkerLeaseSeconds > 0 &&
+		enterpriseAuditExportFileGeneratorOutputPathPrefix != "" &&
+		enterpriseAuditExportFileGeneratorChecksumAlgorithm != ""
+	coveredSourceCount := 0
+	if fileGeneratorReadiness.AdminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if fileGeneratorReadiness.ActivationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if fileGeneratorReadiness.QuerySampleCount > 0 {
+		coveredSourceCount++
+	}
+	if fileGeneratorReadiness.RetentionPolicyConfigured {
+		coveredSourceCount++
+	}
+	if fileGeneratorReadiness.ReadinessStatus == EnterpriseAuditExportFileGeneratorReady {
+		coveredSourceCount++
+	}
+	if taskReadback.Status == "audit_export_task_readback_ready" || taskReadback.Status == "no_audit_export_tasks" {
+		coveredSourceCount++
+	}
+	if taskReadback.TaskCount > 0 {
+		coveredSourceCount++
+	}
+	if queuedTaskCount > 0 {
+		coveredSourceCount++
+	}
+	if workerContractReady {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerBatchSize > 0 {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerLeaseSeconds > 0 {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerMode != "" {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportWorkerReadiness{
+		AdminAuditLogCount:          fileGeneratorReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:   fileGeneratorReadiness.ActivationAuditEventCount,
+		TaskReadbackStatus:          taskReadback.Status,
+		TaskCount:                   taskReadback.TaskCount,
+		QueuedTaskCount:             queuedTaskCount,
+		WorkerMode:                  enterpriseAuditExportWorkerMode,
+		WorkerBatchSize:             enterpriseAuditExportWorkerBatchSize,
+		WorkerLeaseSeconds:          enterpriseAuditExportWorkerLeaseSeconds,
+		OutputPathPrefix:            enterpriseAuditExportFileGeneratorOutputPathPrefix,
+		ChecksumAlgorithm:           enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		WorkerDryRunEnabled:         false,
+		WorkerExecutionEnabled:      false,
+		ExportFileGenerationEnabled: false,
+		OutputStorageWriteEnabled:   false,
+		AuditWriteEnabled:           false,
+		ProjectWriteEnabled:         false,
+		CoveredSourceCount:          coveredSourceCount,
+		RequiredSourceCount:         enterpriseAuditExportWorkerRequiredSourceCount,
+	}
+	if fileGeneratorReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供导出 worker 使用的真源，worker readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；本 readiness 不启动 worker、不生成文件、不写 storage。"
+		return readiness, nil
+	}
+	if fileGeneratorReadiness.ReadinessStatus != EnterpriseAuditExportFileGeneratorReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerFileGeneratorMissing
+		readiness.Message = "企业审计导出文件生成器 readiness 尚未具备，worker 不能确认输出契约。"
+		readiness.Recovery = "先补齐文件格式、输出命名、checksum 和行数上限契约；当前 readiness 只读，不启动 worker。"
+		return readiness, nil
+	}
+	if taskReadback.Status == "task_persistence_not_ready" {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerTaskReadbackMissing
+		readiness.Message = "企业审计导出任务 readback 尚未就绪，worker 不能确认输入队列。"
+		readiness.Recovery = "先补齐任务持久化 readiness 和任务 readback；当前 readiness 不生成文件、不写 storage。"
+		return readiness, nil
+	}
+	if workerContractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerContractMissing
+		readiness.Message = "企业审计导出 worker 执行契约尚不完整。"
+		readiness.Recovery = "先补齐 worker mode、batch size、lease seconds、输出路径和 checksum contract；当前 readiness 不启动 worker。"
+		return readiness, nil
+	}
+	if queuedTaskCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerNoQueuedTasks
+		readiness.Message = "企业审计导出 worker 契约已声明，但当前没有 queued 导出任务可处理。"
+		readiness.Recovery = "通过受控 POST 创建 queued 任务后再检查 worker readiness；当前 readiness 不启动 worker、不写 storage。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportWorkerReady
+	readiness.Message = "企业审计导出 worker 输入队列、文件生成契约和执行参数均可只读回读，worker readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控 worker 执行入口；当前 readiness 仍不启动 worker、不生成文件、不写 storage、不写 projects。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportWorkerExecutionRequestReadiness 只读评估 worker 执行请求契约 readiness。
+// 它只声明后续受控执行请求字段，不启动 worker、不生成文件、不写 storage、不写任务状态。
+func (s *AdminConsoleService) GetEnterpriseAuditExportWorkerExecutionRequestReadiness(ctx context.Context) (*EnterpriseAuditExportWorkerExecutionRequestReadiness, error) {
+	workerReadiness, err := s.GetEnterpriseAuditExportWorkerReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	statusTransitionReadiness, err := s.GetEnterpriseAuditExportTaskStatusTransitionReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	requestContractReady := enterpriseAuditExportWorkerExecutionRequestSchemaVersion != "" &&
+		len(enterpriseAuditExportWorkerExecutionRequestRequiredFields) >= enterpriseAuditExportWorkerExecutionRequestRequiredFieldCount &&
+		enterpriseAuditExportWorkerBatchSize > 0 &&
+		enterpriseAuditExportWorkerLeaseSeconds > 0 &&
+		enterpriseAuditExportFileGeneratorOutputPathPrefix != "" &&
+		enterpriseAuditExportFileGeneratorChecksumAlgorithm != ""
+	coveredSourceCount := 0
+	if workerReadiness.AdminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if workerReadiness.ActivationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if workerReadiness.ReadinessStatus == EnterpriseAuditExportWorkerReady {
+		coveredSourceCount++
+	}
+	if statusTransitionReadiness.ReadinessStatus == EnterpriseAuditExportTaskStatusTransitionReadinessReady {
+		coveredSourceCount++
+	}
+	if workerReadiness.QueuedTaskCount > 0 {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionRequestSchemaVersion != "" {
+		coveredSourceCount++
+	}
+	if len(enterpriseAuditExportWorkerExecutionRequestRequiredFields) >= enterpriseAuditExportWorkerExecutionRequestRequiredFieldCount {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportTaskCreateRequestMaxReasonLength > 0 {
+		coveredSourceCount++
+	}
+	if requestContractReady {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportWorkerExecutionRequestReadiness{
+		AdminAuditLogCount:              workerReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:       workerReadiness.ActivationAuditEventCount,
+		WorkerReadinessStatus:           workerReadiness.ReadinessStatus,
+		StatusTransitionReadinessStatus: statusTransitionReadiness.ReadinessStatus,
+		TaskReadbackStatus:              workerReadiness.TaskReadbackStatus,
+		QueuedTaskCount:                 workerReadiness.QueuedTaskCount,
+		RequestSchemaVersion:            enterpriseAuditExportWorkerExecutionRequestSchemaVersion,
+		RequiredRequestFields:           enterpriseAuditExportWorkerExecutionRequestRequiredFields,
+		RequiredRequestFieldCount:       len(enterpriseAuditExportWorkerExecutionRequestRequiredFields),
+		RequestConfirmationRequired:     true,
+		IdempotencyKeyRequired:          true,
+		MaxReasonLength:                 enterpriseAuditExportTaskCreateRequestMaxReasonLength,
+		BatchLimit:                      enterpriseAuditExportWorkerBatchSize,
+		WorkerMode:                      enterpriseAuditExportWorkerMode,
+		WorkerLeaseSeconds:              enterpriseAuditExportWorkerLeaseSeconds,
+		OutputPathPrefix:                enterpriseAuditExportFileGeneratorOutputPathPrefix,
+		ChecksumAlgorithm:               enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		RequestExecutionEnabled:         false,
+		WorkerExecutionEnabled:          false,
+		TaskStatusMutationEnabled:       false,
+		ExportFileGenerationEnabled:     false,
+		OutputStorageWriteEnabled:       false,
+		AuditWriteEnabled:               false,
+		ProjectWriteEnabled:             false,
+		CoveredSourceCount:              coveredSourceCount,
+		RequiredSourceCount:             enterpriseAuditExportWorkerExecutionRequestRequiredSourceCount,
+	}
+	if workerReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供 worker 执行请求契约使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不启动 worker、不生成文件。"
+		return readiness, nil
+	}
+	if workerReadiness.ReadinessStatus != EnterpriseAuditExportWorkerReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestWorkerNotReady
+		readiness.Message = "企业审计导出 worker readiness 尚未 ready，不能开放执行请求契约。"
+		readiness.Recovery = "先补齐 queued 任务、文件生成器契约和 worker 输入队列；当前 readiness 不启动 worker。"
+		return readiness, nil
+	}
+	if statusTransitionReadiness.ReadinessStatus != EnterpriseAuditExportTaskStatusTransitionReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestStatusTransitionNotReady
+		readiness.Message = "企业审计导出任务状态转移 readiness 尚未 ready，worker 执行请求不能确认状态推进边界。"
+		readiness.Recovery = "先确认 allowed transition 和候选任务；当前 readiness 不修改任务状态、不写 audit。"
+		return readiness, nil
+	}
+	if requestContractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestContractMissing
+		readiness.Message = "企业审计导出 worker 执行请求契约尚不完整。"
+		readiness.Recovery = "先补齐 request schema、确认字段、幂等键、reason 和 batch limit；当前 readiness 不执行请求。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestReadinessReady
+	readiness.Message = "企业审计导出 worker 执行请求契约已具备，后续可设计受控执行 POST。"
+	readiness.Recovery = "下一步可实现确认式 worker execution POST；当前 readiness 仍不启动 worker、不生成文件、不写 storage、不修改任务状态。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness 只读评估 worker 执行请求持久化 readiness。
+// 它只确认执行请求表和幂等落点，不写执行请求、不启动 worker、不生成文件、不修改任务状态。
+func (s *AdminConsoleService) GetEnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness(ctx context.Context) (*EnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness, error) {
+	requestReadiness, err := s.GetEnterpriseAuditExportWorkerExecutionRequestReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	existingRequestCount, err := s.adminRepo.CountEnterpriseAuditExportWorkerExecutionRequests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	idempotencyKeyUnique := true
+	taskReferenceRequired := true
+	adminReferenceRequired := true
+	requestPayloadSnapshotRequired := true
+	readinessSnapshotRequired := true
+	executionResultSnapshotRequired := true
+	persistenceContractReady := requestReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionRequestReadinessReady &&
+		enterpriseAuditExportWorkerExecutionRequestPersistenceTableName != "" &&
+		enterpriseAuditExportWorkerExecutionRequestPersistenceSchemaVersion != "" &&
+		enterpriseAuditExportWorkerExecutionRequestSchemaVersion != "" &&
+		len(enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredFields) >= enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredFieldCount &&
+		idempotencyKeyUnique &&
+		taskReferenceRequired &&
+		adminReferenceRequired &&
+		requestPayloadSnapshotRequired &&
+		readinessSnapshotRequired &&
+		executionResultSnapshotRequired
+	coveredSourceCount := 0
+	if requestReadiness.AdminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if requestReadiness.ActivationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if requestReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionRequestReadinessReady {
+		coveredSourceCount++
+	}
+	if existingRequestCount >= 0 {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionRequestPersistenceTableName != "" {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionRequestPersistenceSchemaVersion != "" {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionRequestSchemaVersion != "" {
+		coveredSourceCount++
+	}
+	if len(enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredFields) >= enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredFieldCount {
+		coveredSourceCount++
+	}
+	if idempotencyKeyUnique {
+		coveredSourceCount++
+	}
+	if taskReferenceRequired {
+		coveredSourceCount++
+	}
+	if adminReferenceRequired {
+		coveredSourceCount++
+	}
+	if persistenceContractReady {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness{
+		AdminAuditLogCount:              requestReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:       requestReadiness.ActivationAuditEventCount,
+		ExecutionRequestReadinessStatus: requestReadiness.ReadinessStatus,
+		ExistingExecutionRequestCount:   existingRequestCount,
+		TableName:                       enterpriseAuditExportWorkerExecutionRequestPersistenceTableName,
+		PersistenceSchemaVersion:        enterpriseAuditExportWorkerExecutionRequestPersistenceSchemaVersion,
+		RequestSchemaVersion:            enterpriseAuditExportWorkerExecutionRequestSchemaVersion,
+		RequiredPersistenceFields:       enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredFields,
+		RequiredPersistenceFieldCount:   len(enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredFields),
+		IdempotencyKeyUnique:            idempotencyKeyUnique,
+		TaskReferenceRequired:           taskReferenceRequired,
+		AdminReferenceRequired:          adminReferenceRequired,
+		RequestPayloadSnapshotRequired:  requestPayloadSnapshotRequired,
+		ReadinessSnapshotRequired:       readinessSnapshotRequired,
+		ExecutionResultSnapshotRequired: executionResultSnapshotRequired,
+		RequestPersistenceWriteEnabled:  false,
+		WorkerExecutionEnabled:          false,
+		TaskStatusMutationEnabled:       false,
+		ExportFileGenerationEnabled:     false,
+		OutputStorageWriteEnabled:       false,
+		AuditWriteEnabled:               false,
+		ProjectWriteEnabled:             false,
+		CoveredSourceCount:              coveredSourceCount,
+		RequiredSourceCount:             enterpriseAuditExportWorkerExecutionRequestPersistenceRequiredSourceCount,
+	}
+	if requestReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestPersistenceNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供 worker 执行请求持久化 readiness 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不写执行请求、不启动 worker。"
+		return readiness, nil
+	}
+	if requestReadiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionRequestReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestPersistenceRequestNotReady
+		readiness.Message = "企业审计导出 worker execution request 契约尚未 ready，不能确认执行请求持久化落点。"
+		readiness.Recovery = "先补齐 worker、status transition、确认字段、幂等键和 batch limit 契约；当前 readiness 不写执行请求。"
+		return readiness, nil
+	}
+	if persistenceContractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestPersistenceContractMissing
+		readiness.Message = "企业审计导出 worker 执行请求持久化契约尚不完整。"
+		readiness.Recovery = "先补齐 table、schema version、幂等唯一键、task/admin 引用和 request/readiness/result snapshot 字段。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessReady
+	readiness.Message = "企业审计导出 worker 执行请求持久化落点已具备，后续 POST 可用独立幂等键记录执行请求证据。"
+	readiness.Recovery = "下一步可实现确认式 worker execution POST；当前 readiness 仍不写执行请求、不启动 worker、不生成文件、不写 storage。"
+	return readiness, nil
+}
+
+// PersistEnterpriseAuditExportWorkerExecutionRequest 受控持久化 worker execution request 证据。
+// 它只写执行请求幂等记录和 admin audit，不启动 worker、不生成文件、不写 output storage、不修改任务状态。
+func (s *AdminConsoleService) PersistEnterpriseAuditExportWorkerExecutionRequest(ctx context.Context, operatorID string, input EnterpriseAuditExportWorkerExecutionRequestPersistInput, ip string) (*EnterpriseAuditExportWorkerExecutionRequestPersistResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if input.ConfirmWorkerExecution == false {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("confirm_worker_execution is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("operator admin id is required")
+	}
+	readiness, err := s.GetEnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessReady {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("audit export worker execution request persistence readiness is not ready")
+	}
+	requestReadiness, err := s.GetEnterpriseAuditExportWorkerExecutionRequestReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if requestReadiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionRequestReadinessReady {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("audit export worker execution request readiness is not ready")
+	}
+	taskID := strings.TrimSpace(input.TaskID)
+	if taskID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("task_id is required")
+	}
+	task, err := s.adminRepo.FindEnterpriseAuditExportTaskByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("task_id was not found")
+	}
+	taskStatus := strings.ToLower(strings.TrimSpace(task.Status))
+	if taskStatus != "queued" {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("task_id must reference a queued audit export task")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportTaskCreateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("reason must be at most 1000 characters")
+	}
+	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	if !enterpriseAuditExportTaskIdempotencyKeyPattern.MatchString(idempotencyKey) {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("idempotency_key must be 8-128 chars and contain only letters, numbers, dot, underscore, colon or hyphen")
+	}
+	if input.BatchLimit <= 0 {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("batch_limit must be greater than 0")
+	}
+	if input.BatchLimit > enterpriseAuditExportWorkerBatchSize {
+		return nil, newEnterpriseAuditExportWorkerExecutionRequestPersistValidationError("batch_limit must not exceed worker batch size")
+	}
+	existingRequest, err := s.adminRepo.FindEnterpriseAuditExportWorkerExecutionRequestByIdempotencyKey(ctx, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if existingRequest != nil {
+		return &EnterpriseAuditExportWorkerExecutionRequestPersistResult{
+			Status:                            "idempotent_existing",
+			Request:                           *existingRequest,
+			PersistenceReadinessStatus:        readiness.ReadinessStatus,
+			ExecutionRequestReadinessStatus:   readiness.ExecutionRequestReadinessStatus,
+			WorkerReadinessStatus:             requestReadiness.WorkerReadinessStatus,
+			StatusTransitionReadinessStatus:   requestReadiness.StatusTransitionReadinessStatus,
+			RequestPersistenceWritten:         false,
+			RequestAuditWritten:               false,
+			WorkerExecutionStarted:            false,
+			TaskStatusMutationStarted:         false,
+			ExportFileGenerationStarted:       false,
+			OutputStorageWriteStarted:         false,
+			DeliveryReportStorageWriteStarted: false,
+			ArchiveDeletionStarted:            false,
+			ProjectWriteStarted:               false,
+			Message:                           "Enterprise audit export worker execution request already exists for the provided idempotency key.",
+			Recovery:                          "Reuse the returned execution request or provide a new idempotency key; this endpoint does not start workers, mutate tasks, generate files, or write projects.",
+		}, nil
+	}
+	payloadSnapshot, err := marshalEnterpriseAuditExportWorkerExecutionRequestPayloadSnapshot(taskID, reason, idempotencyKey, input.BatchLimit)
+	if err != nil {
+		return nil, err
+	}
+	readinessSnapshot, err := marshalEnterpriseAuditExportWorkerExecutionRequestReadinessSnapshot(readiness)
+	if err != nil {
+		return nil, err
+	}
+	executionResult, err := marshalEnterpriseAuditExportWorkerExecutionRequestExecutionResultSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	request := &model.EnterpriseAuditExportWorkerExecutionRequest{
+		ID:                              utils.GenerateUUID(),
+		IdempotencyKey:                  idempotencyKey,
+		TaskID:                          task.ID,
+		RequestedByAdminID:              operatorID,
+		Status:                          "requested",
+		Reason:                          reason,
+		BatchLimit:                      input.BatchLimit,
+		RequestSchemaVersion:            enterpriseAuditExportWorkerExecutionRequestSchemaVersion,
+		WorkerReadinessStatus:           string(requestReadiness.WorkerReadinessStatus),
+		StatusTransitionReadinessStatus: string(requestReadiness.StatusTransitionReadinessStatus),
+		TaskReadbackStatus:              requestReadiness.TaskReadbackStatus,
+		QueuedTaskCount:                 requestReadiness.QueuedTaskCount,
+		RequestPayloadSnapshot:          payloadSnapshot,
+		ReadinessSnapshot:               readinessSnapshot,
+		ExecutionResult:                 executionResult,
+		OutputPath:                      task.OutputPath,
+		ChecksumSHA256:                  "",
+		RowCount:                        0,
+		ErrorMessage:                    "",
+		Source:                          enterpriseAuditExportWorkerExecutionRequestPersistSource,
+	}
+	if err := s.adminRepo.CreateEnterpriseAuditExportWorkerExecutionRequest(ctx, request); err != nil {
+		return nil, err
+	}
+	auditDetail := fmt.Sprintf("Persisted enterprise audit export worker execution request %s for task %s; worker execution, file generation, output storage writes, task mutation, archive deletion and project writes were not started.", request.ID, request.TaskID)
+	s.writeAudit(ctx, operatorID, "persist_enterprise_audit_export_worker_execution_request", "enterprise_audit_export_worker_execution_request", request.ID, auditDetail, ip)
+	return &EnterpriseAuditExportWorkerExecutionRequestPersistResult{
+		Status:                            "requested",
+		Request:                           *request,
+		PersistenceReadinessStatus:        readiness.ReadinessStatus,
+		ExecutionRequestReadinessStatus:   readiness.ExecutionRequestReadinessStatus,
+		WorkerReadinessStatus:             requestReadiness.WorkerReadinessStatus,
+		StatusTransitionReadinessStatus:   requestReadiness.StatusTransitionReadinessStatus,
+		RequestPersistenceWritten:         true,
+		RequestAuditWritten:               true,
+		WorkerExecutionStarted:            false,
+		TaskStatusMutationStarted:         false,
+		ExportFileGenerationStarted:       false,
+		OutputStorageWriteStarted:         false,
+		DeliveryReportStorageWriteStarted: false,
+		ArchiveDeletionStarted:            false,
+		ProjectWriteStarted:               false,
+		Message:                           "Enterprise audit export worker execution request has been persisted without starting worker execution.",
+		Recovery:                          "A separate controlled worker execution entry must be implemented explicitly; this endpoint only persists request evidence and admin audit.",
+	}, nil
+}
+
+func marshalEnterpriseAuditExportWorkerExecutionRequestPayloadSnapshot(taskID string, reason string, idempotencyKey string, batchLimit int) (string, error) {
+	payload := map[string]interface{}{
+		"task_id":                  taskID,
+		"reason":                   reason,
+		"idempotency_key":          idempotencyKey,
+		"batch_limit":              batchLimit,
+		"confirm_worker_execution": true,
+		"request_schema_version":   enterpriseAuditExportWorkerExecutionRequestSchemaVersion,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func marshalEnterpriseAuditExportWorkerExecutionRequestReadinessSnapshot(readiness *EnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness) (string, error) {
+	data, err := json.Marshal(readiness)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func marshalEnterpriseAuditExportWorkerExecutionRequestExecutionResultSnapshot() (string, error) {
+	result := map[string]interface{}{
+		"worker_execution_started":              false,
+		"task_status_mutation_started":          false,
+		"export_file_generation_started":        false,
+		"output_storage_write_started":          false,
+		"delivery_report_storage_write_started": false,
+		"archive_deletion_started":              false,
+		"project_write_started":                 false,
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// GetEnterpriseAuditExportWorkerExecutionDryRunReadiness 只读评估 worker execution dry-run 前置。
+func (s *AdminConsoleService) GetEnterpriseAuditExportWorkerExecutionDryRunReadiness(ctx context.Context) (*EnterpriseAuditExportWorkerExecutionDryRunReadiness, error) {
+	if s == nil || s.adminRepo == nil || s.auditRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	persistenceReadiness, err := s.GetEnterpriseAuditExportWorkerExecutionRequestPersistenceReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	existingRequestCount, err := s.adminRepo.CountEnterpriseAuditExportWorkerExecutionRequests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	contractReady := persistenceReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessReady &&
+		enterpriseAuditExportWorkerExecutionDryRunSchemaVersion != "" &&
+		enterpriseAuditExportWorkerBatchSize > 0 &&
+		enterpriseAuditExportFileGeneratorChecksumAlgorithm == "sha256"
+	readiness := &EnterpriseAuditExportWorkerExecutionDryRunReadiness{
+		AdminAuditLogCount:                persistenceReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:         persistenceReadiness.ActivationAuditEventCount,
+		PersistenceReadinessStatus:        persistenceReadiness.ReadinessStatus,
+		ExistingExecutionRequestCount:     existingRequestCount,
+		ExecutionDryRunSchemaVersion:      enterpriseAuditExportWorkerExecutionDryRunSchemaVersion,
+		WorkerExecutionDryRunEnabled:      false,
+		WorkerExecutionEnabled:            false,
+		ExecutionResultPersistenceEnabled: false,
+		TaskStatusMutationEnabled:         false,
+		ExportFileGenerationEnabled:       false,
+		OutputStorageWriteEnabled:         false,
+		DeliveryReportStorageWriteEnabled: false,
+		ArchiveDeletionEnabled:            false,
+		ProjectWriteEnabled:               false,
+		CoveredSourceCount:                0,
+		RequiredSourceCount:               enterpriseAuditExportWorkerExecutionDryRunRequiredSourceCount,
+	}
+	if persistenceReadiness.AdminAuditLogCount > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if persistenceReadiness.ActivationAuditEventCount > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if persistenceReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessReady {
+		readiness.CoveredSourceCount += persistenceReadiness.CoveredSourceCount
+	}
+	if existingRequestCount > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionDryRunSchemaVersion != "" {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerBatchSize > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportFileGeneratorChecksumAlgorithm == "sha256" {
+		readiness.CoveredSourceCount++
+	}
+	if persistenceReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionDryRunNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供 worker execution dry-run 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 dry-run readiness 不启动 worker、不写 execution result。"
+		return readiness, nil
+	}
+	if persistenceReadiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionRequestPersistenceReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionDryRunRequestNotReady
+		readiness.Message = "worker execution request persistence 尚未 ready，不能进行 execution dry-run。"
+		readiness.Recovery = "先补齐 request persistence readiness 和执行请求幂等记录；当前 readiness 不启动 worker。"
+		return readiness, nil
+	}
+	if existingRequestCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionDryRunNoRequests
+		readiness.Message = "尚无可执行 dry-run 的 worker execution request。"
+		readiness.Recovery = "先通过受控 POST 写入 worker execution request 幂等证据；当前 readiness 不生成文件、不写 output storage。"
+		return readiness, nil
+	}
+	if contractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionDryRunContractMissing
+		readiness.Message = "worker execution dry-run 契约尚不完整。"
+		readiness.Recovery = "先补齐 dry-run schema version、batch size 和 sha256 checksum 契约。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionDryRunReadinessReady
+	readiness.Message = "worker execution dry-run 前置已具备，可受控写入 execution result 摘要。"
+	readiness.Recovery = "下一步可通过确认式 POST 写入 execution result dry-run；仍不启动真实 worker、不生成导出文件、不写 output storage、不修改任务状态。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportWorkerExecutionArtifactReadiness 只读评估真实 worker execution artifact 生成前置。
+func (s *AdminConsoleService) GetEnterpriseAuditExportWorkerExecutionArtifactReadiness(ctx context.Context) (*EnterpriseAuditExportWorkerExecutionArtifactReadiness, error) {
+	if s == nil || s.adminRepo == nil || s.auditRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	dryRunReadiness, err := s.GetEnterpriseAuditExportWorkerExecutionDryRunReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dryRunCompletedRequestCount, err := s.adminRepo.CountEnterpriseAuditExportWorkerExecutionRequestsByStatus(ctx, "dry_run_completed")
+	if err != nil {
+		return nil, err
+	}
+	contractReady := dryRunReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionDryRunReadinessReady &&
+		enterpriseAuditExportWorkerExecutionArtifactSchemaVersion != "" &&
+		enterpriseAuditExportFileGeneratorOutputPathPrefix != "" &&
+		enterpriseAuditExportFileGeneratorFileNameTemplate != "" &&
+		enterpriseAuditExportFileGeneratorChecksumAlgorithm == "sha256" &&
+		enterpriseAuditExportFileGeneratorMaxRowsPerFile > 0
+	readiness := &EnterpriseAuditExportWorkerExecutionArtifactReadiness{
+		AdminAuditLogCount:                dryRunReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:         dryRunReadiness.ActivationAuditEventCount,
+		DryRunReadinessStatus:             dryRunReadiness.ReadinessStatus,
+		ExistingExecutionRequestCount:     dryRunReadiness.ExistingExecutionRequestCount,
+		DryRunCompletedRequestCount:       dryRunCompletedRequestCount,
+		ExecutionArtifactSchemaVersion:    enterpriseAuditExportWorkerExecutionArtifactSchemaVersion,
+		OutputPathPrefix:                  enterpriseAuditExportFileGeneratorOutputPathPrefix,
+		FileNameTemplate:                  enterpriseAuditExportFileGeneratorFileNameTemplate,
+		ChecksumAlgorithm:                 enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		MaxRowsPerFile:                    enterpriseAuditExportFileGeneratorMaxRowsPerFile,
+		WorkerExecutionEnabled:            false,
+		ExecutionResultPersistenceEnabled: false,
+		TaskStatusMutationEnabled:         false,
+		ExportFileGenerationEnabled:       false,
+		OutputStorageWriteEnabled:         false,
+		DeliveryReportStorageWriteEnabled: false,
+		ArchiveDeletionEnabled:            false,
+		ProjectWriteEnabled:               false,
+		CoveredSourceCount:                0,
+		RequiredSourceCount:               enterpriseAuditExportWorkerExecutionArtifactRequiredSourceCount,
+	}
+	if dryRunReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionDryRunReadinessReady {
+		readiness.CoveredSourceCount += dryRunReadiness.CoveredSourceCount
+	}
+	if dryRunCompletedRequestCount > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionArtifactSchemaVersion != "" {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportFileGeneratorOutputPathPrefix != "" {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportFileGeneratorFileNameTemplate != "" {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportFileGeneratorChecksumAlgorithm == "sha256" {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportFileGeneratorMaxRowsPerFile > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if dryRunReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionArtifactNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供 worker execution artifact readiness 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 artifact readiness 不启动 worker、不生成文件。"
+		return readiness, nil
+	}
+	if dryRunReadiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionDryRunReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionArtifactDryRunNotReady
+		readiness.Message = "worker execution dry-run 尚未 ready，不能冻结真实 execution artifact 契约。"
+		readiness.Recovery = "先完成 worker execution request 持久化和 dry-run result 写入；当前 readiness 不生成导出文件。"
+		return readiness, nil
+	}
+	if dryRunCompletedRequestCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionArtifactNoDryRunRequests
+		readiness.Message = "尚无 dry_run_completed 的 worker execution request 可进入 artifact 契约冻结。"
+		readiness.Recovery = "先通过受控 dry-run POST 写入 execution result 摘要；当前 readiness 不启动真实 worker。"
+		return readiness, nil
+	}
+	if contractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionArtifactContractMissing
+		readiness.Message = "worker execution artifact 契约尚不完整。"
+		readiness.Recovery = "先补齐 artifact schema、输出路径前缀、文件名模板、sha256 checksum 和单文件行数上限。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionArtifactReadinessReady
+	readiness.Message = "worker execution artifact 契约已具备，可进入下一阶段受控文件生成实现。"
+	readiness.Recovery = "下一步必须通过独立受控 POST 显式生成 artifact；当前 readiness 不启动 worker、不生成文件、不写 output storage、不修改 task status。"
+	return readiness, nil
+}
+
+func enterpriseAuditExportWorkerExecutionOutputStorageRequiredFields() []string {
+	return []string{
+		"request_id",
+		"task_id",
+		"output_path",
+		"checksum_sha256",
+		"row_count",
+		"artifact_schema_version",
+		"storage_schema_version",
+		"stored_by_admin_id",
+		"stored_at",
+	}
+}
+
+// GetEnterpriseAuditExportWorkerExecutionOutputStorageReadiness 只读评估 worker execution output storage 写入前置。
+func (s *AdminConsoleService) GetEnterpriseAuditExportWorkerExecutionOutputStorageReadiness(ctx context.Context) (*EnterpriseAuditExportWorkerExecutionOutputStorageReadiness, error) {
+	if s == nil || s.adminRepo == nil || s.auditRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	artifactReadiness, err := s.GetEnterpriseAuditExportWorkerExecutionArtifactReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	artifactGeneratedRequestCount, err := s.adminRepo.CountEnterpriseAuditExportWorkerExecutionRequestsByStatus(ctx, "artifact_generated")
+	if err != nil {
+		return nil, err
+	}
+	requiredFields := enterpriseAuditExportWorkerExecutionOutputStorageRequiredFields()
+	contractReady := artifactReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionArtifactReadinessReady &&
+		artifactGeneratedRequestCount > 0 &&
+		enterpriseAuditExportWorkerExecutionOutputStorageSchemaVersion != "" &&
+		enterpriseAuditExportWorkerExecutionOutputStoragePathPrefix != "" &&
+		len(requiredFields) >= 9 &&
+		enterpriseAuditExportFileGeneratorChecksumAlgorithm == "sha256"
+	readiness := &EnterpriseAuditExportWorkerExecutionOutputStorageReadiness{
+		AdminAuditLogCount:                artifactReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:         artifactReadiness.ActivationAuditEventCount,
+		ArtifactReadinessStatus:           artifactReadiness.ReadinessStatus,
+		ExistingExecutionRequestCount:     artifactReadiness.ExistingExecutionRequestCount,
+		ArtifactGeneratedRequestCount:     artifactGeneratedRequestCount,
+		OutputStorageSchemaVersion:        enterpriseAuditExportWorkerExecutionOutputStorageSchemaVersion,
+		OutputStoragePathPrefix:           enterpriseAuditExportWorkerExecutionOutputStoragePathPrefix,
+		RequiredStorageFields:             requiredFields,
+		RequiredStorageFieldCount:         len(requiredFields),
+		ChecksumAlgorithm:                 enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		MetadataWriteRequired:             true,
+		WorkerExecutionEnabled:            false,
+		ExecutionResultPersistenceEnabled: false,
+		TaskStatusMutationEnabled:         false,
+		ExportFileGenerationEnabled:       false,
+		OutputStorageWriteEnabled:         false,
+		DeliveryReportStorageWriteEnabled: false,
+		ArchiveDeletionEnabled:            false,
+		ProjectWriteEnabled:               false,
+		CoveredSourceCount:                0,
+		RequiredSourceCount:               enterpriseAuditExportWorkerExecutionOutputStorageRequiredSourceCount,
+	}
+	if artifactReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionArtifactReadinessReady {
+		readiness.CoveredSourceCount += artifactReadiness.CoveredSourceCount
+	}
+	if artifactGeneratedRequestCount > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionOutputStorageSchemaVersion != "" {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionOutputStoragePathPrefix != "" {
+		readiness.CoveredSourceCount++
+	}
+	if len(requiredFields) >= 9 {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportFileGeneratorChecksumAlgorithm == "sha256" {
+		readiness.CoveredSourceCount++
+	}
+	if artifactReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionOutputStorageNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供 worker execution output storage readiness 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不写 output storage。"
+		return readiness, nil
+	}
+	if artifactReadiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionArtifactReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionOutputStorageArtifactNotReady
+		readiness.Message = "worker execution artifact readiness 尚未 ready，不能冻结 output storage 写入契约。"
+		readiness.Recovery = "先完成 worker execution artifact readiness 与 metadata generation；当前 readiness 不写外部 storage。"
+		return readiness, nil
+	}
+	if artifactGeneratedRequestCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionOutputStorageNoArtifactRequests
+		readiness.Message = "尚无 artifact_generated 的 worker execution request 可进入 output storage readiness。"
+		readiness.Recovery = "先通过受控 artifact POST 写入 execution request artifact metadata；当前 readiness 不写 output storage。"
+		return readiness, nil
+	}
+	if contractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionOutputStorageContractMissing
+		readiness.Message = "worker execution output storage 契约尚不完整。"
+		readiness.Recovery = "先补齐 storage schema、路径前缀、必备字段和 sha256 checksum 契约。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionOutputStorageReadinessReady
+	readiness.Message = "worker execution output storage 写入契约已具备，可进入下一阶段受控 output storage 写入。"
+	readiness.Recovery = "下一步必须通过独立受控 POST 显式写 output storage；当前 readiness 不写 storage、不修改 task status。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportWorkerExecutionTaskCompletionReadiness 只读评估 output_stored request 推进 task completed 的前置。
+func (s *AdminConsoleService) GetEnterpriseAuditExportWorkerExecutionTaskCompletionReadiness(ctx context.Context) (*EnterpriseAuditExportWorkerExecutionTaskCompletionReadiness, error) {
+	if s == nil || s.adminRepo == nil || s.auditRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	outputStorageReadiness, err := s.GetEnterpriseAuditExportWorkerExecutionOutputStorageReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskReadback, err := s.ListEnterpriseAuditExportTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	outputStoredRequestCount, err := s.adminRepo.CountEnterpriseAuditExportWorkerExecutionRequestsByStatus(ctx, enterpriseAuditExportWorkerExecutionTaskCompletionRequiredRequestStatus)
+	if err != nil {
+		return nil, err
+	}
+	queuedTaskCount := countEnterpriseAuditExportQueuedTasks(taskReadback.Tasks)
+	contractReady := outputStorageReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionOutputStorageReadinessReady &&
+		outputStoredRequestCount > 0 &&
+		taskReadback.Status == "audit_export_task_readback_ready" &&
+		queuedTaskCount > 0 &&
+		enterpriseAuditExportWorkerExecutionTaskCompletionTargetStatus == "completed" &&
+		enterpriseAuditExportWorkerExecutionTaskCompletionSource != ""
+	readiness := &EnterpriseAuditExportWorkerExecutionTaskCompletionReadiness{
+		AdminAuditLogCount:                   outputStorageReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:            outputStorageReadiness.ActivationAuditEventCount,
+		OutputStorageReadinessStatus:         outputStorageReadiness.ReadinessStatus,
+		TaskReadbackStatus:                   taskReadback.Status,
+		ExistingExecutionRequestCount:        outputStorageReadiness.ExistingExecutionRequestCount,
+		OutputStoredRequestCount:             outputStoredRequestCount,
+		TaskCount:                            taskReadback.TaskCount,
+		QueuedTaskCount:                      queuedTaskCount,
+		TargetTaskStatus:                     enterpriseAuditExportWorkerExecutionTaskCompletionTargetStatus,
+		RequiredRequestStatus:                enterpriseAuditExportWorkerExecutionTaskCompletionRequiredRequestStatus,
+		TaskCompletionSource:                 enterpriseAuditExportWorkerExecutionTaskCompletionSource,
+		RequestTaskMatchRequired:             true,
+		OutputStorageMetadataRequired:        true,
+		StatusTransitionConfirmationRequired: true,
+		TaskStatusMutationEnabled:            false,
+		TaskStatusAuditWriteEnabled:          false,
+		WorkerExecutionEnabled:               false,
+		ExportFileGenerationEnabled:          false,
+		OutputStorageWriteEnabled:            false,
+		DeliveryReportStorageWriteEnabled:    false,
+		ArchiveDeletionEnabled:               false,
+		ProjectWriteEnabled:                  false,
+		CoveredSourceCount:                   0,
+		RequiredSourceCount:                  enterpriseAuditExportWorkerExecutionTaskCompletionRequiredSourceCount,
+	}
+	if outputStorageReadiness.ReadinessStatus == EnterpriseAuditExportWorkerExecutionOutputStorageReadinessReady {
+		readiness.CoveredSourceCount += outputStorageReadiness.CoveredSourceCount
+	}
+	if taskReadback.Status == "audit_export_task_readback_ready" {
+		readiness.CoveredSourceCount++
+	}
+	if outputStoredRequestCount > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if taskReadback.TaskCount > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if queuedTaskCount > 0 {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionTaskCompletionTargetStatus == "completed" {
+		readiness.CoveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionTaskCompletionSource != "" {
+		readiness.CoveredSourceCount++
+	}
+	if outputStorageReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionTaskCompletionNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供 worker execution task completion readiness 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不修改 task status、不写 audit。"
+		return readiness, nil
+	}
+	if outputStorageReadiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionOutputStorageReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionTaskCompletionOutputStorageNotReady
+		readiness.Message = "worker execution output storage readiness 尚未 ready，不能声明 output_stored 后的任务完成推进契约。"
+		readiness.Recovery = "先完成 worker execution artifact 与 output storage metadata 写入；当前 readiness 不推进任务状态。"
+		return readiness, nil
+	}
+	if outputStoredRequestCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionTaskCompletionNoStoredRequests
+		readiness.Message = "尚无 output_stored 的 worker execution request 可作为任务完成推进证据。"
+		readiness.Recovery = "先通过受控 output storage POST 写入 metadata snapshot；当前 readiness 不修改任务状态。"
+		return readiness, nil
+	}
+	if taskReadback.Status != "audit_export_task_readback_ready" {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionTaskCompletionTaskReadbackNotReady
+		readiness.Message = "企业审计导出任务 readback 尚未 ready，不能校验 request->task 完成推进候选。"
+		readiness.Recovery = "先修复任务持久化和 readback readiness；当前 readiness 不写任务表。"
+		return readiness, nil
+	}
+	if queuedTaskCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionTaskCompletionNoQueuedTasks
+		readiness.Message = "已有 output_stored request 证据，但当前没有 queued 任务可进入 completed 推进候选。"
+		readiness.Recovery = "确认任务状态是否已由其他受控入口推进，或重新创建 queued 任务；当前 readiness 不修改任务状态。"
+		return readiness, nil
+	}
+	if contractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionTaskCompletionContractMissing
+		readiness.Message = "worker execution task completion 契约尚不完整。"
+		readiness.Recovery = "先补齐 required_request_status、target task status、source 和 request/task matching 契约。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessReady
+	readiness.Message = "output_stored worker execution request 已可作为 task completed 推进的只读前置证据。"
+	readiness.Recovery = "下一步可实现独立受控 POST，根据 request_id 校验 request->task 匹配后推进任务状态；当前 readiness 不修改 task status、不写 audit、不生成报告。"
+	return readiness, nil
+}
+
+// CompleteEnterpriseAuditExportWorkerExecutionTask 受控使用 output_stored request 推进 task completed。
+// 它只修改 task status/source 并写 admin audit，不启动 worker、不生成文件、不写 storage、不写 report。
+func (s *AdminConsoleService) CompleteEnterpriseAuditExportWorkerExecutionTask(ctx context.Context, operatorID string, input EnterpriseAuditExportWorkerExecutionTaskCompletionInput, ip string) (*EnterpriseAuditExportWorkerExecutionTaskCompletionResult, error) {
+	if s == nil || s.adminRepo == nil || s.auditRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if input.ConfirmWorkerExecutionTaskCompletion == false {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("confirm_worker_execution_task_completion is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("operator admin id is required")
+	}
+	readiness, err := s.GetEnterpriseAuditExportWorkerExecutionTaskCompletionReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionTaskCompletionReadinessReady {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("audit export worker execution task completion readiness is not ready")
+	}
+	requestID := strings.TrimSpace(input.RequestID)
+	if requestID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request_id is required")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportTaskCreateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("reason must be at most 1000 characters")
+	}
+	request, err := s.adminRepo.FindEnterpriseAuditExportWorkerExecutionRequestByID(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request_id was not found")
+	}
+	requestStatus := strings.ToLower(strings.TrimSpace(request.Status))
+	if requestStatus != enterpriseAuditExportWorkerExecutionTaskCompletionRequiredRequestStatus {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request_id must reference an output_stored worker execution request")
+	}
+	if strings.TrimSpace(request.TaskID) == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request task_id is required")
+	}
+	if strings.TrimSpace(request.OutputPath) == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request output_path is required")
+	}
+	if strings.TrimSpace(request.ChecksumSHA256) == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request checksum_sha256 is required")
+	}
+	if request.RowCount < 0 {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request row_count must not be negative")
+	}
+	task, err := s.adminRepo.FindEnterpriseAuditExportTaskByID(ctx, request.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request task was not found")
+	}
+	if strings.TrimSpace(task.ID) != strings.TrimSpace(request.TaskID) {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request task_id does not match task id")
+	}
+	previousStatus := strings.ToLower(strings.TrimSpace(task.Status))
+	if previousStatus != "queued" {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("request task must remain queued for completion")
+	}
+	targetStatus := enterpriseAuditExportWorkerExecutionTaskCompletionTargetStatus
+	if targetStatus != "completed" {
+		return nil, newEnterpriseAuditExportWorkerExecutionTaskCompletionValidationError("target task status contract is invalid")
+	}
+	task.Status = targetStatus
+	task.Source = enterpriseAuditExportWorkerExecutionTaskCompletionSource
+	if err := s.adminRepo.UpdateEnterpriseAuditExportTaskStatus(ctx, task); err != nil {
+		return nil, err
+	}
+	outputStoragePath := enterpriseAuditExportWorkerExecutionOutputStoragePath(request.TaskID, request.ID)
+	transition := previousStatus + "->" + targetStatus
+	auditDetail := fmt.Sprintf("Completed enterprise audit export task %s from worker execution request %s with status %s, output_path=%s checksum=%s row_count=%d reason=%s; worker execution, file generation, output storage writes, delivery report storage, archive deletion and project writes were not started.", task.ID, request.ID, request.Status, request.OutputPath, request.ChecksumSHA256, request.RowCount, reason)
+	s.writeAudit(ctx, operatorID, "complete_enterprise_audit_export_worker_execution_task", "enterprise_audit_export_task", task.ID, auditDetail, ip)
+	return &EnterpriseAuditExportWorkerExecutionTaskCompletionResult{
+		Status:                            "completed",
+		Request:                           *request,
+		Task:                              *task,
+		PreviousTaskStatus:                previousStatus,
+		TargetTaskStatus:                  targetStatus,
+		RequiredRequestStatus:             enterpriseAuditExportWorkerExecutionTaskCompletionRequiredRequestStatus,
+		Transition:                        transition,
+		ReadinessStatus:                   readiness.ReadinessStatus,
+		OutputStorageReadinessStatus:      readiness.OutputStorageReadinessStatus,
+		OutputPath:                        request.OutputPath,
+		ChecksumSHA256:                    request.ChecksumSHA256,
+		RowCount:                          request.RowCount,
+		RequestTaskMatched:                true,
+		OutputStorageMetadataVerified:     outputStoragePath != "",
+		TaskStatusMutationWritten:         true,
+		TaskStatusAuditWritten:            true,
+		WorkerExecutionStarted:            false,
+		ExportFileGenerationStarted:       false,
+		OutputStorageWriteStarted:         false,
+		DeliveryReportStorageWriteStarted: false,
+		ArchiveDeletionStarted:            false,
+		ProjectWriteStarted:               false,
+		Message:                           "Enterprise audit export task has been completed from an output_stored worker execution request.",
+		Recovery:                          "Next slice can chain delivery report storage from the completed task; this endpoint only mutates task status and writes admin audit evidence.",
+	}, nil
+}
+
+// DryRunEnterpriseAuditExportWorkerExecutionRequest 受控写入 worker execution request 的 dry-run execution result。
+func (s *AdminConsoleService) DryRunEnterpriseAuditExportWorkerExecutionRequest(ctx context.Context, operatorID string, input EnterpriseAuditExportWorkerExecutionDryRunInput, ip string) (*EnterpriseAuditExportWorkerExecutionDryRunResult, error) {
+	if s == nil || s.adminRepo == nil || s.auditRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if input.ConfirmWorkerExecutionDryRun == false {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("confirm_worker_execution_dry_run is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("operator admin id is required")
+	}
+	readiness, err := s.GetEnterpriseAuditExportWorkerExecutionDryRunReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionDryRunReadinessReady {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("audit export worker execution dry-run readiness is not ready")
+	}
+	requestID := strings.TrimSpace(input.RequestID)
+	if requestID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("request_id is required")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportTaskCreateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("reason must be at most 1000 characters")
+	}
+	request, err := s.adminRepo.FindEnterpriseAuditExportWorkerExecutionRequestByID(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("request_id was not found")
+	}
+	requestStatus := strings.ToLower(strings.TrimSpace(request.Status))
+	if requestStatus != "requested" {
+		if requestStatus == "dry_run_completed" {
+			return &EnterpriseAuditExportWorkerExecutionDryRunResult{
+				Status:                            "dry_run_existing",
+				Request:                           *request,
+				ReadinessStatus:                   readiness.ReadinessStatus,
+				PersistenceReadinessStatus:        readiness.PersistenceReadinessStatus,
+				ExecutionDryRunSchemaVersion:      enterpriseAuditExportWorkerExecutionDryRunSchemaVersion,
+				ChecksumSHA256:                    request.ChecksumSHA256,
+				RowCount:                          request.RowCount,
+				ExecutionResultWritten:            false,
+				ExecutionAuditWritten:             false,
+				WorkerExecutionDryRunStarted:      false,
+				WorkerExecutionStarted:            false,
+				TaskStatusMutationStarted:         false,
+				ExportFileGenerationStarted:       false,
+				OutputStorageWriteStarted:         false,
+				DeliveryReportStorageWriteStarted: false,
+				ArchiveDeletionStarted:            false,
+				ProjectWriteStarted:               false,
+				Message:                           "Enterprise audit export worker execution request already has dry-run execution result.",
+				Recovery:                          "Reuse the returned request result or create a new execution request; this endpoint does not mutate tasks or write output storage.",
+			}, nil
+		}
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("request_id must reference a requested worker execution request")
+	}
+	task, err := s.adminRepo.FindEnterpriseAuditExportTaskByID(ctx, request.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("request task was not found")
+	}
+	taskStatus := strings.ToLower(strings.TrimSpace(task.Status))
+	if taskStatus != "queued" {
+		return nil, newEnterpriseAuditExportWorkerExecutionDryRunValidationError("request task must remain queued for dry-run execution")
+	}
+	limit := request.BatchLimit
+	if limit <= 0 {
+		limit = enterpriseAuditExportWorkerBatchSize
+	}
+	if limit > enterpriseAuditExportWorkerBatchSize {
+		limit = enterpriseAuditExportWorkerBatchSize
+	}
+	auditLogs, err := s.auditRepo.List(ctx, 0, limit)
+	if err != nil {
+		return nil, err
+	}
+	dryRunPayload, err := marshalEnterpriseAuditExportWorkerExecutionDryRunPayload(request, task, auditLogs, operatorID, reason, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	checksumSHA256 := calculateEnterpriseAuditExportWorkerExecutionDryRunChecksum(dryRunPayload)
+	executionResult, err := marshalEnterpriseAuditExportWorkerExecutionDryRunResultSnapshot(request, task, len(auditLogs), checksumSHA256, reason)
+	if err != nil {
+		return nil, err
+	}
+	request.Status = "dry_run_completed"
+	request.ExecutionResult = executionResult
+	request.ChecksumSHA256 = checksumSHA256
+	request.RowCount = int64(len(auditLogs))
+	request.ErrorMessage = ""
+	request.Source = enterpriseAuditExportWorkerExecutionDryRunSource
+	if err := s.adminRepo.UpdateEnterpriseAuditExportWorkerExecutionRequestExecutionResult(ctx, request); err != nil {
+		return nil, err
+	}
+	auditDetail := fmt.Sprintf("Dry-ran enterprise audit export worker execution request %s for task %s with row_count=%d checksum=%s; real worker execution, export file generation, output storage writes, task mutation, archive deletion and project writes were not started.", request.ID, request.TaskID, request.RowCount, request.ChecksumSHA256)
+	s.writeAudit(ctx, operatorID, "dry_run_enterprise_audit_export_worker_execution_request", "enterprise_audit_export_worker_execution_request", request.ID, auditDetail, ip)
+	return &EnterpriseAuditExportWorkerExecutionDryRunResult{
+		Status:                            "dry_run_completed",
+		Request:                           *request,
+		ReadinessStatus:                   readiness.ReadinessStatus,
+		PersistenceReadinessStatus:        readiness.PersistenceReadinessStatus,
+		ExecutionDryRunSchemaVersion:      enterpriseAuditExportWorkerExecutionDryRunSchemaVersion,
+		ChecksumSHA256:                    request.ChecksumSHA256,
+		RowCount:                          request.RowCount,
+		ExecutionResultWritten:            true,
+		ExecutionAuditWritten:             true,
+		WorkerExecutionDryRunStarted:      true,
+		WorkerExecutionStarted:            false,
+		TaskStatusMutationStarted:         false,
+		ExportFileGenerationStarted:       false,
+		OutputStorageWriteStarted:         false,
+		DeliveryReportStorageWriteStarted: false,
+		ArchiveDeletionStarted:            false,
+		ProjectWriteStarted:               false,
+		Message:                           "Enterprise audit export worker execution request dry-run result has been persisted.",
+		Recovery:                          "A later controlled worker execution slice must explicitly generate files, write output storage and advance task status; this endpoint only persists dry-run execution result and admin audit.",
+	}, nil
+}
+
+// GenerateEnterpriseAuditExportWorkerExecutionArtifact 受控生成 worker execution artifact snapshot。
+// 它只写 execution request 的 artifact metadata 和 admin audit，不写 output storage、不修改 task status。
+func (s *AdminConsoleService) GenerateEnterpriseAuditExportWorkerExecutionArtifact(ctx context.Context, operatorID string, input EnterpriseAuditExportWorkerExecutionArtifactGenerateInput, ip string) (*EnterpriseAuditExportWorkerExecutionArtifactGenerateResult, error) {
+	if s == nil || s.adminRepo == nil || s.auditRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if input.ConfirmWorkerExecutionArtifact == false {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("confirm_worker_execution_artifact is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("operator admin id is required")
+	}
+	readiness, err := s.GetEnterpriseAuditExportWorkerExecutionArtifactReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionArtifactReadinessReady {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("audit export worker execution artifact readiness is not ready")
+	}
+	requestID := strings.TrimSpace(input.RequestID)
+	if requestID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("request_id is required")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportTaskCreateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("reason must be at most 1000 characters")
+	}
+	request, err := s.adminRepo.FindEnterpriseAuditExportWorkerExecutionRequestByID(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("request_id was not found")
+	}
+	requestStatus := strings.ToLower(strings.TrimSpace(request.Status))
+	if requestStatus != "dry_run_completed" {
+		if requestStatus == "artifact_generated" {
+			return &EnterpriseAuditExportWorkerExecutionArtifactGenerateResult{
+				Status:                            "artifact_existing",
+				Request:                           *request,
+				ReadinessStatus:                   readiness.ReadinessStatus,
+				DryRunReadinessStatus:             readiness.DryRunReadinessStatus,
+				ExecutionArtifactSchemaVersion:    enterpriseAuditExportWorkerExecutionArtifactSchemaVersion,
+				OutputPath:                        request.OutputPath,
+				FileName:                          enterpriseAuditExportWorkerExecutionArtifactFileName(request.TaskID, request.UpdatedAt),
+				ChecksumSHA256:                    request.ChecksumSHA256,
+				RowCount:                          request.RowCount,
+				ExecutionResultWritten:            false,
+				ExecutionAuditWritten:             false,
+				WorkerExecutionStarted:            false,
+				TaskStatusMutationStarted:         false,
+				ExportFileGenerationStarted:       false,
+				OutputStorageWriteStarted:         false,
+				DeliveryReportStorageWriteStarted: false,
+				ArchiveDeletionStarted:            false,
+				ProjectWriteStarted:               false,
+				Message:                           "Enterprise audit export worker execution request already has artifact result.",
+				Recovery:                          "Reuse the returned request artifact metadata or create a new execution request; this endpoint does not write output storage or mutate tasks.",
+			}, nil
+		}
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("request_id must reference a dry_run_completed worker execution request")
+	}
+	task, err := s.adminRepo.FindEnterpriseAuditExportTaskByID(ctx, request.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("request task was not found")
+	}
+	taskStatus := strings.ToLower(strings.TrimSpace(task.Status))
+	if taskStatus != "queued" {
+		return nil, newEnterpriseAuditExportWorkerExecutionArtifactGenerateValidationError("request task must remain queued for artifact generation")
+	}
+	limit := request.BatchLimit
+	if limit <= 0 {
+		limit = enterpriseAuditExportWorkerBatchSize
+	}
+	if limit > enterpriseAuditExportFileGeneratorMaxRowsPerFile {
+		limit = enterpriseAuditExportFileGeneratorMaxRowsPerFile
+	}
+	auditLogs, err := s.auditRepo.List(ctx, 0, limit)
+	if err != nil {
+		return nil, err
+	}
+	generatedAt := time.Now().UTC()
+	fileName := enterpriseAuditExportWorkerExecutionArtifactFileName(request.TaskID, generatedAt)
+	outputPath := fmt.Sprintf("%s/%s/%s", enterpriseAuditExportFileGeneratorOutputPathPrefix, request.TaskID, fileName)
+	artifactPayload, err := marshalEnterpriseAuditExportWorkerExecutionArtifactPayload(request, task, auditLogs, operatorID, reason, outputPath, fileName, generatedAt)
+	if err != nil {
+		return nil, err
+	}
+	checksumSHA256 := calculateEnterpriseAuditExportWorkerExecutionDryRunChecksum(artifactPayload)
+	executionResult, err := marshalEnterpriseAuditExportWorkerExecutionArtifactResultSnapshot(request, task, len(auditLogs), checksumSHA256, reason, outputPath, fileName)
+	if err != nil {
+		return nil, err
+	}
+	request.Status = "artifact_generated"
+	request.ExecutionResult = executionResult
+	request.OutputPath = outputPath
+	request.ChecksumSHA256 = checksumSHA256
+	request.RowCount = int64(len(auditLogs))
+	request.ErrorMessage = ""
+	request.Source = enterpriseAuditExportWorkerExecutionArtifactSource
+	if err := s.adminRepo.UpdateEnterpriseAuditExportWorkerExecutionRequestExecutionResult(ctx, request); err != nil {
+		return nil, err
+	}
+	auditDetail := fmt.Sprintf("Generated enterprise audit export worker execution artifact snapshot %s for task %s with row_count=%d checksum=%s; output storage writes, task mutation, archive deletion and project writes were not started.", request.ID, request.TaskID, request.RowCount, request.ChecksumSHA256)
+	s.writeAudit(ctx, operatorID, "generate_enterprise_audit_export_worker_execution_artifact", "enterprise_audit_export_worker_execution_request", request.ID, auditDetail, ip)
+	return &EnterpriseAuditExportWorkerExecutionArtifactGenerateResult{
+		Status:                            "artifact_generated",
+		Request:                           *request,
+		ReadinessStatus:                   readiness.ReadinessStatus,
+		DryRunReadinessStatus:             readiness.DryRunReadinessStatus,
+		ExecutionArtifactSchemaVersion:    enterpriseAuditExportWorkerExecutionArtifactSchemaVersion,
+		OutputPath:                        request.OutputPath,
+		FileName:                          fileName,
+		ChecksumSHA256:                    request.ChecksumSHA256,
+		RowCount:                          request.RowCount,
+		ExecutionResultWritten:            true,
+		ExecutionAuditWritten:             true,
+		WorkerExecutionStarted:            false,
+		TaskStatusMutationStarted:         false,
+		ExportFileGenerationStarted:       false,
+		OutputStorageWriteStarted:         false,
+		DeliveryReportStorageWriteStarted: false,
+		ArchiveDeletionStarted:            false,
+		ProjectWriteStarted:               false,
+		Message:                           "Enterprise audit export worker execution artifact metadata has been persisted.",
+		Recovery:                          "A later controlled storage slice must explicitly write output storage and advance task status; this endpoint only persists artifact metadata and admin audit.",
+	}, nil
+}
+
+// StoreEnterpriseAuditExportWorkerExecutionOutputStorage 受控写入 worker execution output storage metadata。
+// 它只写 execution request 的 storage snapshot 和 admin audit，不生成真实文件、不修改 task status。
+func (s *AdminConsoleService) StoreEnterpriseAuditExportWorkerExecutionOutputStorage(ctx context.Context, operatorID string, input EnterpriseAuditExportWorkerExecutionOutputStorageStoreInput, ip string) (*EnterpriseAuditExportWorkerExecutionOutputStorageStoreResult, error) {
+	if s == nil || s.adminRepo == nil || s.auditRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if input.ConfirmWorkerExecutionOutputStorage == false {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("confirm_worker_execution_output_storage is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("operator admin id is required")
+	}
+	readiness, err := s.GetEnterpriseAuditExportWorkerExecutionOutputStorageReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportWorkerExecutionOutputStorageReadinessReady {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("audit export worker execution output storage readiness is not ready")
+	}
+	requestID := strings.TrimSpace(input.RequestID)
+	if requestID == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("request_id is required")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportTaskCreateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("reason must be at most 1000 characters")
+	}
+	request, err := s.adminRepo.FindEnterpriseAuditExportWorkerExecutionRequestByID(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("request_id was not found")
+	}
+	requestStatus := strings.ToLower(strings.TrimSpace(request.Status))
+	if requestStatus != "artifact_generated" {
+		if requestStatus == "output_stored" {
+			outputStoragePath := enterpriseAuditExportWorkerExecutionOutputStoragePath(request.TaskID, request.ID)
+			return &EnterpriseAuditExportWorkerExecutionOutputStorageStoreResult{
+				Status:                            "storage_existing",
+				Request:                           *request,
+				ReadinessStatus:                   readiness.ReadinessStatus,
+				ArtifactReadinessStatus:           readiness.ArtifactReadinessStatus,
+				OutputStorageSchemaVersion:        enterpriseAuditExportWorkerExecutionOutputStorageSchemaVersion,
+				OutputStoragePath:                 outputStoragePath,
+				OutputPath:                        request.OutputPath,
+				ChecksumSHA256:                    request.ChecksumSHA256,
+				RowCount:                          request.RowCount,
+				MetadataWritten:                   false,
+				OutputStorageWriteStarted:         false,
+				ExecutionAuditWritten:             false,
+				WorkerExecutionStarted:            false,
+				TaskStatusMutationStarted:         false,
+				ExportFileGenerationStarted:       false,
+				DeliveryReportStorageWriteStarted: false,
+				ArchiveDeletionStarted:            false,
+				ProjectWriteStarted:               false,
+				Message:                           "Enterprise audit export worker execution output storage metadata already exists.",
+				Recovery:                          "Reuse the returned storage metadata or create a new artifact request; this endpoint does not mutate tasks or write delivery report storage.",
+			}, nil
+		}
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("request_id must reference an artifact_generated worker execution request")
+	}
+	if strings.TrimSpace(request.OutputPath) == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("request output_path is required")
+	}
+	if strings.TrimSpace(request.ChecksumSHA256) == "" {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("request checksum_sha256 is required")
+	}
+	if request.RowCount < 0 {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("request row_count must not be negative")
+	}
+	task, err := s.adminRepo.FindEnterpriseAuditExportTaskByID(ctx, request.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("request task was not found")
+	}
+	taskStatus := strings.ToLower(strings.TrimSpace(task.Status))
+	if taskStatus != "queued" {
+		return nil, newEnterpriseAuditExportWorkerExecutionOutputStorageStoreValidationError("request task must remain queued for output storage metadata write")
+	}
+	storedAt := time.Now().UTC()
+	outputStoragePath := enterpriseAuditExportWorkerExecutionOutputStoragePath(request.TaskID, request.ID)
+	executionResult, err := marshalEnterpriseAuditExportWorkerExecutionOutputStorageResultSnapshot(request, task, operatorID, reason, outputStoragePath, storedAt)
+	if err != nil {
+		return nil, err
+	}
+	request.Status = "output_stored"
+	request.ExecutionResult = executionResult
+	request.ErrorMessage = ""
+	request.Source = enterpriseAuditExportWorkerExecutionOutputStorageSource
+	if err := s.adminRepo.UpdateEnterpriseAuditExportWorkerExecutionRequestExecutionResult(ctx, request); err != nil {
+		return nil, err
+	}
+	auditDetail := fmt.Sprintf("Stored enterprise audit export worker execution output storage metadata %s for task %s with row_count=%d checksum=%s; task mutation, delivery report storage, archive deletion and project writes were not started.", request.ID, request.TaskID, request.RowCount, request.ChecksumSHA256)
+	s.writeAudit(ctx, operatorID, "store_enterprise_audit_export_worker_execution_output_storage", "enterprise_audit_export_worker_execution_request", request.ID, auditDetail, ip)
+	return &EnterpriseAuditExportWorkerExecutionOutputStorageStoreResult{
+		Status:                            "output_stored",
+		Request:                           *request,
+		ReadinessStatus:                   readiness.ReadinessStatus,
+		ArtifactReadinessStatus:           readiness.ArtifactReadinessStatus,
+		OutputStorageSchemaVersion:        enterpriseAuditExportWorkerExecutionOutputStorageSchemaVersion,
+		OutputStoragePath:                 outputStoragePath,
+		OutputPath:                        request.OutputPath,
+		ChecksumSHA256:                    request.ChecksumSHA256,
+		RowCount:                          request.RowCount,
+		MetadataWritten:                   true,
+		OutputStorageWriteStarted:         true,
+		ExecutionAuditWritten:             true,
+		WorkerExecutionStarted:            false,
+		TaskStatusMutationStarted:         false,
+		ExportFileGenerationStarted:       false,
+		DeliveryReportStorageWriteStarted: false,
+		ArchiveDeletionStarted:            false,
+		ProjectWriteStarted:               false,
+		Message:                           "Enterprise audit export worker execution output storage metadata has been persisted.",
+		Recovery:                          "A later controlled slice must explicitly advance task status and chain delivery report storage; this endpoint only writes output storage metadata snapshot and admin audit.",
+	}, nil
+}
+
+func enterpriseAuditExportWorkerExecutionArtifactFileName(taskID string, generatedAt time.Time) string {
+	timestamp := generatedAt.UTC().Format("20060102T150405Z")
+	fileName := strings.ReplaceAll(enterpriseAuditExportFileGeneratorFileNameTemplate, "{task_id}", taskID)
+	fileName = strings.ReplaceAll(fileName, "{created_at}", timestamp)
+	fileName = strings.ReplaceAll(fileName, "{format}", "json")
+	return fileName
+}
+
+func marshalEnterpriseAuditExportWorkerExecutionArtifactPayload(request *model.EnterpriseAuditExportWorkerExecutionRequest, task *model.EnterpriseAuditExportTask, logs []model.AdminAuditLog, operatorID string, reason string, outputPath string, fileName string, generatedAt time.Time) (string, error) {
+	payload := map[string]interface{}{
+		"schema_version":      enterpriseAuditExportWorkerExecutionArtifactSchemaVersion,
+		"request_id":          request.ID,
+		"task_id":             task.ID,
+		"operator_admin_id":   operatorID,
+		"reason":              reason,
+		"generated_at":        generatedAt.Format(time.RFC3339),
+		"task_status":         task.Status,
+		"output_path":         outputPath,
+		"file_name":           fileName,
+		"checksum_algorithm":  enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		"audit_log_row_count": len(logs),
+		"audit_logs":          logs,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func marshalEnterpriseAuditExportWorkerExecutionArtifactResultSnapshot(request *model.EnterpriseAuditExportWorkerExecutionRequest, task *model.EnterpriseAuditExportTask, rowCount int, checksumSHA256 string, reason string, outputPath string, fileName string) (string, error) {
+	result := map[string]interface{}{
+		"schema_version":                        enterpriseAuditExportWorkerExecutionArtifactSchemaVersion,
+		"request_id":                            request.ID,
+		"task_id":                               task.ID,
+		"task_status":                           task.Status,
+		"reason":                                reason,
+		"row_count":                             rowCount,
+		"output_path":                           outputPath,
+		"file_name":                             fileName,
+		"checksum_sha256":                       checksumSHA256,
+		"checksum_algorithm":                    enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		"worker_execution_started":              false,
+		"task_status_mutation_started":          false,
+		"export_file_generation_started":        false,
+		"output_storage_write_started":          false,
+		"delivery_report_storage_write_started": false,
+		"archive_deletion_started":              false,
+		"project_write_started":                 false,
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func enterpriseAuditExportWorkerExecutionOutputStoragePath(taskID string, requestID string) string {
+	return fmt.Sprintf("%s/%s/%s.json", enterpriseAuditExportWorkerExecutionOutputStoragePathPrefix, taskID, requestID)
+}
+
+func marshalEnterpriseAuditExportWorkerExecutionOutputStorageResultSnapshot(request *model.EnterpriseAuditExportWorkerExecutionRequest, task *model.EnterpriseAuditExportTask, operatorID string, reason string, outputStoragePath string, storedAt time.Time) (string, error) {
+	result := map[string]interface{}{
+		"schema_version":                        enterpriseAuditExportWorkerExecutionOutputStorageSchemaVersion,
+		"artifact_schema_version":               enterpriseAuditExportWorkerExecutionArtifactSchemaVersion,
+		"request_id":                            request.ID,
+		"task_id":                               task.ID,
+		"task_status":                           task.Status,
+		"reason":                                reason,
+		"row_count":                             request.RowCount,
+		"output_path":                           request.OutputPath,
+		"output_storage_path":                   outputStoragePath,
+		"checksum_sha256":                       request.ChecksumSHA256,
+		"checksum_algorithm":                    enterpriseAuditExportFileGeneratorChecksumAlgorithm,
+		"stored_by_admin_id":                    operatorID,
+		"stored_at":                             storedAt.Format(time.RFC3339),
+		"metadata_written":                      true,
+		"output_storage_write_started":          true,
+		"worker_execution_started":              false,
+		"task_status_mutation_started":          false,
+		"export_file_generation_started":        false,
+		"delivery_report_storage_write_started": false,
+		"archive_deletion_started":              false,
+		"project_write_started":                 false,
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func marshalEnterpriseAuditExportWorkerExecutionDryRunPayload(request *model.EnterpriseAuditExportWorkerExecutionRequest, task *model.EnterpriseAuditExportTask, logs []model.AdminAuditLog, operatorID string, reason string, executedAt time.Time) (string, error) {
+	payload := map[string]interface{}{
+		"schema_version":      enterpriseAuditExportWorkerExecutionDryRunSchemaVersion,
+		"request_id":          request.ID,
+		"task_id":             task.ID,
+		"operator_admin_id":   operatorID,
+		"reason":              reason,
+		"executed_at":         executedAt.Format(time.RFC3339),
+		"task_status":         task.Status,
+		"task_output_path":    task.OutputPath,
+		"audit_log_row_count": len(logs),
+		"audit_logs":          logs,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func marshalEnterpriseAuditExportWorkerExecutionDryRunResultSnapshot(request *model.EnterpriseAuditExportWorkerExecutionRequest, task *model.EnterpriseAuditExportTask, rowCount int, checksumSHA256 string, reason string) (string, error) {
+	result := map[string]interface{}{
+		"schema_version":                        enterpriseAuditExportWorkerExecutionDryRunSchemaVersion,
+		"request_id":                            request.ID,
+		"task_id":                               task.ID,
+		"task_status":                           task.Status,
+		"reason":                                reason,
+		"row_count":                             rowCount,
+		"checksum_sha256":                       checksumSHA256,
+		"worker_execution_dry_run_started":      true,
+		"worker_execution_started":              false,
+		"task_status_mutation_started":          false,
+		"export_file_generation_started":        false,
+		"output_storage_write_started":          false,
+		"delivery_report_storage_write_started": false,
+		"archive_deletion_started":              false,
+		"project_write_started":                 false,
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func calculateEnterpriseAuditExportWorkerExecutionDryRunChecksum(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
+func countEnterpriseAuditExportQueuedTasks(tasks []model.EnterpriseAuditExportTask) int {
+	count := 0
+	for _, task := range tasks {
+		if task.Status == "queued" {
+			count++
+		}
+	}
+	return count
+}
+
+// GetEnterpriseAuditExportTaskStatusTransitionReadiness 只读评估导出任务状态转移 preflight。
+// 它不修改任务状态、不启动 worker、不生成文件、不写 storage、不写 audit。
+func (s *AdminConsoleService) GetEnterpriseAuditExportTaskStatusTransitionReadiness(ctx context.Context) (*EnterpriseAuditExportTaskStatusTransitionReadiness, error) {
+	workerReadiness, err := s.GetEnterpriseAuditExportWorkerReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskReadback, err := s.ListEnterpriseAuditExportTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	queuedTaskCount := countEnterpriseAuditExportQueuedTasks(taskReadback.Tasks)
+	processingTaskCount := countEnterpriseAuditExportTasksByStatus(taskReadback.Tasks, "processing")
+	terminalTaskCount := countEnterpriseAuditExportTerminalTasks(taskReadback.Tasks)
+	transitionContractReady := len(enterpriseAuditExportTaskStatusTransitionAllowedStatuses) >= enterpriseAuditExportTaskStatusTransitionRequiredStatusCount &&
+		len(enterpriseAuditExportTaskStatusTransitionAllowedTransitions) >= enterpriseAuditExportTaskStatusTransitionRequiredTransitionCount
+	coveredSourceCount := 0
+	if workerReadiness.AdminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if workerReadiness.ActivationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if workerReadiness.ReadinessStatus == EnterpriseAuditExportWorkerReady || workerReadiness.ReadinessStatus == EnterpriseAuditExportWorkerNoQueuedTasks {
+		coveredSourceCount++
+	}
+	if taskReadback.Status == "audit_export_task_readback_ready" || taskReadback.Status == "no_audit_export_tasks" {
+		coveredSourceCount++
+	}
+	if taskReadback.TaskCount > 0 {
+		coveredSourceCount++
+	}
+	if queuedTaskCount > 0 {
+		coveredSourceCount++
+	}
+	if processingTaskCount >= 0 {
+		coveredSourceCount++
+	}
+	if terminalTaskCount >= 0 {
+		coveredSourceCount++
+	}
+	if transitionContractReady {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportTaskStatusTransitionRequiredSourceCount > 0 {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportTaskStatusTransitionReadiness{
+		AdminAuditLogCount:                   workerReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:            workerReadiness.ActivationAuditEventCount,
+		WorkerReadinessStatus:                workerReadiness.ReadinessStatus,
+		TaskReadbackStatus:                   taskReadback.Status,
+		TaskCount:                            taskReadback.TaskCount,
+		QueuedTaskCount:                      queuedTaskCount,
+		ProcessingTaskCount:                  processingTaskCount,
+		TerminalTaskCount:                    terminalTaskCount,
+		AllowedTaskStatuses:                  enterpriseAuditExportTaskStatusTransitionAllowedStatuses,
+		AllowedTaskStatusCount:               len(enterpriseAuditExportTaskStatusTransitionAllowedStatuses),
+		AllowedTransitions:                   enterpriseAuditExportTaskStatusTransitionAllowedTransitions,
+		AllowedTransitionCount:               len(enterpriseAuditExportTaskStatusTransitionAllowedTransitions),
+		TaskDetailReadEnabled:                true,
+		StatusTransitionConfirmationRequired: true,
+		TaskStatusMutationEnabled:            false,
+		WorkerExecutionEnabled:               false,
+		ExportFileGenerationEnabled:          false,
+		OutputStorageWriteEnabled:            false,
+		AuditWriteEnabled:                    false,
+		ProjectWriteEnabled:                  false,
+		CoveredSourceCount:                   coveredSourceCount,
+		RequiredSourceCount:                  enterpriseAuditExportTaskStatusTransitionRequiredSourceCount,
+	}
+	if workerReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskStatusTransitionNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供任务状态转移 preflight 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 preflight 不修改任务状态、不写 audit。"
+		return readiness, nil
+	}
+	if taskReadback.Status == "task_persistence_not_ready" {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskStatusTransitionTaskReadbackNotReady
+		readiness.Message = "企业审计导出任务 readback 尚未就绪，不能评估状态转移候选。"
+		readiness.Recovery = "先修复任务持久化和 readback readiness；当前 preflight 不写任务状态、不启动 worker。"
+		return readiness, nil
+	}
+	if workerReadiness.ReadinessStatus != EnterpriseAuditExportWorkerReady && workerReadiness.ReadinessStatus != EnterpriseAuditExportWorkerNoQueuedTasks {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskStatusTransitionWorkerNotReady
+		readiness.Message = "企业审计导出 worker readiness 尚未具备，状态转移 preflight 不能确认执行前置。"
+		readiness.Recovery = "先补齐 worker 输入队列和执行契约 readiness；当前 preflight 不启动 worker、不生成文件。"
+		return readiness, nil
+	}
+	if !transitionContractReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskStatusTransitionContractMissing
+		readiness.Message = "企业审计导出任务状态转移契约不完整。"
+		readiness.Recovery = "先补齐允许状态、允许转移和确认要求；当前 preflight 不修改任务状态。"
+		return readiness, nil
+	}
+	if queuedTaskCount == 0 && processingTaskCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportTaskStatusTransitionNoCandidates
+		readiness.Message = "企业审计导出任务状态转移契约已声明，但当前没有 queued 或 processing 候选任务。"
+		readiness.Recovery = "通过受控 POST 创建 queued 任务后再检查状态转移 preflight；当前 preflight 不写任务表。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportTaskStatusTransitionReadinessReady
+	readiness.Message = "企业审计导出任务状态转移 preflight 已具备，允许状态、允许转移和候选任务均可只读回读。"
+	readiness.Recovery = "下一步可设计受控状态转移执行入口；当前 preflight 仍不修改任务状态、不写 audit、不启动 worker。"
+	return readiness, nil
+}
+
+func countEnterpriseAuditExportTasksByStatus(tasks []model.EnterpriseAuditExportTask, status string) int {
+	count := 0
+	for _, task := range tasks {
+		if task.Status != status {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func countEnterpriseAuditExportTasksByStatusAndSource(tasks []model.EnterpriseAuditExportTask, status string, source string) int {
+	count := 0
+	for _, task := range tasks {
+		if task.Status != status {
+			continue
+		}
+		if task.Source != source {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func countEnterpriseAuditExportTerminalTasks(tasks []model.EnterpriseAuditExportTask) int {
+	count := 0
+	for _, task := range tasks {
+		if task.Status == "completed" || task.Status == "failed" || task.Status == "cancelled" {
+			count++
+		}
+	}
+	return count
+}
+
+func isEnterpriseAuditExportTaskStatusAllowed(status string) bool {
+	for _, allowedStatus := range enterpriseAuditExportTaskStatusTransitionAllowedStatuses {
+		if status == allowedStatus {
+			return true
+		}
+	}
+	return false
+}
+
+func isEnterpriseAuditExportTaskTransitionAllowed(transition string) bool {
+	for _, allowedTransition := range enterpriseAuditExportTaskStatusTransitionAllowedTransitions {
+		if transition == allowedTransition {
+			return true
+		}
+	}
+	return false
+}
+
+// GetEnterpriseAuditExportArchiveExpirationReadiness 只读评估导出任务归档/过期扫描 preflight。
+// 它不删除审计数据、不修改任务状态、不启动 worker、不写 storage。
+func (s *AdminConsoleService) GetEnterpriseAuditExportArchiveExpirationReadiness(ctx context.Context) (*EnterpriseAuditExportArchiveExpirationReadiness, error) {
+	retentionReadiness, err := s.GetEnterpriseAuditRetentionReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskReadback, err := s.ListEnterpriseAuditExportTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	completedTaskCount := countEnterpriseAuditExportTasksByStatus(taskReadback.Tasks, "completed")
+	failedTaskCount := countEnterpriseAuditExportTasksByStatus(taskReadback.Tasks, "failed")
+	cancelledTaskCount := countEnterpriseAuditExportTasksByStatus(taskReadback.Tasks, "cancelled")
+	terminalTaskCount := countEnterpriseAuditExportTerminalTasks(taskReadback.Tasks)
+	expirationCandidateCount := countEnterpriseAuditExportExpirationCandidates(taskReadback.Tasks, retentionReadiness.RetentionDays, time.Now().UTC())
+	contractReady := retentionReadiness.RetentionDays >= enterpriseAuditRetentionMinimumDays &&
+		retentionReadiness.RetentionDays <= enterpriseAuditRetentionMaximumDays &&
+		enterpriseAuditExportArchiveExpirationCandidateLimit > 0 &&
+		enterpriseAuditExportArchiveExpirationScanMode != ""
+	coveredSourceCount := 0
+	if retentionReadiness.AdminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if retentionReadiness.ActivationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if retentionReadiness.ReadinessStatus == EnterpriseAuditRetentionReady {
+		coveredSourceCount++
+	}
+	if taskReadback.Status == "audit_export_task_readback_ready" || taskReadback.Status == "no_audit_export_tasks" {
+		coveredSourceCount++
+	}
+	if taskReadback.TaskCount > 0 {
+		coveredSourceCount++
+	}
+	if terminalTaskCount > 0 {
+		coveredSourceCount++
+	}
+	if expirationCandidateCount >= 0 {
+		coveredSourceCount++
+	}
+	if contractReady {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportArchiveExpirationRequiredSourceCount > 0 {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportArchiveExpirationReadiness{
+		AdminAuditLogCount:          retentionReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:   retentionReadiness.ActivationAuditEventCount,
+		RetentionReadinessStatus:    retentionReadiness.ReadinessStatus,
+		TaskReadbackStatus:          taskReadback.Status,
+		TaskCount:                   taskReadback.TaskCount,
+		TerminalTaskCount:           terminalTaskCount,
+		CompletedTaskCount:          completedTaskCount,
+		FailedTaskCount:             failedTaskCount,
+		CancelledTaskCount:          cancelledTaskCount,
+		ExpirationCandidateCount:    expirationCandidateCount,
+		RetentionPolicyKey:          retentionReadiness.RetentionPolicyKey,
+		RetentionDays:               retentionReadiness.RetentionDays,
+		ScanMode:                    enterpriseAuditExportArchiveExpirationScanMode,
+		CandidateLimit:              enterpriseAuditExportArchiveExpirationCandidateLimit,
+		ArchiveScanEnabled:          false,
+		RetentionDeletionEnabled:    false,
+		TaskStatusMutationEnabled:   false,
+		WorkerExecutionEnabled:      false,
+		ExportFileGenerationEnabled: false,
+		OutputStorageWriteEnabled:   false,
+		AuditWriteEnabled:           false,
+		ProjectWriteEnabled:         false,
+		CoveredSourceCount:          coveredSourceCount,
+		RequiredSourceCount:         enterpriseAuditExportArchiveExpirationRequiredSourceCount,
+	}
+	if retentionReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportArchiveExpirationNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供归档/过期扫描 preflight 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 preflight 不删除审计数据、不写 audit。"
+		return readiness, nil
+	}
+	if retentionReadiness.ReadinessStatus != EnterpriseAuditRetentionReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportArchiveExpirationRetentionNotReady
+		readiness.Message = "企业审计保留策略 readiness 尚未就绪，不能确认归档/过期扫描窗口。"
+		readiness.Recovery = "先补齐 retention_days 和 activation audit 证据；当前 preflight 不删除审计数据、不写配置。"
+		return readiness, nil
+	}
+	if taskReadback.Status == "task_persistence_not_ready" {
+		readiness.ReadinessStatus = EnterpriseAuditExportArchiveExpirationTaskReadbackMissing
+		readiness.Message = "企业审计导出任务 readback 尚未就绪，不能评估归档/过期扫描候选。"
+		readiness.Recovery = "先修复任务持久化和 readback readiness；当前 preflight 不修改任务状态、不启动 worker。"
+		return readiness, nil
+	}
+	if !contractReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportArchiveExpirationContractMissing
+		readiness.Message = "企业审计导出归档/过期扫描契约不完整。"
+		readiness.Recovery = "先补齐 retention_days、scan mode 和 candidate limit；当前 preflight 不执行删除或归档。"
+		return readiness, nil
+	}
+	if expirationCandidateCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportArchiveExpirationNoCandidates
+		readiness.Message = "归档/过期扫描契约已声明，但当前最近任务中没有超过 retention_days 的终态候选。"
+		readiness.Recovery = "等待终态任务超过保留窗口后再评估；当前 preflight 不写任务表、不删除审计数据。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportArchiveExpirationReadinessReady
+	readiness.Message = "企业审计导出归档/过期扫描 preflight 已具备，可只读识别超过 retention_days 的终态候选。"
+	readiness.Recovery = "下一步可设计受控归档/过期扫描执行入口；当前 preflight 仍不删除审计数据、不修改任务状态、不写 audit。"
+	return readiness, nil
+}
+
+func countEnterpriseAuditExportExpirationCandidates(tasks []model.EnterpriseAuditExportTask, retentionDays int, now time.Time) int {
+	if retentionDays <= 0 {
+		return 0
+	}
+	expirationBoundary := now.AddDate(0, 0, -retentionDays)
+	count := 0
+	for _, task := range tasks {
+		if task.Status != "completed" && task.Status != "failed" && task.Status != "cancelled" {
+			continue
+		}
+		if task.CreatedAt.Before(expirationBoundary) {
+			count++
+		}
+	}
+	return count
+}
+
+// GetEnterpriseAuditExportDeliveryReportReadiness 只读评估企业审计导出交付报告 readiness。
+// 它不生成报告文件、不写 storage、不写 audit、不修改任务状态。
+func (s *AdminConsoleService) GetEnterpriseAuditExportDeliveryReportReadiness(ctx context.Context) (*EnterpriseAuditExportDeliveryReportReadiness, error) {
+	workerReadiness, err := s.GetEnterpriseAuditExportWorkerReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	statusTransitionReadiness, err := s.GetEnterpriseAuditExportTaskStatusTransitionReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	archiveExpirationReadiness, err := s.GetEnterpriseAuditExportArchiveExpirationReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskReadback, err := s.ListEnterpriseAuditExportTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reportContractReady := len(enterpriseAuditExportDeliveryReportRequiredSections) >= enterpriseAuditExportDeliveryReportRequiredSectionCount &&
+		enterpriseAuditExportDeliveryReportFormat != ""
+	coveredSourceCount := 0
+	if workerReadiness.AdminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if workerReadiness.ActivationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if workerReadiness.ReadinessStatus == EnterpriseAuditExportWorkerReady || workerReadiness.ReadinessStatus == EnterpriseAuditExportWorkerNoQueuedTasks {
+		coveredSourceCount++
+	}
+	if statusTransitionReadiness.ReadinessStatus == EnterpriseAuditExportTaskStatusTransitionReadinessReady ||
+		statusTransitionReadiness.ReadinessStatus == EnterpriseAuditExportTaskStatusTransitionNoCandidates {
+		coveredSourceCount++
+	}
+	if archiveExpirationReadiness.ReadinessStatus == EnterpriseAuditExportArchiveExpirationReadinessReady ||
+		archiveExpirationReadiness.ReadinessStatus == EnterpriseAuditExportArchiveExpirationNoCandidates {
+		coveredSourceCount++
+	}
+	if taskReadback.Status == "audit_export_task_readback_ready" || taskReadback.Status == "no_audit_export_tasks" {
+		coveredSourceCount++
+	}
+	if taskReadback.TaskCount >= 0 {
+		coveredSourceCount++
+	}
+	if statusTransitionReadiness.TerminalTaskCount >= 0 {
+		coveredSourceCount++
+	}
+	if archiveExpirationReadiness.ExpirationCandidateCount >= 0 {
+		coveredSourceCount++
+	}
+	if reportContractReady {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportDeliveryReportRequiredSourceCount > 0 {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportDeliveryReportReadiness{
+		AdminAuditLogCount:               workerReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:        workerReadiness.ActivationAuditEventCount,
+		WorkerReadinessStatus:            workerReadiness.ReadinessStatus,
+		StatusTransitionReadinessStatus:  statusTransitionReadiness.ReadinessStatus,
+		ArchiveExpirationReadinessStatus: archiveExpirationReadiness.ReadinessStatus,
+		RetentionReadinessStatus:         archiveExpirationReadiness.RetentionReadinessStatus,
+		TaskReadbackStatus:               taskReadback.Status,
+		TaskCount:                        taskReadback.TaskCount,
+		QueuedTaskCount:                  statusTransitionReadiness.QueuedTaskCount,
+		ProcessingTaskCount:              statusTransitionReadiness.ProcessingTaskCount,
+		TerminalTaskCount:                statusTransitionReadiness.TerminalTaskCount,
+		ExpirationCandidateCount:         archiveExpirationReadiness.ExpirationCandidateCount,
+		ReportFormat:                     enterpriseAuditExportDeliveryReportFormat,
+		RequiredReportSections:           enterpriseAuditExportDeliveryReportRequiredSections,
+		RequiredReportSectionCount:       len(enterpriseAuditExportDeliveryReportRequiredSections),
+		ReportGenerationEnabled:          false,
+		ReportStorageWriteEnabled:        false,
+		ReportAuditWriteEnabled:          false,
+		WorkerExecutionEnabled:           false,
+		TaskStatusMutationEnabled:        false,
+		ArchiveDeletionEnabled:           false,
+		ExportFileGenerationEnabled:      false,
+		OutputStorageWriteEnabled:        false,
+		AuditWriteEnabled:                false,
+		ProjectWriteEnabled:              false,
+		CoveredSourceCount:               coveredSourceCount,
+		RequiredSourceCount:              enterpriseAuditExportDeliveryReportRequiredSourceCount,
+	}
+	if workerReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供企业审计导出交付报告使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不生成报告、不写 audit。"
+		return readiness, nil
+	}
+	if workerReadiness.ReadinessStatus != EnterpriseAuditExportWorkerReady && workerReadiness.ReadinessStatus != EnterpriseAuditExportWorkerNoQueuedTasks {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportWorkerNotReady
+		readiness.Message = "企业审计导出 worker readiness 尚未具备，交付报告不能汇总执行契约。"
+		readiness.Recovery = "先补齐 worker 输入队列和执行契约 readiness；当前 readiness 不启动 worker。"
+		return readiness, nil
+	}
+	if statusTransitionReadiness.ReadinessStatus != EnterpriseAuditExportTaskStatusTransitionReadinessReady &&
+		statusTransitionReadiness.ReadinessStatus != EnterpriseAuditExportTaskStatusTransitionNoCandidates {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStatusTransitionNotReady
+		readiness.Message = "任务状态转移 preflight 尚未具备，交付报告不能声明任务状态治理证据。"
+		readiness.Recovery = "先补齐状态转移 preflight readiness；当前 readiness 不修改任务状态。"
+		return readiness, nil
+	}
+	if archiveExpirationReadiness.ReadinessStatus != EnterpriseAuditExportArchiveExpirationReadinessReady &&
+		archiveExpirationReadiness.ReadinessStatus != EnterpriseAuditExportArchiveExpirationNoCandidates {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportArchiveExpirationNotReady
+		readiness.Message = "归档/过期扫描 preflight 尚未具备，交付报告不能声明保留窗口和 no-delete 证据。"
+		readiness.Recovery = "先补齐归档/过期扫描 preflight readiness；当前 readiness 不删除审计数据。"
+		return readiness, nil
+	}
+	if !reportContractReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportContractMissing
+		readiness.Message = "企业审计导出交付报告章节契约不完整。"
+		readiness.Recovery = "先补齐报告格式和必备章节；当前 readiness 不生成或写入报告文件。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportReadinessReady
+	readiness.Message = "企业审计导出交付报告 readiness 已具备，可只读汇总导出、worker、状态转移和归档/过期扫描证据。"
+	readiness.Recovery = "下一步可设计受控交付报告生成入口；当前 readiness 仍不生成文件、不写 storage、不写 audit。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportDeliveryReportCompletedTaskReadiness 只读评估 completed task 作为交付报告输入证据。
+// 它不生成报告、不写 report storage、不写 audit、不修改任务状态。
+func (s *AdminConsoleService) GetEnterpriseAuditExportDeliveryReportCompletedTaskReadiness(ctx context.Context) (*EnterpriseAuditExportDeliveryReportCompletedTaskReadiness, error) {
+	deliveryReportReadiness, err := s.GetEnterpriseAuditExportDeliveryReportReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskReadback, err := s.ListEnterpriseAuditExportTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	completedTaskCount := countEnterpriseAuditExportTasksByStatus(taskReadback.Tasks, enterpriseAuditExportDeliveryReportCompletedTaskRequiredStatus)
+	workerExecutionCompletedTaskCount := countEnterpriseAuditExportTasksByStatusAndSource(
+		taskReadback.Tasks,
+		enterpriseAuditExportDeliveryReportCompletedTaskRequiredStatus,
+		enterpriseAuditExportWorkerExecutionTaskCompletionSource,
+	)
+	contractReady := deliveryReportReadiness.ReadinessStatus == EnterpriseAuditExportDeliveryReportReadinessReady &&
+		enterpriseAuditExportDeliveryReportCompletedTaskRequiredStatus == "completed" &&
+		enterpriseAuditExportWorkerExecutionTaskCompletionSource != "" &&
+		enterpriseAuditExportDeliveryReportCompletedTaskSource != "" &&
+		len(enterpriseAuditExportDeliveryReportRequiredSections) >= enterpriseAuditExportDeliveryReportRequiredSectionCount &&
+		enterpriseAuditExportDeliveryReportFormat != ""
+	coveredSourceCount := 0
+	if deliveryReportReadiness.ReadinessStatus == EnterpriseAuditExportDeliveryReportReadinessReady {
+		coveredSourceCount += deliveryReportReadiness.CoveredSourceCount
+	}
+	if taskReadback.Status == "audit_export_task_readback_ready" {
+		coveredSourceCount++
+	}
+	if completedTaskCount > 0 {
+		coveredSourceCount++
+	}
+	if workerExecutionCompletedTaskCount > 0 {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportDeliveryReportCompletedTaskRequiredStatus == "completed" {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportWorkerExecutionTaskCompletionSource != "" {
+		coveredSourceCount++
+	}
+	if contractReady {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportDeliveryReportCompletedTaskReadiness{
+		AdminAuditLogCount:                deliveryReportReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:         deliveryReportReadiness.ActivationAuditEventCount,
+		DeliveryReportReadinessStatus:     deliveryReportReadiness.ReadinessStatus,
+		TaskReadbackStatus:                taskReadback.Status,
+		TaskCount:                         taskReadback.TaskCount,
+		CompletedTaskCount:                completedTaskCount,
+		WorkerExecutionCompletedTaskCount: workerExecutionCompletedTaskCount,
+		RequiredTaskStatus:                enterpriseAuditExportDeliveryReportCompletedTaskRequiredStatus,
+		RequiredTaskSource:                enterpriseAuditExportWorkerExecutionTaskCompletionSource,
+		CompletedTaskEvidenceRequired:     true,
+		WorkerExecutionTaskSourceRequired: true,
+		ReportFormat:                      enterpriseAuditExportDeliveryReportFormat,
+		RequiredReportSections:            enterpriseAuditExportDeliveryReportRequiredSections,
+		RequiredReportSectionCount:        len(enterpriseAuditExportDeliveryReportRequiredSections),
+		ReportGenerationEnabled:           false,
+		ReportStorageWriteEnabled:         false,
+		ReportAuditWriteEnabled:           false,
+		WorkerExecutionEnabled:            false,
+		TaskStatusMutationEnabled:         false,
+		ArchiveDeletionEnabled:            false,
+		ExportFileGenerationEnabled:       false,
+		OutputStorageWriteEnabled:         false,
+		AuditWriteEnabled:                 false,
+		ProjectWriteEnabled:               false,
+		CoveredSourceCount:                coveredSourceCount,
+		RequiredSourceCount:               enterpriseAuditExportDeliveryReportCompletedTaskRequiredSourceCount,
+	}
+	if deliveryReportReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportCompletedTaskNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供 completed task delivery report readiness 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不生成报告、不写 audit。"
+		return readiness, nil
+	}
+	if deliveryReportReadiness.ReadinessStatus != EnterpriseAuditExportDeliveryReportReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportCompletedTaskDeliveryReportNotReady
+		readiness.Message = "delivery report readiness 尚未 ready，不能声明 completed task 交付报告输入证据。"
+		readiness.Recovery = "先补齐 delivery report readiness 上游证据；当前 readiness 不生成报告。"
+		return readiness, nil
+	}
+	if taskReadback.Status != "audit_export_task_readback_ready" {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportCompletedTaskReadbackNotReady
+		readiness.Message = "企业审计导出任务 readback 尚未 ready，不能识别 completed task 证据。"
+		readiness.Recovery = "先修复任务持久化和 readback readiness；当前 readiness 不写任务表。"
+		return readiness, nil
+	}
+	if completedTaskCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportCompletedTaskNoCompletedTasks
+		readiness.Message = "当前没有 completed task 可作为交付报告输入证据。"
+		readiness.Recovery = "先通过受控 worker execution task completion POST 推进任务到 completed；当前 readiness 不修改任务状态。"
+		return readiness, nil
+	}
+	if workerExecutionCompletedTaskCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportCompletedTaskNoWorkerCompletionEvidence
+		readiness.Message = "已有 completed task，但缺少来自 worker execution task completion source 的完成证据。"
+		readiness.Recovery = "使用 output_stored request 的受控 task completion 入口形成 source 证据；当前 readiness 不重写任务 source。"
+		return readiness, nil
+	}
+	if contractReady == false {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportCompletedTaskContractMissing
+		readiness.Message = "completed task delivery report 契约尚不完整。"
+		readiness.Recovery = "先补齐 required task status、worker completion source、报告格式和必备章节。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportCompletedTaskReadinessReady
+	readiness.Message = "completed task 已可作为 delivery report 生成/存储的只读输入证据。"
+	readiness.Recovery = "下一步可将 delivery report generate/storage 收敛到 completed task evidence；当前 readiness 不生成报告、不写 report storage。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportDeliveryReportGenerateRequestReadiness 只读评估交付报告生成请求契约 readiness。
+// 它不执行生成请求、不生成报告文件、不写 report storage 或 audit。
+func (s *AdminConsoleService) GetEnterpriseAuditExportDeliveryReportGenerateRequestReadiness(ctx context.Context) (*EnterpriseAuditExportDeliveryReportGenerateRequestReadiness, error) {
+	completedTaskReadiness, err := s.GetEnterpriseAuditExportDeliveryReportCompletedTaskReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	requestContractReady := completedTaskReadiness.ReadinessStatus == EnterpriseAuditExportDeliveryReportCompletedTaskReadinessReady &&
+		enterpriseAuditExportDeliveryReportFormat != "" &&
+		len(enterpriseAuditExportDeliveryReportRequiredSections) >= enterpriseAuditExportDeliveryReportRequiredSectionCount &&
+		len(enterpriseAuditExportDeliveryReportGenerateRequestRequiredFields) >= enterpriseAuditExportDeliveryReportGenerateRequestRequiredFieldCount &&
+		enterpriseAuditExportDeliveryReportGenerateRequestSchemaVersion != "" &&
+		enterpriseAuditExportDeliveryReportGenerateRequestMaxReasonLength > 0
+	coveredSourceCount := 0
+	if completedTaskReadiness.ReadinessStatus == EnterpriseAuditExportDeliveryReportCompletedTaskReadinessReady {
+		coveredSourceCount += completedTaskReadiness.CoveredSourceCount
+	}
+	if enterpriseAuditExportDeliveryReportFormat != "" {
+		coveredSourceCount++
+	}
+	if len(enterpriseAuditExportDeliveryReportRequiredSections) >= enterpriseAuditExportDeliveryReportRequiredSectionCount {
+		coveredSourceCount++
+	}
+	if len(enterpriseAuditExportDeliveryReportGenerateRequestRequiredFields) >= enterpriseAuditExportDeliveryReportGenerateRequestRequiredFieldCount {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportDeliveryReportGenerateRequestSchemaVersion != "" {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportDeliveryReportGenerateRequestMaxReasonLength > 0 {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportDeliveryReportGenerateRequestReadiness{
+		AdminAuditLogCount:                completedTaskReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:         completedTaskReadiness.ActivationAuditEventCount,
+		DeliveryReportReadinessStatus:     completedTaskReadiness.DeliveryReportReadinessStatus,
+		CompletedTaskReadinessStatus:      completedTaskReadiness.ReadinessStatus,
+		TaskReadbackStatus:                completedTaskReadiness.TaskReadbackStatus,
+		CompletedTaskCount:                completedTaskReadiness.CompletedTaskCount,
+		WorkerExecutionCompletedTaskCount: completedTaskReadiness.WorkerExecutionCompletedTaskCount,
+		RequiredTaskStatus:                completedTaskReadiness.RequiredTaskStatus,
+		RequiredTaskSource:                completedTaskReadiness.RequiredTaskSource,
+		CompletedTaskEvidenceRequired:     true,
+		WorkerExecutionTaskSourceRequired: true,
+		ReportFormat:                      enterpriseAuditExportDeliveryReportFormat,
+		RequiredReportSections:            enterpriseAuditExportDeliveryReportRequiredSections,
+		RequiredReportSectionCount:        len(enterpriseAuditExportDeliveryReportRequiredSections),
+		RequestSchemaVersion:              enterpriseAuditExportDeliveryReportGenerateRequestSchemaVersion,
+		RequiredGenerateRequestFields:     enterpriseAuditExportDeliveryReportGenerateRequestRequiredFields,
+		RequiredGenerateRequestFieldCount: len(enterpriseAuditExportDeliveryReportGenerateRequestRequiredFields),
+		ConfirmGenerateReportRequired:     true,
+		ReasonRequired:                    true,
+		MaximumReasonLength:               enterpriseAuditExportDeliveryReportGenerateRequestMaxReasonLength,
+		IdempotencyKeyRequired:            true,
+		IdempotencyKeyPattern:             enterpriseAuditExportTaskIdempotencyKeyPattern.String(),
+		RequestExecutionEnabled:           false,
+		ReportGenerationEnabled:           false,
+		ReportStorageWriteEnabled:         false,
+		ReportAuditWriteEnabled:           false,
+		WorkerExecutionEnabled:            false,
+		TaskStatusMutationEnabled:         false,
+		ArchiveDeletionEnabled:            false,
+		ExportFileGenerationEnabled:       false,
+		OutputStorageWriteEnabled:         false,
+		AuditWriteEnabled:                 false,
+		ProjectWriteEnabled:               false,
+		CoveredSourceCount:                coveredSourceCount,
+		RequiredSourceCount:               enterpriseAuditExportDeliveryReportGenerateRequestRequiredSourceCount,
+	}
+	if completedTaskReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportGenerateRequestNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供交付报告生成请求契约使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不生成报告、不写 audit。"
+		return readiness, nil
+	}
+	if completedTaskReadiness.DeliveryReportReadinessStatus != EnterpriseAuditExportDeliveryReportReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportGenerateRequestDeliveryReportNotReady
+		readiness.Message = "企业审计导出交付报告 readiness 尚未具备，不能声明受控生成请求契约。"
+		readiness.Recovery = "先补齐交付报告 readiness；当前 readiness 不执行生成请求。"
+		return readiness, nil
+	}
+	if completedTaskReadiness.ReadinessStatus != EnterpriseAuditExportDeliveryReportCompletedTaskReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportGenerateRequestCompletedTaskNotReady
+		readiness.Message = "completed task 尚未具备，不能声明交付报告生成请求契约。"
+		readiness.Recovery = "先通过 completed task readiness 确认 worker execution task completion source；当前 readiness 不执行生成请求。"
+		return readiness, nil
+	}
+	if !requestContractReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportGenerateRequestContractMissing
+		readiness.Message = "企业审计导出交付报告生成请求契约不完整。"
+		readiness.Recovery = "先补齐确认字段、报告格式、必备章节、reason 和 idempotency key 契约；当前 readiness 不生成或写入报告。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportGenerateRequestReadinessReady
+	readiness.Message = "企业审计导出交付报告生成请求契约 readiness 已具备，且已绑定 completed task 输入证据。"
+	readiness.Recovery = "下一步可实现受控生成 POST；当前 readiness 仍不生成报告文件、不写 report storage、不写 report audit。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportDeliveryReportStorageReadiness 只读评估交付报告存储契约 readiness。
+// 它不写 report storage、不写 report audit、不落报告文件、不修改任务状态。
+func (s *AdminConsoleService) GetEnterpriseAuditExportDeliveryReportStorageReadiness(ctx context.Context) (*EnterpriseAuditExportDeliveryReportStorageReadiness, error) {
+	generateRequestReadiness, err := s.GetEnterpriseAuditExportDeliveryReportGenerateRequestReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	existingReportCount, err := s.adminRepo.CountEnterpriseAuditExportDeliveryReports(ctx)
+	if err != nil {
+		return nil, err
+	}
+	storageContractReady := generateRequestReadiness.ReadinessStatus == EnterpriseAuditExportDeliveryReportGenerateRequestReadinessReady &&
+		enterpriseAuditExportDeliveryReportStorageSchemaVersion != "" &&
+		len(enterpriseAuditExportDeliveryReportStorageRequiredFields) >= enterpriseAuditExportDeliveryReportStorageRequiredFieldCount &&
+		enterpriseAuditExportDeliveryReportStoragePathPrefix != "" &&
+		enterpriseAuditExportDeliveryReportStorageChecksumAlgorithm != "" &&
+		enterpriseAuditExportDeliveryReportFormat != ""
+	coveredSourceCount := 0
+	if generateRequestReadiness.ReadinessStatus == EnterpriseAuditExportDeliveryReportGenerateRequestReadinessReady {
+		coveredSourceCount += generateRequestReadiness.CoveredSourceCount
+	}
+	if enterpriseAuditExportDeliveryReportStorageSchemaVersion != "" {
+		coveredSourceCount++
+	}
+	if len(enterpriseAuditExportDeliveryReportStorageRequiredFields) >= enterpriseAuditExportDeliveryReportStorageRequiredFieldCount {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportDeliveryReportStoragePathPrefix != "" {
+		coveredSourceCount++
+	}
+	if enterpriseAuditExportDeliveryReportStorageChecksumAlgorithm != "" {
+		coveredSourceCount++
+	}
+	if existingReportCount >= 0 {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportDeliveryReportStorageReadiness{
+		AdminAuditLogCount:                generateRequestReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:         generateRequestReadiness.ActivationAuditEventCount,
+		GenerateRequestReadinessStatus:    generateRequestReadiness.ReadinessStatus,
+		DeliveryReportReadinessStatus:     generateRequestReadiness.DeliveryReportReadinessStatus,
+		CompletedTaskReadinessStatus:      generateRequestReadiness.CompletedTaskReadinessStatus,
+		TaskReadbackStatus:                generateRequestReadiness.TaskReadbackStatus,
+		CompletedTaskCount:                generateRequestReadiness.CompletedTaskCount,
+		WorkerExecutionCompletedTaskCount: generateRequestReadiness.WorkerExecutionCompletedTaskCount,
+		RequiredTaskStatus:                generateRequestReadiness.RequiredTaskStatus,
+		RequiredTaskSource:                generateRequestReadiness.RequiredTaskSource,
+		CompletedTaskEvidenceRequired:     true,
+		WorkerExecutionTaskSourceRequired: true,
+		ReportFormat:                      enterpriseAuditExportDeliveryReportFormat,
+		RequiredReportSections:            enterpriseAuditExportDeliveryReportRequiredSections,
+		RequiredReportSectionCount:        len(enterpriseAuditExportDeliveryReportRequiredSections),
+		StorageSchemaVersion:              enterpriseAuditExportDeliveryReportStorageSchemaVersion,
+		RequiredStorageFields:             enterpriseAuditExportDeliveryReportStorageRequiredFields,
+		RequiredStorageFieldCount:         len(enterpriseAuditExportDeliveryReportStorageRequiredFields),
+		ExistingReportCount:               existingReportCount,
+		StoragePathPrefix:                 enterpriseAuditExportDeliveryReportStoragePathPrefix,
+		ChecksumAlgorithm:                 enterpriseAuditExportDeliveryReportStorageChecksumAlgorithm,
+		MetadataWriteRequired:             true,
+		ReportStorageWriteEnabled:         false,
+		ReportAuditWriteEnabled:           false,
+		ReportFileWriteEnabled:            false,
+		WorkerExecutionEnabled:            false,
+		TaskStatusMutationEnabled:         false,
+		ArchiveDeletionEnabled:            false,
+		ExportFileGenerationEnabled:       false,
+		OutputStorageWriteEnabled:         false,
+		AuditWriteEnabled:                 false,
+		ProjectWriteEnabled:               false,
+		CoveredSourceCount:                coveredSourceCount,
+		RequiredSourceCount:               enterpriseAuditExportDeliveryReportStorageRequiredSourceCount,
+	}
+	if generateRequestReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStorageNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供交付报告存储契约使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不写 report storage 或 audit。"
+		return readiness, nil
+	}
+	if generateRequestReadiness.ReadinessStatus != EnterpriseAuditExportDeliveryReportGenerateRequestReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStorageGenerateRequestNotReady
+		readiness.Message = "企业审计导出交付报告生成请求契约 readiness 尚未具备，不能声明存储契约。"
+		readiness.Recovery = "先补齐交付报告生成请求契约 readiness；当前 readiness 不执行存储写入。"
+		return readiness, nil
+	}
+	if !storageContractReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStorageContractMissing
+		readiness.Message = "企业审计导出交付报告存储契约不完整。"
+		readiness.Recovery = "先补齐存储 schema、必备字段、路径前缀、checksum 和 metadata 契约；当前 readiness 不写 report storage。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStorageReadinessReady
+	readiness.Message = "企业审计导出交付报告存储契约 readiness 已具备，可作为后续受控 report storage 写入入口的前置证据。"
+	readiness.Recovery = "下一步可设计受控 report storage 写入 POST；当前 readiness 仍不写 report storage、不写 report audit、不落报告文件。"
+	return readiness, nil
+}
+
+// GetEnterpriseAuditExportDeliveryReportStoredReadiness 只读评估已存交付报告可作为后续交付/归档输入证据。
+// 它不写 report storage、不写 report audit、不落报告文件、不启动 worker、不修改任务状态。
+func (s *AdminConsoleService) GetEnterpriseAuditExportDeliveryReportStoredReadiness(ctx context.Context) (*EnterpriseAuditExportDeliveryReportStoredReadiness, error) {
+	storageReadiness, err := s.GetEnterpriseAuditExportDeliveryReportStorageReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reports, err := s.adminRepo.ListEnterpriseAuditExportDeliveryReports(ctx, enterpriseAuditExportDeliveryReportStoredReportReadLimit)
+	if err != nil {
+		return nil, err
+	}
+	auditLogs, err := s.auditRepo.List(ctx, 0, enterpriseAuditExportDeliveryReportStoredAuditReadLimit)
+	if err != nil {
+		return nil, err
+	}
+	var latestReport *model.EnterpriseAuditExportDeliveryReport
+	for index := range reports {
+		latestReport = &reports[index]
+		break
+	}
+	readReportCount := len(reports)
+	latestReportID := ""
+	latestReportIdempotencyKey := ""
+	latestReportGeneratedAt := ""
+	latestReportStoragePath := ""
+	latestReportChecksumSHA256 := ""
+	latestReportStorageSchemaVersion := ""
+	latestReportSource := ""
+	latestReportMetadataJSON := ""
+	latestReportStorageContractReady := false
+	latestReportChecksumMatched := false
+	metadataEvidenceReady := false
+	adminAuditEvidenceReady := false
+	adminAuditEvidenceCount := 0
+	if latestReport != nil {
+		latestReportID = latestReport.ID
+		latestReportIdempotencyKey = latestReport.IdempotencyKey
+		latestReportGeneratedAt = latestReport.GeneratedAt.UTC().Format(time.RFC3339)
+		latestReportStoragePath = latestReport.StoragePath
+		latestReportChecksumSHA256 = latestReport.ChecksumSHA256
+		latestReportStorageSchemaVersion = latestReport.StorageSchemaVersion
+		latestReportSource = latestReport.Source
+		latestReportMetadataJSON = latestReport.MetadataJSON
+		latestReportChecksumMatched = latestReport.ChecksumSHA256 == calculateEnterpriseAuditExportDeliveryReportChecksum(latestReport.ReportContent)
+		latestReportStorageContractReady = hasEnterpriseAuditExportDeliveryReportStoredReportContract(latestReport)
+		metadataEvidenceReady = hasEnterpriseAuditExportDeliveryReportStoredMetadataEvidence(latestReport.MetadataJSON, storageReadiness)
+		adminAuditEvidenceCount = countEnterpriseAuditExportDeliveryReportStoreAuditEvidence(auditLogs, latestReport.ID)
+		adminAuditEvidenceReady = adminAuditEvidenceCount > 0
+	}
+	coveredSourceCount := 0
+	if storageReadiness.ReadinessStatus == EnterpriseAuditExportDeliveryReportStorageReadinessReady {
+		coveredSourceCount += storageReadiness.CoveredSourceCount
+	}
+	if storageReadiness.ExistingReportCount > 0 {
+		coveredSourceCount++
+	}
+	if readReportCount > 0 {
+		coveredSourceCount++
+	}
+	if latestReportStorageContractReady {
+		coveredSourceCount++
+	}
+	if latestReportChecksumMatched {
+		coveredSourceCount++
+	}
+	if metadataEvidenceReady {
+		coveredSourceCount++
+	}
+	if adminAuditEvidenceReady {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditExportDeliveryReportStoredReadiness{
+		AdminAuditLogCount:                storageReadiness.AdminAuditLogCount,
+		ActivationAuditEventCount:         storageReadiness.ActivationAuditEventCount,
+		StorageReadinessStatus:            storageReadiness.ReadinessStatus,
+		CompletedTaskReadinessStatus:      storageReadiness.CompletedTaskReadinessStatus,
+		StoredReportCount:                 storageReadiness.ExistingReportCount,
+		ReadReportCount:                   readReportCount,
+		LatestReportID:                    latestReportID,
+		LatestReportIdempotencyKey:        latestReportIdempotencyKey,
+		LatestReportGeneratedAt:           latestReportGeneratedAt,
+		LatestReportStoragePath:           latestReportStoragePath,
+		LatestReportChecksumSHA256:        latestReportChecksumSHA256,
+		LatestReportStorageSchemaVersion:  latestReportStorageSchemaVersion,
+		LatestReportSource:                latestReportSource,
+		LatestReportMetadataJSON:          latestReportMetadataJSON,
+		LatestReportStorageContractReady:  latestReportStorageContractReady,
+		LatestReportChecksumMatched:       latestReportChecksumMatched,
+		MetadataEvidenceReady:             metadataEvidenceReady,
+		AdminAuditEvidenceReady:           adminAuditEvidenceReady,
+		AdminAuditEvidenceCount:           adminAuditEvidenceCount,
+		CompletedTaskCount:                storageReadiness.CompletedTaskCount,
+		WorkerExecutionCompletedTaskCount: storageReadiness.WorkerExecutionCompletedTaskCount,
+		RequiredTaskStatus:                storageReadiness.RequiredTaskStatus,
+		RequiredTaskSource:                storageReadiness.RequiredTaskSource,
+		CompletedTaskEvidenceRequired:     true,
+		WorkerExecutionTaskSourceRequired: true,
+		ReportFormat:                      storageReadiness.ReportFormat,
+		RequiredReportSections:            storageReadiness.RequiredReportSections,
+		RequiredReportSectionCount:        storageReadiness.RequiredReportSectionCount,
+		StorageSchemaVersion:              enterpriseAuditExportDeliveryReportStorageSchemaVersion,
+		StoragePathPrefix:                 enterpriseAuditExportDeliveryReportStoragePathPrefix,
+		ChecksumAlgorithm:                 enterpriseAuditExportDeliveryReportStorageChecksumAlgorithm,
+		ReportStorageWriteEnabled:         false,
+		ReportAuditWriteEnabled:           false,
+		ReportFileWriteEnabled:            false,
+		WorkerExecutionEnabled:            false,
+		TaskStatusMutationEnabled:         false,
+		ArchiveDeletionEnabled:            false,
+		ExportFileGenerationEnabled:       false,
+		OutputStorageWriteEnabled:         false,
+		AuditWriteEnabled:                 false,
+		ProjectWriteEnabled:               false,
+		CoveredSourceCount:                coveredSourceCount,
+		RequiredSourceCount:               enterpriseAuditExportDeliveryReportStoredRequiredSourceCount,
+	}
+	if storageReadiness.AdminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStoredNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可供已存交付报告 readiness 使用的真源。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源；当前 readiness 不写 report storage 或 audit。"
+		return readiness, nil
+	}
+	if storageReadiness.ReadinessStatus != EnterpriseAuditExportDeliveryReportStorageReadinessReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStoredStorageNotReady
+		readiness.Message = "企业审计导出交付报告 storage readiness 尚未具备，不能声明已存报告交付证据。"
+		readiness.Recovery = "先补齐 delivery report storage readiness；当前 readiness 不写 report storage、不落报告文件。"
+		return readiness, nil
+	}
+	if storageReadiness.ExistingReportCount == 0 || latestReport == nil {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStoredNoReports
+		readiness.Message = "尚无已存企业审计导出交付报告，不能作为后续交付/归档输入证据。"
+		readiness.Recovery = "先通过受控 report storage POST 写入 report storage row 和 admin audit；当前 readiness 不执行写入。"
+		return readiness, nil
+	}
+	if !latestReportStorageContractReady || !latestReportChecksumMatched {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStoredContractMissing
+		readiness.Message = "最新已存交付报告的 storage row 契约不完整或 checksum 不匹配。"
+		readiness.Recovery = "检查 report format、storage schema、storage path、source、required sections 和 server-side checksum；当前 readiness 不修复数据。"
+		return readiness, nil
+	}
+	if !metadataEvidenceReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStoredMetadataEvidenceMissing
+		readiness.Message = "最新已存交付报告 metadata_json 缺少 completed task evidence。"
+		readiness.Recovery = "先通过已治理的 storage metadata evidence persistence 写入新报告；当前 readiness 不回填历史 metadata。"
+		return readiness, nil
+	}
+	if !adminAuditEvidenceReady {
+		readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStoredAuditEvidenceMissing
+		readiness.Message = "最新已存交付报告缺少可回读的 admin audit 存储证据。"
+		readiness.Recovery = "检查 store_enterprise_audit_export_delivery_report 审计记录是否存在；当前 readiness 不写 admin audit。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditExportDeliveryReportStoredReadinessReady
+	readiness.Message = "已存企业审计导出交付报告 readiness 已具备，可作为后续交付/归档串联输入证据。"
+	readiness.Recovery = "下一步可设计 completed report 的交付或归档串联 readiness；当前 readiness 仍不落报告文件、不启动 worker、不修改任务状态。"
+	return readiness, nil
+}
+
+// GenerateEnterpriseAuditExportDeliveryReport 受控生成内存 markdown 交付报告。
+// 它不落报告文件、不写 report storage、不写 audit、不启动 worker、不修改任务状态。
+func (s *AdminConsoleService) GenerateEnterpriseAuditExportDeliveryReport(ctx context.Context, input EnterpriseAuditExportDeliveryReportGenerateInput) (*EnterpriseAuditExportDeliveryReportGenerateResult, error) {
+	if !input.ConfirmGenerateReport {
+		return nil, newEnterpriseAuditExportDeliveryReportGenerateValidationError("confirm_generate_report is required")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportDeliveryReportGenerateValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportDeliveryReportGenerateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportDeliveryReportGenerateValidationError("reason must be at most 1000 characters")
+	}
+	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	if !enterpriseAuditExportTaskIdempotencyKeyPattern.MatchString(idempotencyKey) {
+		return nil, newEnterpriseAuditExportDeliveryReportGenerateValidationError("idempotency_key must be 8-128 chars and contain only letters, numbers, dot, underscore, colon or hyphen")
+	}
+	requestReadiness, err := s.GetEnterpriseAuditExportDeliveryReportGenerateRequestReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if requestReadiness.ReadinessStatus != EnterpriseAuditExportDeliveryReportGenerateRequestReadinessReady {
+		return nil, newEnterpriseAuditExportDeliveryReportGenerateValidationError("audit export delivery report generate request readiness is not ready")
+	}
+	deliveryReportReadiness, err := s.GetEnterpriseAuditExportDeliveryReportReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	generatedAt := time.Now().UTC()
+	reportContent := buildEnterpriseAuditExportDeliveryReportMarkdown(deliveryReportReadiness, requestReadiness, idempotencyKey, reason, generatedAt)
+	return &EnterpriseAuditExportDeliveryReportGenerateResult{
+		Status:                            "generated",
+		IdempotencyKey:                    idempotencyKey,
+		Reason:                            reason,
+		GeneratedAt:                       generatedAt.Format(time.RFC3339),
+		ReportFormat:                      enterpriseAuditExportDeliveryReportFormat,
+		ReportContent:                     reportContent,
+		ReportContentByteCount:            len([]byte(reportContent)),
+		RequiredReportSections:            enterpriseAuditExportDeliveryReportRequiredSections,
+		RequiredReportSectionCount:        len(enterpriseAuditExportDeliveryReportRequiredSections),
+		DeliveryReportReadinessStatus:     deliveryReportReadiness.ReadinessStatus,
+		CompletedTaskReadinessStatus:      requestReadiness.CompletedTaskReadinessStatus,
+		GenerateRequestReadinessStatus:    requestReadiness.ReadinessStatus,
+		CompletedTaskCount:                requestReadiness.CompletedTaskCount,
+		WorkerExecutionCompletedTaskCount: requestReadiness.WorkerExecutionCompletedTaskCount,
+		RequiredTaskStatus:                requestReadiness.RequiredTaskStatus,
+		RequiredTaskSource:                requestReadiness.RequiredTaskSource,
+		CompletedTaskEvidenceRequired:     true,
+		WorkerExecutionTaskSourceRequired: true,
+		ReportFileWritten:                 false,
+		ReportStorageWriteStarted:         false,
+		ReportAuditWriteStarted:           false,
+		WorkerExecutionStarted:            false,
+		TaskStatusMutationStarted:         false,
+		ArchiveDeletionStarted:            false,
+		ExportFileGenerationStarted:       false,
+		OutputStorageWriteStarted:         false,
+		AuditWriteStarted:                 false,
+		ProjectWriteStarted:               false,
+		Message:                           "Enterprise audit export delivery report generated in memory with completed task evidence.",
+		Recovery:                          "Review the returned markdown; this endpoint does not write report files, report storage, report audit, task status, storage, audit, or projects.",
+	}, nil
+}
+
+// StoreEnterpriseAuditExportDeliveryReport 受控写入企业审计导出交付报告到 report storage 数据库表。
+// 它只写 report storage 与 admin audit，不落报告文件、不启动 worker、不修改任务状态、不写 projects。
+func (s *AdminConsoleService) StoreEnterpriseAuditExportDeliveryReport(ctx context.Context, operatorID string, input EnterpriseAuditExportDeliveryReportStoreInput, ip string) (*EnterpriseAuditExportDeliveryReportStoreResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if !input.ConfirmStoreReport {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("confirm_store_report is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("operator admin id is required")
+	}
+	readiness, err := s.GetEnterpriseAuditExportDeliveryReportStorageReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if readiness.ReadinessStatus != EnterpriseAuditExportDeliveryReportStorageReadinessReady {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("audit export delivery report storage readiness is not ready")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("reason is required")
+	}
+	if len([]rune(reason)) > enterpriseAuditExportDeliveryReportGenerateRequestMaxReasonLength {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("reason must be at most 1000 characters")
+	}
+	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	if !enterpriseAuditExportTaskIdempotencyKeyPattern.MatchString(idempotencyKey) {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("idempotency_key must be 8-128 chars and contain only letters, numbers, dot, underscore, colon or hyphen")
+	}
+	reportFormat := strings.ToLower(strings.TrimSpace(input.ReportFormat))
+	if reportFormat != enterpriseAuditExportDeliveryReportFormat {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("report_format must be markdown")
+	}
+	reportContent := strings.TrimSpace(input.ReportContent)
+	if reportContent == "" {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("report_content is required")
+	}
+	if !hasEnterpriseAuditExportDeliveryReportRequiredSections(reportContent) {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("report_content must include all required delivery report sections")
+	}
+	generatedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(input.GeneratedAt))
+	if err != nil {
+		return nil, newEnterpriseAuditExportDeliveryReportStoreValidationError("generated_at must be RFC3339")
+	}
+	existingReport, err := s.adminRepo.FindEnterpriseAuditExportDeliveryReportByIdempotencyKey(ctx, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if existingReport != nil {
+		return &EnterpriseAuditExportDeliveryReportStoreResult{
+			Status:                            "idempotent_existing",
+			Report:                            *existingReport,
+			StorageReadinessStatus:            readiness.ReadinessStatus,
+			CompletedTaskReadinessStatus:      readiness.CompletedTaskReadinessStatus,
+			CompletedTaskCount:                readiness.CompletedTaskCount,
+			WorkerExecutionCompletedTaskCount: readiness.WorkerExecutionCompletedTaskCount,
+			RequiredTaskStatus:                readiness.RequiredTaskStatus,
+			RequiredTaskSource:                readiness.RequiredTaskSource,
+			CompletedTaskEvidenceRequired:     true,
+			WorkerExecutionTaskSourceRequired: true,
+			ChecksumAlgorithm:                 enterpriseAuditExportDeliveryReportStorageChecksumAlgorithm,
+			ChecksumSHA256:                    existingReport.ChecksumSHA256,
+			StoragePath:                       existingReport.StoragePath,
+			ReportStorageWritten:              false,
+			ReportAuditWritten:                false,
+			ReportFileWritten:                 false,
+			WorkerExecutionStarted:            false,
+			TaskStatusMutationStarted:         false,
+			ArchiveDeletionStarted:            false,
+			ExportFileGenerationStarted:       false,
+			OutputStorageWriteStarted:         false,
+			AdminAuditWriteStarted:            false,
+			ProjectWriteStarted:               false,
+			Message:                           "Enterprise audit export delivery report already exists for the provided idempotency key.",
+			Recovery:                          "Reuse the returned stored report or provide a new idempotency key; this endpoint does not write report files, start workers, mutate tasks, or write projects.",
+		}, nil
+	}
+	reportID := utils.GenerateUUID()
+	checksumSHA256 := calculateEnterpriseAuditExportDeliveryReportChecksum(reportContent)
+	storagePath := fmt.Sprintf("%s%s.md", enterpriseAuditExportDeliveryReportStoragePathPrefix, reportID)
+	metadataJSON, err := marshalEnterpriseAuditExportDeliveryReportStorageMetadata(idempotencyKey, reason, generatedAt, readiness)
+	if err != nil {
+		return nil, err
+	}
+	report := &model.EnterpriseAuditExportDeliveryReport{
+		ID:                     reportID,
+		IdempotencyKey:         idempotencyKey,
+		RequestedByAdminID:     operatorID,
+		Reason:                 reason,
+		ReportFormat:           reportFormat,
+		ReportContent:          reportContent,
+		ReportContentByteCount: int64(len([]byte(reportContent))),
+		GeneratedAt:            generatedAt.UTC(),
+		ChecksumSHA256:         checksumSHA256,
+		StoragePath:            storagePath,
+		StorageSchemaVersion:   enterpriseAuditExportDeliveryReportStorageSchemaVersion,
+		MetadataJSON:           metadataJSON,
+		Source:                 "admin_enterprise_audit_export_delivery_report_storage_write",
+	}
+	if err := s.adminRepo.CreateEnterpriseAuditExportDeliveryReport(ctx, report); err != nil {
+		return nil, err
+	}
+	auditDetail := fmt.Sprintf("Stored enterprise audit export delivery report %s with checksum=%s; report file writes, worker execution, task mutation and project writes were not started.", report.ID, report.ChecksumSHA256)
+	s.writeAudit(ctx, operatorID, "store_enterprise_audit_export_delivery_report", "enterprise_audit_export_delivery_report", report.ID, auditDetail, ip)
+	return &EnterpriseAuditExportDeliveryReportStoreResult{
+		Status:                            "stored",
+		Report:                            *report,
+		StorageReadinessStatus:            readiness.ReadinessStatus,
+		CompletedTaskReadinessStatus:      readiness.CompletedTaskReadinessStatus,
+		CompletedTaskCount:                readiness.CompletedTaskCount,
+		WorkerExecutionCompletedTaskCount: readiness.WorkerExecutionCompletedTaskCount,
+		RequiredTaskStatus:                readiness.RequiredTaskStatus,
+		RequiredTaskSource:                readiness.RequiredTaskSource,
+		CompletedTaskEvidenceRequired:     true,
+		WorkerExecutionTaskSourceRequired: true,
+		ChecksumAlgorithm:                 enterpriseAuditExportDeliveryReportStorageChecksumAlgorithm,
+		ChecksumSHA256:                    report.ChecksumSHA256,
+		StoragePath:                       report.StoragePath,
+		ReportStorageWritten:              true,
+		ReportAuditWritten:                true,
+		ReportFileWritten:                 false,
+		WorkerExecutionStarted:            false,
+		TaskStatusMutationStarted:         false,
+		ArchiveDeletionStarted:            false,
+		ExportFileGenerationStarted:       false,
+		OutputStorageWriteStarted:         false,
+		AdminAuditWriteStarted:            true,
+		ProjectWriteStarted:               false,
+		Message:                           "Enterprise audit export delivery report has been stored in controlled report storage with completed task evidence.",
+		Recovery:                          "A separate controlled worker or archive task must be implemented explicitly; this endpoint only persists the report storage row and admin audit evidence.",
+	}, nil
+}
+
+func buildEnterpriseAuditExportDeliveryReportMarkdown(
+	deliveryReportReadiness *EnterpriseAuditExportDeliveryReportReadiness,
+	requestReadiness *EnterpriseAuditExportDeliveryReportGenerateRequestReadiness,
+	idempotencyKey string,
+	reason string,
+	generatedAt time.Time,
+) string {
+	var builder strings.Builder
+	builder.WriteString("# Enterprise Audit Export Delivery Report\n\n")
+	builder.WriteString("## audit_source_summary\n\n")
+	builder.WriteString(fmt.Sprintf("- generated_at: %s\n", generatedAt.Format(time.RFC3339)))
+	builder.WriteString(fmt.Sprintf("- idempotency_key: %s\n", idempotencyKey))
+	builder.WriteString(fmt.Sprintf("- reason: %s\n", reason))
+	builder.WriteString(fmt.Sprintf("- admin_audit_log_count: %d\n", deliveryReportReadiness.AdminAuditLogCount))
+	builder.WriteString(fmt.Sprintf("- activation_audit_event_count: %d\n", deliveryReportReadiness.ActivationAuditEventCount))
+	builder.WriteString(fmt.Sprintf("- delivery_report_readiness_status: %s\n\n", deliveryReportReadiness.ReadinessStatus))
+
+	builder.WriteString("## task_queue_summary\n\n")
+	builder.WriteString(fmt.Sprintf("- task_readback_status: %s\n", deliveryReportReadiness.TaskReadbackStatus))
+	builder.WriteString(fmt.Sprintf("- task_count: %d\n", deliveryReportReadiness.TaskCount))
+	builder.WriteString(fmt.Sprintf("- queued_task_count: %d\n", deliveryReportReadiness.QueuedTaskCount))
+	builder.WriteString(fmt.Sprintf("- processing_task_count: %d\n", deliveryReportReadiness.ProcessingTaskCount))
+	builder.WriteString(fmt.Sprintf("- terminal_task_count: %d\n\n", deliveryReportReadiness.TerminalTaskCount))
+
+	builder.WriteString("## worker_contract_summary\n\n")
+	builder.WriteString(fmt.Sprintf("- worker_readiness_status: %s\n", deliveryReportReadiness.WorkerReadinessStatus))
+	builder.WriteString("- worker_execution_started: false\n")
+	builder.WriteString("- export_file_generation_started: false\n")
+	builder.WriteString("- output_storage_write_started: false\n\n")
+
+	builder.WriteString("## status_transition_summary\n\n")
+	builder.WriteString(fmt.Sprintf("- status_transition_readiness_status: %s\n", deliveryReportReadiness.StatusTransitionReadinessStatus))
+	builder.WriteString("- task_status_mutation_started: false\n\n")
+
+	builder.WriteString("## archive_expiration_summary\n\n")
+	builder.WriteString(fmt.Sprintf("- archive_expiration_readiness_status: %s\n", deliveryReportReadiness.ArchiveExpirationReadinessStatus))
+	builder.WriteString(fmt.Sprintf("- retention_readiness_status: %s\n", deliveryReportReadiness.RetentionReadinessStatus))
+	builder.WriteString(fmt.Sprintf("- expiration_candidate_count: %d\n", deliveryReportReadiness.ExpirationCandidateCount))
+	builder.WriteString("- archive_deletion_started: false\n\n")
+
+	builder.WriteString("## non_goal_boundary_summary\n\n")
+	builder.WriteString(fmt.Sprintf("- generate_request_readiness_status: %s\n", requestReadiness.ReadinessStatus))
+	builder.WriteString("- report_file_written: false\n")
+	builder.WriteString("- report_storage_write_started: false\n")
+	builder.WriteString("- report_audit_write_started: false\n")
+	builder.WriteString("- audit_write_started: false\n")
+	builder.WriteString("- project_write_started: false\n")
+	return builder.String()
+}
+
+func hasEnterpriseAuditExportDeliveryReportRequiredSections(reportContent string) bool {
+	for _, section := range enterpriseAuditExportDeliveryReportRequiredSections {
+		if strings.Contains(reportContent, "## "+section) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func hasEnterpriseAuditExportDeliveryReportStoredReportContract(report *model.EnterpriseAuditExportDeliveryReport) bool {
+	if report == nil {
+		return false
+	}
+	if report.ID == "" {
+		return false
+	}
+	if report.IdempotencyKey == "" {
+		return false
+	}
+	if report.ReportFormat != enterpriseAuditExportDeliveryReportFormat {
+		return false
+	}
+	if report.ReportContent == "" {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportRequiredSections(report.ReportContent) {
+		return false
+	}
+	if report.ChecksumSHA256 == "" {
+		return false
+	}
+	if !strings.HasPrefix(report.StoragePath, enterpriseAuditExportDeliveryReportStoragePathPrefix) {
+		return false
+	}
+	if report.StorageSchemaVersion != enterpriseAuditExportDeliveryReportStorageSchemaVersion {
+		return false
+	}
+	if report.MetadataJSON == "" {
+		return false
+	}
+	if report.Source != enterpriseAuditExportDeliveryReportStorageSource {
+		return false
+	}
+	return true
+}
+
+func hasEnterpriseAuditExportDeliveryReportStoredMetadataEvidence(
+	metadataJSON string,
+	readiness *EnterpriseAuditExportDeliveryReportStorageReadiness,
+) bool {
+	if readiness == nil {
+		return false
+	}
+	metadata := map[string]any{}
+	if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportMetadataString(metadata, "storage_readiness_status", string(readiness.ReadinessStatus)) {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportMetadataString(metadata, "completed_task_readiness_status", string(readiness.CompletedTaskReadinessStatus)) {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportMetadataNumber(metadata, "completed_task_count", readiness.CompletedTaskCount) {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportMetadataNumber(metadata, "worker_execution_completed_task_count", readiness.WorkerExecutionCompletedTaskCount) {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportMetadataString(metadata, "required_task_status", readiness.RequiredTaskStatus) {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportMetadataString(metadata, "required_task_source", readiness.RequiredTaskSource) {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportMetadataBoolean(metadata, "completed_task_evidence_required", true) {
+		return false
+	}
+	if !hasEnterpriseAuditExportDeliveryReportMetadataBoolean(metadata, "worker_execution_task_source_required", true) {
+		return false
+	}
+	return true
+}
+
+func hasEnterpriseAuditExportDeliveryReportMetadataString(metadata map[string]any, key string, expected string) bool {
+	value, ok := metadata[key]
+	if !ok {
+		return false
+	}
+	text, ok := value.(string)
+	if !ok {
+		return false
+	}
+	return text == expected
+}
+
+func hasEnterpriseAuditExportDeliveryReportMetadataNumber(metadata map[string]any, key string, expected int) bool {
+	value, ok := metadata[key]
+	if !ok {
+		return false
+	}
+	switch typedValue := value.(type) {
+	case float64:
+		return int(typedValue) == expected
+	case int:
+		return typedValue == expected
+	case int64:
+		return int(typedValue) == expected
+	}
+	return false
+}
+
+func hasEnterpriseAuditExportDeliveryReportMetadataBoolean(metadata map[string]any, key string, expected bool) bool {
+	value, ok := metadata[key]
+	if !ok {
+		return false
+	}
+	booleanValue, ok := value.(bool)
+	if !ok {
+		return false
+	}
+	return booleanValue == expected
+}
+
+func countEnterpriseAuditExportDeliveryReportStoreAuditEvidence(logs []model.AdminAuditLog, reportID string) int {
+	if reportID == "" {
+		return 0
+	}
+	count := 0
+	for _, log := range logs {
+		if log.Action != enterpriseAuditExportDeliveryReportStorageAuditAction {
+			continue
+		}
+		if log.TargetType != enterpriseAuditExportDeliveryReportStorageAuditTargetType {
+			continue
+		}
+		if log.TargetID != reportID {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func calculateEnterpriseAuditExportDeliveryReportChecksum(reportContent string) string {
+	sum := sha256.Sum256([]byte(reportContent))
+	return hex.EncodeToString(sum[:])
+}
+
+func marshalEnterpriseAuditExportDeliveryReportStorageMetadata(
+	idempotencyKey string,
+	reason string,
+	generatedAt time.Time,
+	readiness *EnterpriseAuditExportDeliveryReportStorageReadiness,
+) (string, error) {
+	metadata := map[string]any{
+		"idempotency_key":                       idempotencyKey,
+		"reason":                                reason,
+		"generated_at":                          generatedAt.UTC().Format(time.RFC3339),
+		"storage_schema_version":                enterpriseAuditExportDeliveryReportStorageSchemaVersion,
+		"checksum_algorithm":                    enterpriseAuditExportDeliveryReportStorageChecksumAlgorithm,
+		"storage_path_prefix":                   enterpriseAuditExportDeliveryReportStoragePathPrefix,
+		"required_report_sections":              enterpriseAuditExportDeliveryReportRequiredSections,
+		"storage_readiness_status":              readiness.ReadinessStatus,
+		"generate_request_readiness_status":     readiness.GenerateRequestReadinessStatus,
+		"delivery_report_readiness_status":      readiness.DeliveryReportReadinessStatus,
+		"completed_task_readiness_status":       readiness.CompletedTaskReadinessStatus,
+		"completed_task_count":                  readiness.CompletedTaskCount,
+		"worker_execution_completed_task_count": readiness.WorkerExecutionCompletedTaskCount,
+		"required_task_status":                  readiness.RequiredTaskStatus,
+		"required_task_source":                  readiness.RequiredTaskSource,
+		"completed_task_evidence_required":      true,
+		"worker_execution_task_source_required": true,
+		"report_file_written":                   false,
+		"worker_execution_started":              false,
+		"task_status_mutation_started":          false,
+		"archive_deletion_started":              false,
+		"export_file_generation_started":        false,
+		"output_storage_write_started":          false,
+		"project_write_started":                 false,
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func isEnterpriseAuditExportTaskCreateFormatSupported(format string) bool {
+	for _, supportedFormat := range enterpriseAuditExportFileFormatSupportedFormats() {
+		if format == supportedFormat {
+			return true
+		}
+	}
+	return false
+}
+
+func parseEnterpriseAuditExportTaskCreateTimeRange(startValue, endValue string) (time.Time, time.Time, error) {
+	start, err := time.Parse(time.RFC3339, strings.TrimSpace(startValue))
+	if err != nil {
+		return time.Time{}, time.Time{}, newEnterpriseAuditExportTaskCreateValidationError("time_range_start must be RFC3339")
+	}
+	end, err := time.Parse(time.RFC3339, strings.TrimSpace(endValue))
+	if err != nil {
+		return time.Time{}, time.Time{}, newEnterpriseAuditExportTaskCreateValidationError("time_range_end must be RFC3339")
+	}
+	if !end.After(start) {
+		return time.Time{}, time.Time{}, newEnterpriseAuditExportTaskCreateValidationError("time_range_end must be after time_range_start")
+	}
+	return start, end, nil
+}
+
+func marshalEnterpriseAuditExportTaskCreateFilters(filters map[string]interface{}) (string, error) {
+	if filters == nil {
+		filters = map[string]interface{}{}
+	}
+	payload, err := json.Marshal(filters)
+	if err != nil {
+		return "", err
+	}
+	if string(payload) == "null" {
+		return "{}", nil
+	}
+	return string(payload), nil
+}
+
+// GetEnterpriseAuditRetentionReadiness 获取企业治理审计保留策略只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseAuditRetentionReadiness(ctx context.Context) (*EnterpriseAuditRetentionReadiness, error) {
+	if s == nil || s.auditRepo == nil || s.adminRepo == nil || s.systemConfigService == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	adminAuditLogCount, err := s.auditRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	activationAuditEventCount, err := s.adminRepo.CountEnterpriseProjectAccessGuardActivationAudits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configItems, err := s.systemConfigService.ListConfigItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	retentionPolicyValue, retentionPolicyConfigured := readEnterpriseAuditRetentionPolicyValue(configItems)
+	retentionDays, retentionPolicyValid := parseEnterpriseAuditRetentionDays(retentionPolicyValue)
+	coveredSourceCount := 0
+	if adminAuditLogCount > 0 {
+		coveredSourceCount++
+	}
+	if activationAuditEventCount > 0 {
+		coveredSourceCount++
+	}
+	if retentionPolicyConfigured && retentionPolicyValid {
+		coveredSourceCount++
+	}
+	readiness := &EnterpriseAuditRetentionReadiness{
+		AdminAuditLogCount:        adminAuditLogCount,
+		ActivationAuditEventCount: activationAuditEventCount,
+		RetentionPolicyKey:        enterpriseAuditRetentionPolicyKey,
+		RetentionPolicyConfigured: retentionPolicyConfigured,
+		RetentionDays:             retentionDays,
+		MinimumRetentionDays:      enterpriseAuditRetentionMinimumDays,
+		MaximumRetentionDays:      enterpriseAuditRetentionMaximumDays,
+		RetentionDeletionEnabled:  false,
+		CoveredSourceCount:        coveredSourceCount,
+		RequiredSourceCount:       enterpriseAuditRetentionRequiredSourceCount,
+	}
+	if adminAuditLogCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditRetentionNoAuditLogs
+		readiness.Message = "Admin audit log 尚无可保留真源，企业审计保留策略 readiness 不能标记 ready。"
+		readiness.Recovery = "先通过受控 Admin 操作形成 admin_audit_log 真源，再核对保留策略配置；本 readiness 不新增写入口或删除审计数据。"
+		return readiness, nil
+	}
+	if activationAuditEventCount == 0 {
+		readiness.ReadinessStatus = EnterpriseAuditRetentionActivationMissing
+		readiness.Message = "Admin audit log 已可观测，但 activation audit 事件尚未形成企业审计保留覆盖。"
+		readiness.Recovery = "继续补齐 Project Access Guard activation audit evidence，再评估企业审计保留策略；当前 readiness 只读。"
+		return readiness, nil
+	}
+	if retentionPolicyConfigured == false {
+		readiness.ReadinessStatus = EnterpriseAuditRetentionPolicyMissing
+		readiness.Message = "企业审计保留策略配置尚未进入 system_config，不能确认保留窗口。"
+		readiness.Recovery = "补齐 enterprise.audit.retention_days 配置后再评估保留策略；不得在 readiness 中执行审计删除或自动写入配置。"
+		return readiness, nil
+	}
+	if retentionPolicyValid == false {
+		readiness.ReadinessStatus = EnterpriseAuditRetentionPolicyInvalid
+		readiness.Message = "企业审计保留策略配置存在，但 retention_days 不在允许范围内。"
+		readiness.Recovery = "将 enterprise.audit.retention_days 调整为 30 到 3650 之间的整数；当前 readiness 不修正配置、不删除审计数据。"
+		return readiness, nil
+	}
+	readiness.ReadinessStatus = EnterpriseAuditRetentionReady
+	readiness.Message = "Admin audit log、activation audit 事件与企业审计保留天数配置均可只读回读，保留策略 readiness 已具备。"
+	readiness.Recovery = "下一步可设计受控归档、过期扫描和删除审批流程；当前 readiness 不删除审计数据、不写 audit 记录、不改变授权、activation、projects、租户隔离或组织级 RBAC。"
+	return readiness, nil
+}
+
+func readEnterpriseAuditRetentionPolicyValue(configs []model.SystemConfig) (string, bool) {
+	for _, config := range configs {
+		if config.Key == enterpriseAuditRetentionPolicyKey {
+			return strings.TrimSpace(config.Value), true
+		}
+	}
+	return "", false
+}
+
+func parseEnterpriseAuditRetentionDays(value string) (int, bool) {
+	retentionDays, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, false
+	}
+	if retentionDays < enterpriseAuditRetentionMinimumDays {
+		return retentionDays, false
+	}
+	if retentionDays > enterpriseAuditRetentionMaximumDays {
+		return retentionDays, false
+	}
+	return retentionDays, true
+}
+
+func resolveEnterpriseProjectAccessGuardActivationAuditMetadataIntegrityStatus(auditEventCount int64, metadataIssueCount int) EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityStatus {
+	if auditEventCount == 0 {
+		return EnterpriseProjectAccessGuardActivationAuditMetadataNoEvents
+	}
+	if metadataIssueCount != 0 {
+		return EnterpriseProjectAccessGuardActivationAuditMetadataFailed
+	}
+	return EnterpriseProjectAccessGuardActivationAuditMetadataReady
+}
+
+func buildEnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssues(events []model.EnterpriseProjectAccessGuardActivationAudit) ([]EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue, int) {
+	issues := make([]EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue, 0)
+	totalIssueCount := 0
+	appendIssue := func(issue EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue) {
+		totalIssueCount++
+		if len(issues) < enterpriseProjectAccessGuardActivationAuditMetadataIssueLimit {
+			issues = append(issues, issue)
+		}
+	}
+	for _, event := range events {
+		if !isEnterpriseProjectAccessGuardActivationAuditEventTypeKnown(event.EventType) {
+			appendIssue(EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue{
+				EventID:   event.ID,
+				EventType: event.EventType,
+				Source:    EnterpriseProjectAccessGuardActivationAuditMetadataIssueEventType,
+				Message:   "event_type must match the activation audit event type contract",
+			})
+		}
+		if !isEnterpriseProjectAccessGuardActivationAuditEventStatusKnown(event.Status) {
+			appendIssue(EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue{
+				EventID:   event.ID,
+				EventType: event.EventType,
+				Source:    EnterpriseProjectAccessGuardActivationAuditMetadataIssueEventStatus,
+				Message:   "status must match the activation audit event status contract",
+			})
+		}
+		if !isProjectAccessGuardModeKnown(event.CurrentMode) {
+			appendIssue(EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue{
+				EventID:   event.ID,
+				EventType: event.EventType,
+				Source:    EnterpriseProjectAccessGuardActivationAuditMetadataIssueCurrentMode,
+				Message:   "current_mode must be legacy_user_owned or enterprise_owned",
+			})
+		}
+		if !isProjectAccessGuardModeKnown(event.TargetMode) {
+			appendIssue(EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue{
+				EventID:   event.ID,
+				EventType: event.EventType,
+				Source:    EnterpriseProjectAccessGuardActivationAuditMetadataIssueTargetMode,
+				Message:   "target_mode must be legacy_user_owned or enterprise_owned",
+			})
+		}
+		if strings.TrimSpace(event.Source) == "" {
+			appendIssue(EnterpriseProjectAccessGuardActivationAuditMetadataIntegrityIssue{
+				EventID:   event.ID,
+				EventType: event.EventType,
+				Source:    EnterpriseProjectAccessGuardActivationAuditMetadataIssueProducerSource,
+				Message:   "source must be non-empty to identify the audit producer",
+			})
+		}
+	}
+	return issues, totalIssueCount
+}
+
+func isEnterpriseProjectAccessGuardActivationAuditEventTypeKnown(eventType string) bool {
+	_, ok := enterpriseProjectAccessGuardActivationAuditRequiredPayloadSources(eventType)
+	return ok
+}
+
+func isEnterpriseProjectAccessGuardActivationAuditEventStatusKnown(status string) bool {
+	switch EnterpriseProjectAccessGuardActivationAuditEventStatus(status) {
+	case EnterpriseProjectAccessGuardActivationAuditEventPlanned,
+		EnterpriseProjectAccessGuardActivationAuditEventRecorded,
+		EnterpriseProjectAccessGuardActivationAuditEventFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func isProjectAccessGuardModeKnown(mode string) bool {
+	switch ProjectAccessGuardMode(mode) {
+	case ProjectAccessGuardModeLegacyUserOwned, ProjectAccessGuardModeEnterpriseOwned:
+		return true
+	default:
+		return false
+	}
+}
+
+func resolveEnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus(auditEventCount int64, missingRequiredEventTypeCount int, payloadIssueCount int) EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityStatus {
+	if auditEventCount == 0 {
+		return EnterpriseProjectAccessGuardActivationAuditPayloadNoEvents
+	}
+	if payloadIssueCount != 0 {
+		return EnterpriseProjectAccessGuardActivationAuditPayloadFailed
+	}
+	if missingRequiredEventTypeCount != 0 {
+		return EnterpriseProjectAccessGuardActivationAuditPayloadPending
+	}
+	return EnterpriseProjectAccessGuardActivationAuditPayloadReady
+}
+
+func buildEnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssues(events []model.EnterpriseProjectAccessGuardActivationAudit) ([]EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssue, int) {
+	issues := make([]EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssue, 0)
+	totalIssueCount := 0
+	appendIssue := func(issue EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssue) {
+		totalIssueCount++
+		if len(issues) < enterpriseProjectAccessGuardActivationAuditPayloadIssueLimit {
+			issues = append(issues, issue)
+		}
+	}
+	for _, event := range events {
+		requiredSources, ok := enterpriseProjectAccessGuardActivationAuditRequiredPayloadSources(event.EventType)
+		if !ok {
+			appendIssue(EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssue{
+				EventID:   event.ID,
+				EventType: EnterpriseProjectAccessGuardActivationAuditEventType(event.EventType),
+				Source:    EnterpriseProjectAccessGuardActivationAuditPayloadIssueEventType,
+				Message:   "activation audit event_type is outside the required contract",
+			})
+			continue
+		}
+		for _, source := range requiredSources {
+			if issueMessage := validateEnterpriseProjectAccessGuardActivationAuditPayloadSource(event, source); issueMessage != "" {
+				appendIssue(EnterpriseProjectAccessGuardActivationAuditPayloadIntegrityIssue{
+					EventID:   event.ID,
+					EventType: EnterpriseProjectAccessGuardActivationAuditEventType(event.EventType),
+					Source:    source,
+					Message:   issueMessage,
+				})
+			}
+		}
+	}
+	return issues, totalIssueCount
+}
+
+func enterpriseProjectAccessGuardActivationAuditRequiredPayloadSources(eventType string) ([]EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource, bool) {
+	switch EnterpriseProjectAccessGuardActivationAuditEventType(eventType) {
+	case EnterpriseProjectAccessGuardActivationAuditEventReadinessSnapshot:
+		return []EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource{EnterpriseProjectAccessGuardActivationAuditPayloadIssueReadinessSnapshot}, true
+	case EnterpriseProjectAccessGuardActivationAuditEventBlockerSnapshot:
+		return []EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource{EnterpriseProjectAccessGuardActivationAuditPayloadIssueBlockerSnapshot}, true
+	case EnterpriseProjectAccessGuardActivationAuditEventManualApproval:
+		return []EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource{EnterpriseProjectAccessGuardActivationAuditPayloadIssueReviewSnapshot}, true
+	case EnterpriseProjectAccessGuardActivationAuditEventActivationExecution:
+		return []EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource{EnterpriseProjectAccessGuardActivationAuditPayloadIssueExecutionResult}, true
+	case EnterpriseProjectAccessGuardActivationAuditEventPostActivationValidation:
+		return []EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource{EnterpriseProjectAccessGuardActivationAuditPayloadIssueExecutionResult}, true
+	case EnterpriseProjectAccessGuardActivationAuditEventRollbackEvidence:
+		return []EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource{
+			EnterpriseProjectAccessGuardActivationAuditPayloadIssueExecutionResult,
+			EnterpriseProjectAccessGuardActivationAuditPayloadIssueRollbackReference,
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+func validateEnterpriseProjectAccessGuardActivationAuditPayloadSource(event model.EnterpriseProjectAccessGuardActivationAudit, source EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource) string {
+	if source == EnterpriseProjectAccessGuardActivationAuditPayloadIssueRollbackReference {
+		if strings.TrimSpace(event.RollbackReference) == "" {
+			return "rollback_reference must be non-empty for rollback evidence events"
+		}
+		return ""
+	}
+	payload := enterpriseProjectAccessGuardActivationAuditPayloadValue(event, source)
+	if strings.TrimSpace(payload) == "" {
+		return "payload must be a non-empty JSON object"
+	}
+	var payloadObject map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &payloadObject); err != nil {
+		return "payload must be valid JSON object"
+	}
+	if len(payloadObject) == 0 {
+		return "payload JSON object must include event evidence fields"
+	}
+	return ""
+}
+
+func enterpriseProjectAccessGuardActivationAuditPayloadValue(event model.EnterpriseProjectAccessGuardActivationAudit, source EnterpriseProjectAccessGuardActivationAuditPayloadIssueSource) string {
+	switch source {
+	case EnterpriseProjectAccessGuardActivationAuditPayloadIssueReadinessSnapshot:
+		return event.ReadinessSnapshot
+	case EnterpriseProjectAccessGuardActivationAuditPayloadIssueBlockerSnapshot:
+		return event.BlockerSnapshot
+	case EnterpriseProjectAccessGuardActivationAuditPayloadIssueReviewSnapshot:
+		return event.ReviewSnapshot
+	case EnterpriseProjectAccessGuardActivationAuditPayloadIssueAuditPlanSnapshot:
+		return event.AuditPlanSnapshot
+	case EnterpriseProjectAccessGuardActivationAuditPayloadIssueExecutionResult:
+		return event.ExecutionResult
+	default:
+		return ""
+	}
+}
+
+func buildEnterpriseProjectAccessGuardActivationAuditRequiredEventItems(events []model.EnterpriseProjectAccessGuardActivationAudit) ([]EnterpriseProjectAccessGuardActivationAuditRequiredEvent, int) {
+	latestStatusByEventType := make(map[EnterpriseProjectAccessGuardActivationAuditEventType]EnterpriseProjectAccessGuardActivationAuditEventStatus)
+	countByEventType := make(map[EnterpriseProjectAccessGuardActivationAuditEventType]int64)
+	for _, event := range events {
+		eventType := EnterpriseProjectAccessGuardActivationAuditEventType(event.EventType)
+		countByEventType[eventType]++
+		if _, exists := latestStatusByEventType[eventType]; !exists {
+			latestStatusByEventType[eventType] = normalizeEnterpriseProjectAccessGuardActivationAuditEventStatus(event.Status)
+		}
+	}
+
+	items := make([]EnterpriseProjectAccessGuardActivationAuditRequiredEvent, 0, len(enterpriseProjectAccessGuardActivationAuditRequiredEventTypes))
+	missingCount := 0
+	for _, eventType := range enterpriseProjectAccessGuardActivationAuditRequiredEventTypes {
+		recordedCount := countByEventType[eventType]
+		missing := recordedCount == 0
+		if missing {
+			missingCount++
+		}
+		latestStatus := EnterpriseProjectAccessGuardActivationAuditEventPlanned
+		if observedStatus, exists := latestStatusByEventType[eventType]; exists {
+			latestStatus = observedStatus
+		}
+		items = append(items, EnterpriseProjectAccessGuardActivationAuditRequiredEvent{
+			EventType:     eventType,
+			RecordedCount: recordedCount,
+			LatestStatus:  latestStatus,
+			Missing:       missing,
+		})
+	}
+	return items, missingCount
+}
+
+func buildEnterpriseProjectAccessGuardActivationAuditRecentEvents(events []model.EnterpriseProjectAccessGuardActivationAudit) []EnterpriseProjectAccessGuardActivationAuditRecentEvent {
+	result := make([]EnterpriseProjectAccessGuardActivationAuditRecentEvent, 0, len(events))
+	for _, event := range events {
+		result = append(result, EnterpriseProjectAccessGuardActivationAuditRecentEvent{
+			ID:                event.ID,
+			EventType:         EnterpriseProjectAccessGuardActivationAuditEventType(event.EventType),
+			Status:            normalizeEnterpriseProjectAccessGuardActivationAuditEventStatus(event.Status),
+			ActorAdminID:      event.ActorAdminID,
+			ReadinessStatus:   ProjectAccessGuardEnterpriseActivationReadinessStatus(event.ReadinessStatus),
+			CurrentMode:       ProjectAccessGuardMode(event.CurrentMode),
+			TargetMode:        ProjectAccessGuardMode(event.TargetMode),
+			RollbackReference: event.RollbackReference,
+			Source:            event.Source,
+			CreatedAt:         event.CreatedAt,
+		})
+	}
+	return result
+}
+
+func normalizeEnterpriseProjectAccessGuardActivationAuditEventStatus(status string) EnterpriseProjectAccessGuardActivationAuditEventStatus {
+	switch EnterpriseProjectAccessGuardActivationAuditEventStatus(status) {
+	case EnterpriseProjectAccessGuardActivationAuditEventRecorded:
+		return EnterpriseProjectAccessGuardActivationAuditEventRecorded
+	case EnterpriseProjectAccessGuardActivationAuditEventFailed:
+		return EnterpriseProjectAccessGuardActivationAuditEventFailed
+	default:
+		return EnterpriseProjectAccessGuardActivationAuditEventPlanned
+	}
+}
+
+// GetEnterpriseProjectOwnershipPreflight 获取项目归属迁移只读预检候选事实。
+func (s *AdminConsoleService) GetEnterpriseProjectOwnershipPreflight(ctx context.Context) (*EnterpriseProjectOwnershipPreflight, error) {
+	if s == nil || s.adminRepo == nil || s.projectRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	organizationCount, err := s.adminRepo.CountEnterpriseOrganizations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	teamCount, err := s.adminRepo.CountEnterpriseTeams(ctx)
+	if err != nil {
+		return nil, err
+	}
+	memberCount, err := s.adminRepo.CountEnterpriseMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	projects, projectCount, err := s.projectRepo.ListAll(ctx, 1, enterpriseProjectOwnershipPreflightCandidateLimit)
+	if err != nil {
+		return nil, err
+	}
+	ownerships, err := s.adminRepo.ListEnterpriseProjectOwnerships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ownedProjectIDs := make(map[string]struct{}, len(ownerships))
+	for _, ownership := range ownerships {
+		ownedProjectIDs[ownership.ProjectID] = struct{}{}
+	}
+	existingOwnershipCount := int64(len(ownedProjectIDs))
+	candidateProjectCount := projectCount - existingOwnershipCount
+	if candidateProjectCount < 0 {
+		candidateProjectCount = 0
+	}
+	candidates := make([]EnterpriseProjectOwnershipPreflightCandidate, 0, len(projects))
+	for _, project := range projects {
+		if _, exists := ownedProjectIDs[project.ProjectID]; exists {
+			continue
+		}
+		candidates = append(candidates, EnterpriseProjectOwnershipPreflightCandidate{
+			ProjectRecordID: project.ID,
+			ProjectID:       project.ProjectID,
+			Name:            project.Name,
+			OwnerUserID:     project.UserID,
+		})
+	}
+
+	preflight := &EnterpriseProjectOwnershipPreflight{
+		ProjectCount:           projectCount,
+		ExistingOwnershipCount: existingOwnershipCount,
+		CandidateProjectCount:  candidateProjectCount,
+		OrganizationCount:      organizationCount,
+		TeamCount:              teamCount,
+		MemberCount:            memberCount,
+		CandidateLimit:         enterpriseProjectOwnershipPreflightCandidateLimit,
+		Candidates:             candidates,
+	}
+	if projectCount == 0 {
+		preflight.PreflightStatus = EnterpriseProjectOwnershipPreflightNoProjects
+		preflight.Message = "当前没有可观测项目，项目归属迁移预检尚无执行对象。"
+		preflight.Recovery = "先确认 Admin Projects 能读取项目真源；有项目后再运行项目归属迁移预检。"
+		return preflight, nil
+	}
+	if organizationCount == 0 || teamCount == 0 || memberCount == 0 {
+		preflight.PreflightStatus = EnterpriseProjectOwnershipPreflightOrganizationModelNotReady
+		preflight.Message = "已观测到项目，但企业组织、团队或成员真源尚未完整，不能进入迁移候选确认。"
+		preflight.Recovery = "先补齐企业组织、团队和成员绑定；预检只读返回候选事实，不会写 projects 或 enterprise_project_ownerships。"
+		return preflight, nil
+	}
+	if candidateProjectCount == 0 {
+		preflight.PreflightStatus = EnterpriseProjectOwnershipPreflightNoCandidates
+		preflight.Message = "当前可观测项目均已有显式企业项目归属映射。"
+		preflight.Recovery = "继续查证映射来源与审计事实，再推进租户隔离、组织级 RBAC 和 owner guard 改造。"
+		return preflight, nil
+	}
+	preflight.PreflightStatus = EnterpriseProjectOwnershipPreflightCandidateReady
+	preflight.Message = "已生成项目归属迁移候选事实，但尚未执行迁移。"
+	preflight.Recovery = "下一步可设计受控迁移确认入口；执行前仍不得启用租户隔离、组织级 RBAC 或修改 owner guard。"
+	return preflight, nil
+}
+
+func (s *AdminConsoleService) MigrateEnterpriseProjectOwnership(ctx context.Context, operatorID string, input EnterpriseProjectOwnershipMigrateInput, ip string) (*EnterpriseProjectOwnershipMigrationResult, error) {
+	if s == nil || s.adminRepo == nil || s.projectRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	projectRecordID := strings.TrimSpace(input.ProjectRecordID)
+	organizationID := strings.TrimSpace(input.OrganizationID)
+	teamID := strings.TrimSpace(input.TeamID)
+	if projectRecordID == "" {
+		return nil, newEnterpriseProjectOwnershipMigrateValidationError("project_record_id is required")
+	}
+	if organizationID == "" {
+		return nil, newEnterpriseProjectOwnershipMigrateValidationError("organization_id is required")
+	}
+	if !input.ConfirmMigrate {
+		return nil, newEnterpriseProjectOwnershipMigrateValidationError("confirm_migrate must be true")
+	}
+	project, err := s.projectRepo.FindByID(ctx, projectRecordID)
+	if err != nil {
+		return nil, newEnterpriseProjectOwnershipMigrateValidationError("project not found")
+	}
+	organization, err := s.adminRepo.FindEnterpriseOrganizationByID(ctx, organizationID)
+	if err != nil {
+		return nil, newEnterpriseProjectOwnershipMigrateValidationError("enterprise organization not found")
+	}
+	var team *model.EnterpriseTeam
+	if teamID != "" {
+		team, err = s.adminRepo.FindEnterpriseTeamByID(ctx, teamID)
+		if err != nil {
+			return nil, newEnterpriseProjectOwnershipMigrateValidationError("enterprise team not found")
+		}
+		if team.OrganizationID != organization.ID {
+			return nil, newEnterpriseProjectOwnershipMigrateValidationError("enterprise team does not belong to organization")
+		}
+	}
+	ownerships, err := s.adminRepo.ListEnterpriseProjectOwnerships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, existingOwnership := range ownerships {
+		if existingOwnership.ProjectID == project.ProjectID {
+			return nil, newEnterpriseProjectOwnershipMigrateValidationError("enterprise project ownership already exists")
+		}
+	}
+
+	var teamIDPtr *string
+	if team != nil {
+		teamIDPtr = &team.ID
+	}
+	ownership := &model.EnterpriseProjectOwnership{
+		ProjectID:      project.ProjectID,
+		OrganizationID: organization.ID,
+		TeamID:         teamIDPtr,
+		Status:         "active",
+		Source:         "admin_console_migration",
+	}
+	if err := s.adminRepo.CreateEnterpriseProjectOwnership(ctx, ownership); err != nil {
+		return nil, err
+	}
+	auditDetail := "Migrated enterprise project ownership: " + project.ProjectID + " -> " + organization.Slug
+	if team != nil {
+		auditDetail = auditDetail + "/" + team.Slug
+	}
+	s.writeAudit(ctx, operatorID, "migrate_enterprise_project_ownership", "enterprise_project_ownership", fmt.Sprintf("%d", ownership.ID), auditDetail, ip)
+	return &EnterpriseProjectOwnershipMigrationResult{
+		Status:    EnterpriseProjectOwnershipMigrationMigrated,
+		Ownership: *ownership,
+		Message:   "已写入企业项目归属映射，但 owner guard、租户隔离和组织级 RBAC 尚未接线。",
+		Recovery:  "继续查证映射审计与 readiness，再推进 owner guard、租户隔离和组织级 RBAC 改造。",
+	}, nil
+}
+
+func (s *AdminConsoleService) GetEnterpriseProjectOwnershipMappings(ctx context.Context) (*EnterpriseProjectOwnershipMappings, error) {
+	if s == nil || s.adminRepo == nil || s.projectRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	ownerships, err := s.adminRepo.ListEnterpriseProjectOwnerships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	organizations, err := s.adminRepo.ListEnterpriseOrganizations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	teams, err := s.adminRepo.ListEnterpriseTeams(ctx)
+	if err != nil {
+		return nil, err
+	}
+	organizationByID := make(map[string]model.EnterpriseOrganization, len(organizations))
+	for _, organization := range organizations {
+		organizationByID[organization.ID] = organization
+	}
+	teamByID := make(map[string]model.EnterpriseTeam, len(teams))
+	for _, team := range teams {
+		teamByID[team.ID] = team
+	}
+
+	mappingLimit := enterpriseProjectOwnershipMappingLimit
+	if len(ownerships) < mappingLimit {
+		mappingLimit = len(ownerships)
+	}
+	mappings := make([]EnterpriseProjectOwnershipMapping, 0, mappingLimit)
+	var missingProjectCount int64
+	for index, ownership := range ownerships {
+		if index >= enterpriseProjectOwnershipMappingLimit {
+			break
+		}
+		mapping := EnterpriseProjectOwnershipMapping{
+			OwnershipID:    ownership.ID,
+			ProjectID:      ownership.ProjectID,
+			ProjectFound:   false,
+			OrganizationID: ownership.OrganizationID,
+			TeamID:         ownership.TeamID,
+			Status:         ownership.Status,
+			Source:         ownership.Source,
+			CreatedAt:      ownership.CreatedAt,
+			UpdatedAt:      ownership.UpdatedAt,
+		}
+		if project, err := s.projectRepo.FindByProjectID(ctx, ownership.ProjectID); err == nil && project != nil {
+			mapping.ProjectRecordID = project.ID
+			mapping.ProjectName = project.Name
+			mapping.OwnerUserID = project.UserID
+			mapping.ProjectFound = true
+		} else {
+			missingProjectCount++
+		}
+		if organization, exists := organizationByID[ownership.OrganizationID]; exists {
+			mapping.OrganizationSlug = organization.Slug
+			mapping.OrganizationDisplayName = organization.DisplayName
+		}
+		if ownership.TeamID != nil {
+			if team, exists := teamByID[*ownership.TeamID]; exists {
+				mapping.TeamSlug = team.Slug
+				mapping.TeamDisplayName = team.DisplayName
+			}
+		}
+		mappings = append(mappings, mapping)
+	}
+
+	result := &EnterpriseProjectOwnershipMappings{
+		OwnershipCount:       int64(len(ownerships)),
+		ReturnedMappingCount: len(mappings),
+		MissingProjectCount:  missingProjectCount,
+		MappingLimit:         enterpriseProjectOwnershipMappingLimit,
+		Mappings:             mappings,
+	}
+	if len(ownerships) == 0 {
+		result.MappingStatus = EnterpriseProjectOwnershipMappingNoMappings
+		result.Message = "当前尚未观测到企业项目归属映射。"
+		result.Recovery = "先通过项目归属迁移预检确认候选，再使用受控迁移入口写入 enterprise_project_ownerships。"
+		return result, nil
+	}
+	result.MappingStatus = EnterpriseProjectOwnershipMappingMappingReady
+	result.Message = "已回读企业项目归属映射，可用于查证迁移来源与后续 owner guard 改造前证据。"
+	result.Recovery = "继续核对映射项目、组织、团队和审计记录；在 owner guard、租户隔离和组织级 RBAC 接线前不得把映射视为访问控制事实。"
+	return result, nil
+}
+
+func (s *AdminConsoleService) GetEnterpriseProjectOwnershipOwnerGuardReadiness(ctx context.Context) (*EnterpriseProjectOwnershipOwnerGuardReadiness, error) {
+	if s == nil || s.adminRepo == nil || s.projectRepo == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	ownerships, err := s.adminRepo.ListEnterpriseProjectOwnerships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ownershipByProjectID := make(map[string]model.EnterpriseProjectOwnership, len(ownerships))
+	for _, ownership := range ownerships {
+		ownershipByProjectID[ownership.ProjectID] = ownership
+	}
+
+	projectRecordIDs := make(map[string]struct{})
+	unmappedProjects := make([]EnterpriseProjectOwnershipOwnerGuardReadinessCandidate, 0, enterpriseProjectOwnershipOwnerGuardReadinessPreviewLimit)
+	var projectCount int64
+	var mappedProjectCount int64
+	var unmappedProjectCount int64
+	page := 1
+	for {
+		projects, total, err := s.projectRepo.ListAll(ctx, page, enterpriseProjectOwnershipOwnerGuardReadinessProjectPageSize)
+		if err != nil {
+			return nil, err
+		}
+		if page == 1 {
+			projectCount = total
+		}
+		if len(projects) == 0 {
+			break
+		}
+		for _, project := range projects {
+			projectRecordIDs[project.ProjectID] = struct{}{}
+			if _, exists := ownershipByProjectID[project.ProjectID]; exists {
+				mappedProjectCount++
+				continue
+			}
+			unmappedProjectCount++
+			if len(unmappedProjects) < enterpriseProjectOwnershipOwnerGuardReadinessPreviewLimit {
+				unmappedProjects = append(unmappedProjects, EnterpriseProjectOwnershipOwnerGuardReadinessCandidate{
+					ProjectRecordID: project.ID,
+					ProjectID:       project.ProjectID,
+					ProjectName:     project.Name,
+					OwnerUserID:     project.UserID,
+				})
+			}
+		}
+		if int64(page*enterpriseProjectOwnershipOwnerGuardReadinessProjectPageSize) >= projectCount {
+			break
+		}
+		page++
+	}
+
+	var extraOwnershipCount int64
+	for _, ownership := range ownerships {
+		if _, exists := projectRecordIDs[ownership.ProjectID]; !exists {
+			extraOwnershipCount++
+		}
+	}
+
+	result := &EnterpriseProjectOwnershipOwnerGuardReadiness{
+		ProjectCount:         projectCount,
+		OwnershipCount:       int64(len(ownerships)),
+		MappedProjectCount:   mappedProjectCount,
+		UnmappedProjectCount: unmappedProjectCount,
+		ExtraOwnershipCount:  extraOwnershipCount,
+		PreviewLimit:         enterpriseProjectOwnershipOwnerGuardReadinessPreviewLimit,
+		UnmappedProjects:     unmappedProjects,
+	}
+	switch {
+	case projectCount == 0:
+		result.OwnerGuardStatus = EnterpriseProjectOwnershipOwnerGuardReadinessNoProjects
+		result.Message = "当前没有可观测项目，无法评估 owner guard 接线覆盖率。"
+		result.Recovery = "先创建项目并完成企业项目归属映射，再重新评估 owner guard readiness。"
+	case len(ownerships) == 0:
+		result.OwnerGuardStatus = EnterpriseProjectOwnershipOwnerGuardReadinessNoMappings
+		result.Message = "当前没有企业项目归属映射，owner guard 仍只能依赖 legacy projects.user_id。"
+		result.Recovery = "先通过受控迁移入口为项目写入 enterprise_project_ownerships 映射。"
+	case unmappedProjectCount > 0:
+		result.OwnerGuardStatus = EnterpriseProjectOwnershipOwnerGuardReadinessUnmappedProjects
+		result.Message = "仍存在未映射项目，不能推进 owner guard 接线。"
+		result.Recovery = "继续迁移未映射项目；确认所有现有项目均有显式企业归属映射后再评估接线。"
+	case extraOwnershipCount > 0:
+		result.OwnerGuardStatus = EnterpriseProjectOwnershipOwnerGuardReadinessEvidenceDrift
+		result.Message = "所有现有项目已有映射，但存在指向缺失项目真源的额外映射。"
+		result.Recovery = "先核对缺失项目真源、软删除历史和 Admin audit，清理证据漂移后再推进 owner guard 设计。"
+	default:
+		result.OwnerGuardStatus = EnterpriseProjectOwnershipOwnerGuardReadinessReady
+		result.Message = "现有项目均有显式企业归属映射，可进入 owner guard 接线设计评审。"
+		result.Recovery = "继续实现显式 owner guard 设计、租户隔离和组织级 RBAC；当前接口本身不改变访问控制。"
+	}
+	return result, nil
+}
+
+// GetEnterpriseProjectAccessGuardAuthorizationDryRunEvidence 获取 Project Access Guard 企业映射授权 dry-run 只读 evidence。
+func (s *AdminConsoleService) GetEnterpriseProjectAccessGuardAuthorizationDryRunEvidence(ctx context.Context) (*EnterpriseProjectAccessGuardAuthorizationDryRunEvidence, error) {
+	if s == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:     s.projectRepo,
+		OwnershipRepo:   s.adminRepo,
+		SystemConfigSvc: s.systemConfigService,
+	})
+	evidence, err := projectService.GetProjectAccessGuardEnterpriseAuthorizationDryRunEvidence(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := &EnterpriseProjectAccessGuardAuthorizationDryRunEvidence{
+		Status:                              evidence.Status,
+		CurrentMode:                         evidence.CurrentMode,
+		TargetMode:                          evidence.TargetMode,
+		ProjectCount:                        evidence.ProjectCount,
+		ComparedProjectCount:                evidence.ComparedProjectCount,
+		AlignedProjectCount:                 evidence.AlignedProjectCount,
+		EnterpriseUnavailableProjectCount:   evidence.EnterpriseUnavailableProjectCount,
+		LegacyGrantedEnterpriseBlockedCount: evidence.LegacyGrantedEnterpriseBlockedCount,
+		LegacyBlockedEnterpriseGrantedCount: evidence.LegacyBlockedEnterpriseGrantedCount,
+		DriftPreviewLimit:                   evidence.DriftPreviewLimit,
+		DriftCandidates:                     make([]EnterpriseProjectAccessGuardAuthorizationDryRunDriftCandidate, 0, len(evidence.DriftCandidates)),
+		EnterpriseAuthorizationActive:       evidence.EnterpriseAuthorizationActive,
+	}
+	for _, candidate := range evidence.DriftCandidates {
+		result.DriftCandidates = append(result.DriftCandidates, EnterpriseProjectAccessGuardAuthorizationDryRunDriftCandidate{
+			ProjectRecordID: candidate.ProjectRecordID,
+			ProjectID:       candidate.ProjectID,
+			ProjectName:     candidate.ProjectName,
+			OwnerUserID:     candidate.OwnerUserID,
+			DryRunStatus:    candidate.DryRunStatus,
+			DryRunDecision:  candidate.DryRunDecision,
+			DriftStatus:     candidate.DriftStatus,
+		})
+	}
+	switch evidence.Status {
+	case ProjectAccessGuardEnterpriseAuthorizationDryRunOwnershipRepoUnavailable:
+		result.Message = "Project Access Guard 尚不能读取企业项目归属或成员映射，不能生成企业授权 dry-run evidence。"
+		result.Recovery = "先确认 Admin repo 已注入 enterprise_project_ownerships 与 enterprise_members 只读能力。"
+	case ProjectAccessGuardEnterpriseAuthorizationDryRunNoProjects:
+		result.Message = "当前没有可观测项目，企业授权 dry-run 尚无评估对象。"
+		result.Recovery = "先创建项目并完成企业项目归属映射，再重新生成 dry-run evidence。"
+	case ProjectAccessGuardEnterpriseAuthorizationDryRunEnterpriseUnavailable:
+		result.Message = "企业授权 dry-run 存在不可用证据，部分项目无法完成成员或映射查询。"
+		result.Recovery = "先排查 enterprise_project_ownerships / enterprise_members 查询失败，再评估真实授权切换。"
+	case ProjectAccessGuardEnterpriseAuthorizationDryRunDriftDetected:
+		result.Message = "企业授权 dry-run 已发现 legacy owner 与 enterprise mapping/membership 的决策漂移。"
+		result.Recovery = "先处理 drift candidates，补齐成员绑定或修正映射；不得在漂移存在时切换真实授权。"
+	case ProjectAccessGuardEnterpriseAuthorizationDryRunAligned:
+		result.Message = "legacy owner 维度的企业授权 dry-run 与当前授权结果对齐。"
+		result.Recovery = "下一步仍需显式评审授权模式切换、租户隔离和组织级 RBAC；当前 evidence 不改变访问控制。"
+	default:
+		result.Message = "Project Access Guard enterprise authorization dry-run 返回了未知状态。"
+		result.Recovery = "先收口后端枚举契约，再继续企业映射授权接线。"
+	}
+	return result, nil
+}
+
+// GetEnterpriseProjectAccessGuardSwitchReadiness 获取 Project Access Guard 切换企业映射授权前的只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseProjectAccessGuardSwitchReadiness(ctx context.Context) (*EnterpriseProjectAccessGuardSwitchReadiness, error) {
+	if s == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:     s.projectRepo,
+		OwnershipRepo:   s.adminRepo,
+		SystemConfigSvc: s.systemConfigService,
+	})
+	readiness, err := projectService.GetProjectAccessGuardEnterpriseSwitchReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := &EnterpriseProjectAccessGuardSwitchReadiness{
+		Status:                        readiness.Status,
+		CurrentMode:                   readiness.CurrentMode,
+		TargetMode:                    readiness.TargetMode,
+		CanSwitchToEnterpriseOwned:    readiness.CanSwitchToEnterpriseOwned,
+		ProjectCount:                  readiness.ProjectCount,
+		OwnershipCount:                readiness.OwnershipCount,
+		MappedProjectCount:            readiness.MappedProjectCount,
+		UnmappedProjectCount:          readiness.UnmappedProjectCount,
+		ExtraOwnershipCount:           readiness.ExtraOwnershipCount,
+		OwnershipLookupAvailable:      readiness.OwnershipLookupAvailable,
+		EnterpriseAuthorizationActive: readiness.EnterpriseAuthorizationActive,
+	}
+	switch readiness.Status {
+	case ProjectAccessGuardEnterpriseSwitchOwnershipRepoUnavailable:
+		result.Message = "Project Access Guard 尚不能读取企业项目归属映射，不能评估企业授权切换 readiness。"
+		result.Recovery = "先确认 Admin repo 已注入 ProjectService 所需的 enterprise_project_ownerships 只读能力。"
+	case ProjectAccessGuardEnterpriseSwitchNoProjects:
+		result.Message = "当前没有可观测项目，企业映射授权切换尚无评估对象。"
+		result.Recovery = "先创建项目并完成企业项目归属映射，再重新评估 switch readiness。"
+	case ProjectAccessGuardEnterpriseSwitchNoMappings:
+		result.Message = "当前没有企业项目归属映射，Project Access Guard 不能切换到 enterprise_owned 模式。"
+		result.Recovery = "先通过受控迁移入口为项目写入 enterprise_project_ownerships 映射。"
+	case ProjectAccessGuardEnterpriseSwitchUnmappedProjects:
+		result.Message = "仍存在未映射项目，不能切换 Project Access Guard 授权模式。"
+		result.Recovery = "继续迁移未映射项目；确认所有现有项目均有显式企业归属映射后再评估切换。"
+	case ProjectAccessGuardEnterpriseSwitchEvidenceDrift:
+		result.Message = "所有现有项目已有映射，但存在指向缺失项目真源的额外映射。"
+		result.Recovery = "先核对缺失项目真源、软删除历史和 Admin audit，清理证据漂移后再推进授权切换设计。"
+	case ProjectAccessGuardEnterpriseSwitchReady:
+		result.Message = "现有项目均有显式企业归属映射，可进入 Project Access Guard 企业映射授权切换评审。"
+		result.Recovery = "下一步仍需显式实现授权模式切换、租户隔离和组织级 RBAC；当前 readiness 不改变访问控制。"
+	default:
+		result.Message = "Project Access Guard switch readiness 返回了未知状态。"
+		result.Recovery = "先收口后端枚举契约，再继续企业映射授权接线。"
+	}
+	return result, nil
+}
+
+// GetEnterpriseProjectAccessGuardActivationReadiness 获取企业映射授权真实切换前的合成只读 readiness。
+func (s *AdminConsoleService) GetEnterpriseProjectAccessGuardActivationReadiness(ctx context.Context) (*EnterpriseProjectAccessGuardActivationReadiness, error) {
+	if s == nil {
+		return nil, fmt.Errorf("admin service not available")
+	}
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:     s.projectRepo,
+		OwnershipRepo:   s.adminRepo,
+		SystemConfigSvc: s.systemConfigService,
+	})
+	readiness, err := projectService.GetProjectAccessGuardEnterpriseActivationReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	auditPlanEvidence := enterpriseProjectAccessGuardActivationAuditPlanEvidence{}
+	if s.adminRepo != nil {
+		auditEvents, err := s.adminRepo.ListEnterpriseProjectAccessGuardActivationAudits(ctx, enterpriseProjectAccessGuardActivationAuditCoverageScanLimit)
+		if err != nil {
+			return nil, err
+		}
+		auditPlanEvidence = readEnterpriseProjectAccessGuardActivationAuditPlanEvidence(auditEvents)
+	}
+	result := &EnterpriseProjectAccessGuardActivationReadiness{
+		Status:                        readiness.Status,
+		CurrentMode:                   readiness.CurrentMode,
+		TargetMode:                    readiness.TargetMode,
+		CanActivateEnterpriseOwned:    readiness.CanActivateEnterpriseOwned,
+		SwitchStatus:                  readiness.SwitchStatus,
+		AuthorizationDryRunStatus:     readiness.AuthorizationDryRunStatus,
+		ProjectCount:                  readiness.ProjectCount,
+		MappedProjectCount:            readiness.MappedProjectCount,
+		UnmappedProjectCount:          readiness.UnmappedProjectCount,
+		ExtraOwnershipCount:           readiness.ExtraOwnershipCount,
+		ComparedProjectCount:          readiness.ComparedProjectCount,
+		AlignedProjectCount:           readiness.AlignedProjectCount,
+		EnterpriseUnavailableCount:    readiness.EnterpriseUnavailableCount,
+		AuthorizationDriftCount:       readiness.AuthorizationDriftCount,
+		BlockerPreviewLimit:           readiness.BlockerPreviewLimit,
+		BlockerCandidates:             make([]EnterpriseProjectAccessGuardActivationBlockerCandidate, 0, len(readiness.BlockerCandidates)),
+		ReviewItems:                   make([]EnterpriseProjectAccessGuardActivationReviewItem, 0, len(readiness.ReviewItems)),
+		AuditPlanItems:                make([]EnterpriseProjectAccessGuardActivationAuditPlanItem, 0, len(readiness.AuditPlanItems)),
+		EnterpriseAuthorizationActive: readiness.EnterpriseAuthorizationActive,
+	}
+	for _, candidate := range readiness.BlockerCandidates {
+		result.BlockerCandidates = append(result.BlockerCandidates, EnterpriseProjectAccessGuardActivationBlockerCandidate{
+			Source:          candidate.Source,
+			ProjectRecordID: candidate.ProjectRecordID,
+			ProjectID:       candidate.ProjectID,
+			ProjectName:     candidate.ProjectName,
+			OwnerUserID:     candidate.OwnerUserID,
+			DryRunStatus:    candidate.DryRunStatus,
+			DryRunDecision:  candidate.DryRunDecision,
+			DriftStatus:     candidate.DriftStatus,
+		})
+	}
+	for _, item := range readiness.ReviewItems {
+		result.ReviewItems = append(result.ReviewItems, EnterpriseProjectAccessGuardActivationReviewItem{
+			Source:   item.Source,
+			Status:   item.Status,
+			Message:  item.Message,
+			Recovery: item.Recovery,
+		})
+	}
+	for _, item := range readiness.AuditPlanItems {
+		result.AuditPlanItems = append(result.AuditPlanItems, materializeEnterpriseProjectAccessGuardActivationAuditPlanItem(item, auditPlanEvidence))
+	}
+	switch readiness.Status {
+	case ProjectAccessGuardEnterpriseActivationReadinessOwnershipRepoUnavailable:
+		result.Message = "Project Access Guard activation readiness 不能读取企业项目归属或成员真源。"
+		result.Recovery = "先确认 Admin repo 已注入 enterprise_project_ownerships 与 enterprise_members 只读能力，再重新评估授权切换。"
+	case ProjectAccessGuardEnterpriseActivationReadinessNoProjects:
+		result.Message = "当前没有可观测项目，企业映射授权 activation readiness 尚无评估对象。"
+		result.Recovery = "先创建项目并完成企业项目归属映射与成员绑定，再重新评估 activation readiness。"
+	case ProjectAccessGuardEnterpriseActivationReadinessSwitchNotReady:
+		result.Message = "Project Access Guard switch readiness 尚未满足，不能进入企业映射授权真实切换。"
+		result.Recovery = "先补齐 enterprise_project_ownerships 覆盖、清理映射证据漂移，并让 switch readiness 达到 enterprise_switch_ready。"
+	case ProjectAccessGuardEnterpriseActivationReadinessDryRunUnavailable:
+		result.Message = "企业授权 dry-run evidence 存在不可用证据，不能作为真实切换依据。"
+		result.Recovery = "先修复成员查询、映射查询或底层 repo 可用性，再重新运行 authorization dry-run。"
+	case ProjectAccessGuardEnterpriseActivationReadinessDriftDetected:
+		result.Message = "企业授权 dry-run 发现 legacy owner 与 enterprise membership 决策漂移，不能激活企业映射授权。"
+		result.Recovery = "先处理 authorization drift，补齐 enterprise_members 或修正 enterprise_project_ownerships；漂移清零前不得真实切换。"
+	case ProjectAccessGuardEnterpriseActivationReadinessAlreadyActive:
+		result.Message = "Project Access Guard enterprise authorization 已处于 active 状态。"
+		result.Recovery = "切换后应进入租户隔离、组织级 RBAC 和审计一致性验证；当前只读 readiness 不执行回滚或二次切换。"
+	case ProjectAccessGuardEnterpriseActivationReadinessReady:
+		result.Message = "Project Access Guard 已具备企业映射授权 activation readiness。"
+		result.Recovery = "后续仍必须通过独立显式任务实现授权模式切换、租户隔离、组织级 RBAC 和审计验证；当前接口不改变访问控制。"
+	default:
+		result.Message = "Project Access Guard activation readiness 返回了未知状态。"
+		result.Recovery = "先收口后端枚举契约，再继续企业映射授权接线。"
+	}
+	return result, nil
+}
+
+type enterpriseProjectAccessGuardActivationAuditPlanEvidence struct {
+	ManualApproval           bool
+	ActivationExecution      bool
+	PostActivationValidation bool
+	RollbackEvidence         bool
+}
+
+func materializeEnterpriseProjectAccessGuardActivationAuditPlanItem(item ProjectAccessGuardEnterpriseActivationAuditPlanItem, evidence enterpriseProjectAccessGuardActivationAuditPlanEvidence) EnterpriseProjectAccessGuardActivationAuditPlanItem {
+	switch item.Source {
+	case ProjectAccessGuardEnterpriseActivationAuditManualApproval:
+		if evidence.ManualApproval {
+			return EnterpriseProjectAccessGuardActivationAuditPlanItem{
+				Source:   item.Source,
+				Status:   ProjectAccessGuardEnterpriseActivationAuditEvidenceReady,
+				Message:  "manual approval activation audit evidence 已记录并通过 readback 校验。",
+				Recovery: "继续补齐 activation execution、post-activation validation 和 rollback evidence；该证据本身不执行授权切换。",
+			}
+		}
+	case ProjectAccessGuardEnterpriseActivationAuditActivationExecution:
+		if evidence.ActivationExecution {
+			return EnterpriseProjectAccessGuardActivationAuditPlanItem{
+				Source:   item.Source,
+				Status:   ProjectAccessGuardEnterpriseActivationAuditEvidenceReady,
+				Message:  "activation execution audit evidence 已记录并通过 readback 校验。",
+				Recovery: "继续核对 post-activation validation 和 rollback evidence；该投影只确认审计事件存在，不改变授权模式。",
+			}
+		}
+	case ProjectAccessGuardEnterpriseActivationAuditPostActivationValidate:
+		if evidence.PostActivationValidation {
+			return EnterpriseProjectAccessGuardActivationAuditPlanItem{
+				Source:   item.Source,
+				Status:   ProjectAccessGuardEnterpriseActivationAuditEvidenceReady,
+				Message:  "post-activation access validation audit evidence 已记录并通过 readback 校验。",
+				Recovery: "继续核对 rollback evidence；该投影只确认审计事件存在，不启用租户隔离或组织级 RBAC。",
+			}
+		}
+	case ProjectAccessGuardEnterpriseActivationAuditRollbackEvidence:
+		if evidence.RollbackEvidence {
+			return EnterpriseProjectAccessGuardActivationAuditPlanItem{
+				Source:   item.Source,
+				Status:   ProjectAccessGuardEnterpriseActivationAuditEvidenceReady,
+				Message:  "rollback evidence audit event 已记录并带有 rollback reference。",
+				Recovery: "继续人工核对 rollback reference 指向的真实回滚方案；该投影不执行回滚。",
+			}
+		}
+	default:
+	}
+	return EnterpriseProjectAccessGuardActivationAuditPlanItem{
+		Source:   item.Source,
+		Status:   item.Status,
+		Message:  item.Message,
+		Recovery: item.Recovery,
+	}
+}
+
+func readEnterpriseProjectAccessGuardActivationAuditPlanEvidence(events []model.EnterpriseProjectAccessGuardActivationAudit) enterpriseProjectAccessGuardActivationAuditPlanEvidence {
+	evidence := enterpriseProjectAccessGuardActivationAuditPlanEvidence{}
+	for _, event := range events {
+		switch EnterpriseProjectAccessGuardActivationAuditEventType(event.EventType) {
+		case EnterpriseProjectAccessGuardActivationAuditEventManualApproval:
+			if isEnterpriseProjectAccessGuardActivationManualApprovalEvidence(event) {
+				evidence.ManualApproval = true
+			}
+		case EnterpriseProjectAccessGuardActivationAuditEventActivationExecution:
+			if isEnterpriseProjectAccessGuardActivationAuditRecordedEventEvidence(event) {
+				evidence.ActivationExecution = true
+			}
+		case EnterpriseProjectAccessGuardActivationAuditEventPostActivationValidation:
+			if isEnterpriseProjectAccessGuardActivationAuditRecordedEventEvidence(event) {
+				evidence.PostActivationValidation = true
+			}
+		case EnterpriseProjectAccessGuardActivationAuditEventRollbackEvidence:
+			if isEnterpriseProjectAccessGuardActivationAuditRecordedEventEvidence(event) {
+				evidence.RollbackEvidence = true
+			}
+		default:
+		}
+	}
+	return evidence
+}
+
+func hasEnterpriseProjectAccessGuardActivationManualApprovalEvidence(events []model.EnterpriseProjectAccessGuardActivationAudit) bool {
+	for _, event := range events {
+		if isEnterpriseProjectAccessGuardActivationManualApprovalEvidence(event) {
+			return true
+		}
+	}
+	return false
+}
+
+func isEnterpriseProjectAccessGuardActivationManualApprovalEvidence(event model.EnterpriseProjectAccessGuardActivationAudit) bool {
+	if event.EventType != string(EnterpriseProjectAccessGuardActivationAuditEventManualApproval) {
+		return false
+	}
+	if event.Status != string(EnterpriseProjectAccessGuardActivationAuditEventRecorded) {
+		return false
+	}
+	if event.ReadinessStatus != string(ProjectAccessGuardEnterpriseActivationReadinessReady) {
+		return false
+	}
+	if event.CurrentMode != string(ProjectAccessGuardModeLegacyUserOwned) {
+		return false
+	}
+	if event.TargetMode != string(ProjectAccessGuardModeEnterpriseOwned) {
+		return false
+	}
+	if validateEnterpriseProjectAccessGuardActivationAuditPayloadSource(event, EnterpriseProjectAccessGuardActivationAuditPayloadIssueReadinessSnapshot) != "" {
+		return false
+	}
+	if validateEnterpriseProjectAccessGuardActivationAuditPayloadSource(event, EnterpriseProjectAccessGuardActivationAuditPayloadIssueBlockerSnapshot) != "" {
+		return false
+	}
+	if validateEnterpriseProjectAccessGuardActivationAuditPayloadSource(event, EnterpriseProjectAccessGuardActivationAuditPayloadIssueReviewSnapshot) != "" {
+		return false
+	}
+	if validateEnterpriseProjectAccessGuardActivationAuditPayloadSource(event, EnterpriseProjectAccessGuardActivationAuditPayloadIssueAuditPlanSnapshot) != "" {
+		return false
+	}
+	return true
+}
+
+func isEnterpriseProjectAccessGuardActivationAuditRecordedEventEvidence(event model.EnterpriseProjectAccessGuardActivationAudit) bool {
+	if event.Status != string(EnterpriseProjectAccessGuardActivationAuditEventRecorded) {
+		return false
+	}
+	if !isProjectAccessGuardModeKnown(event.CurrentMode) {
+		return false
+	}
+	if !isProjectAccessGuardModeKnown(event.TargetMode) {
+		return false
+	}
+	requiredSources, ok := enterpriseProjectAccessGuardActivationAuditRequiredPayloadSources(event.EventType)
+	if !ok {
+		return false
+	}
+	for _, source := range requiredSources {
+		if validateEnterpriseProjectAccessGuardActivationAuditPayloadSource(event, source) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *AdminConsoleService) RecordEnterpriseProjectAccessGuardActivationManualApproval(ctx context.Context, operatorID string, input EnterpriseProjectAccessGuardActivationManualApprovalInput, ip string) (*EnterpriseProjectAccessGuardActivationManualApprovalResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if !input.ConfirmManualApproval {
+		return nil, newEnterpriseProjectAccessGuardActivationManualApprovalValidationError("confirm_manual_approval is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseProjectAccessGuardActivationManualApprovalValidationError("operator admin id is required")
+	}
+	approvalNote := strings.TrimSpace(input.ApprovalNote)
+	if approvalNote == "" {
+		return nil, newEnterpriseProjectAccessGuardActivationManualApprovalValidationError("approval_note is required")
+	}
+	readiness, err := s.GetEnterpriseProjectAccessGuardActivationReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationReadiness(readiness) {
+		return nil, newEnterpriseProjectAccessGuardActivationManualApprovalValidationError("project access guard activation readiness is not ready")
+	}
+	readinessSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"status":                          readiness.Status,
+		"current_mode":                    readiness.CurrentMode,
+		"target_mode":                     readiness.TargetMode,
+		"can_activate_enterprise_owned":   readiness.CanActivateEnterpriseOwned,
+		"switch_status":                   readiness.SwitchStatus,
+		"authorization_dry_run_status":    readiness.AuthorizationDryRunStatus,
+		"project_count":                   readiness.ProjectCount,
+		"mapped_project_count":            readiness.MappedProjectCount,
+		"unmapped_project_count":          readiness.UnmappedProjectCount,
+		"extra_ownership_count":           readiness.ExtraOwnershipCount,
+		"compared_project_count":          readiness.ComparedProjectCount,
+		"aligned_project_count":           readiness.AlignedProjectCount,
+		"enterprise_unavailable_count":    readiness.EnterpriseUnavailableCount,
+		"authorization_drift_count":       readiness.AuthorizationDriftCount,
+		"enterprise_authorization_active": readiness.EnterpriseAuthorizationActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	blockerSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"blocker_preview_limit": readiness.BlockerPreviewLimit,
+		"blocker_candidates":    readiness.BlockerCandidates,
+	})
+	if err != nil {
+		return nil, err
+	}
+	reviewSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"approval_note":           approvalNote,
+		"approval_source":         "admin_enterprise_project_access_guard_activation_manual_approval",
+		"actor_admin_id":          operatorID,
+		"ip":                      strings.TrimSpace(ip),
+		"confirm_manual_approval": input.ConfirmManualApproval,
+		"review_items":            readiness.ReviewItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	auditPlanSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"audit_plan_items": readiness.AuditPlanItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	audit := &model.EnterpriseProjectAccessGuardActivationAudit{
+		EventType:         string(EnterpriseProjectAccessGuardActivationAuditEventManualApproval),
+		Status:            string(EnterpriseProjectAccessGuardActivationAuditEventRecorded),
+		ActorAdminID:      operatorID,
+		ReadinessStatus:   string(readiness.Status),
+		CurrentMode:       string(readiness.CurrentMode),
+		TargetMode:        string(readiness.TargetMode),
+		ReadinessSnapshot: readinessSnapshot,
+		BlockerSnapshot:   blockerSnapshot,
+		ReviewSnapshot:    reviewSnapshot,
+		AuditPlanSnapshot: auditPlanSnapshot,
+		ExecutionResult:   "{}",
+		RollbackReference: "",
+		Source:            "admin_enterprise_project_access_guard_activation_manual_approval",
+	}
+	if err := s.adminRepo.CreateEnterpriseProjectAccessGuardActivationAudit(ctx, audit); err != nil {
+		return nil, err
+	}
+	return &EnterpriseProjectAccessGuardActivationManualApprovalResult{
+		Status:          "manual_approval_recorded",
+		EventID:         audit.ID,
+		EventType:       EnterpriseProjectAccessGuardActivationAuditEventManualApproval,
+		ReadinessStatus: readiness.Status,
+		CurrentMode:     readiness.CurrentMode,
+		TargetMode:      readiness.TargetMode,
+		Message:         "Project Access Guard activation manual approval evidence has been recorded.",
+		Recovery:        "This event only records manual approval evidence; enterprise authorization, tenant isolation and organization-level RBAC still require separate activation tasks.",
+	}, nil
+}
+
+func (s *AdminConsoleService) RecordEnterpriseProjectAccessGuardActivationExecution(ctx context.Context, operatorID string, input EnterpriseProjectAccessGuardActivationExecutionInput, ip string) (*EnterpriseProjectAccessGuardActivationExecutionResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if !input.ConfirmActivationExecution {
+		return nil, newEnterpriseProjectAccessGuardActivationExecutionValidationError("confirm_activation_execution is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseProjectAccessGuardActivationExecutionValidationError("operator admin id is required")
+	}
+	executionNote := strings.TrimSpace(input.ExecutionNote)
+	if executionNote == "" {
+		return nil, newEnterpriseProjectAccessGuardActivationExecutionValidationError("execution_note is required")
+	}
+	readiness, err := s.GetEnterpriseProjectAccessGuardActivationReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationReadiness(readiness) {
+		return nil, newEnterpriseProjectAccessGuardActivationExecutionValidationError("project access guard activation readiness is not ready")
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationManualApprovalAuditPlanEvidence(readiness) {
+		return nil, newEnterpriseProjectAccessGuardActivationExecutionValidationError("manual approval audit evidence is required")
+	}
+	readinessSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"status":                          readiness.Status,
+		"current_mode":                    readiness.CurrentMode,
+		"target_mode":                     readiness.TargetMode,
+		"can_activate_enterprise_owned":   readiness.CanActivateEnterpriseOwned,
+		"switch_status":                   readiness.SwitchStatus,
+		"authorization_dry_run_status":    readiness.AuthorizationDryRunStatus,
+		"project_count":                   readiness.ProjectCount,
+		"mapped_project_count":            readiness.MappedProjectCount,
+		"unmapped_project_count":          readiness.UnmappedProjectCount,
+		"extra_ownership_count":           readiness.ExtraOwnershipCount,
+		"compared_project_count":          readiness.ComparedProjectCount,
+		"aligned_project_count":           readiness.AlignedProjectCount,
+		"enterprise_unavailable_count":    readiness.EnterpriseUnavailableCount,
+		"authorization_drift_count":       readiness.AuthorizationDriftCount,
+		"enterprise_authorization_active": readiness.EnterpriseAuthorizationActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	blockerSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"blocker_preview_limit": readiness.BlockerPreviewLimit,
+		"blocker_candidates":    readiness.BlockerCandidates,
+	})
+	if err != nil {
+		return nil, err
+	}
+	reviewSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"execution_note":               executionNote,
+		"execution_source":             "admin_enterprise_project_access_guard_activation_execution",
+		"actor_admin_id":               operatorID,
+		"ip":                           strings.TrimSpace(ip),
+		"confirm_activation_execution": input.ConfirmActivationExecution,
+		"review_items":                 readiness.ReviewItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	auditPlanSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"audit_plan_items": readiness.AuditPlanItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	executionResult, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"execution_note":                   executionNote,
+		"execution_source":                 "admin_enterprise_project_access_guard_activation_execution",
+		"actor_admin_id":                   operatorID,
+		"ip":                               strings.TrimSpace(ip),
+		"confirm_activation_execution":     input.ConfirmActivationExecution,
+		"authorization_switch_executed":    false,
+		"projects_written":                 false,
+		"enterprise_authorization_enabled": false,
+		"tenant_isolation_enabled":         false,
+		"organization_rbac_enabled":        false,
+		"current_mode":                     readiness.CurrentMode,
+		"target_mode":                      readiness.TargetMode,
+	})
+	if err != nil {
+		return nil, err
+	}
+	audit := &model.EnterpriseProjectAccessGuardActivationAudit{
+		EventType:         string(EnterpriseProjectAccessGuardActivationAuditEventActivationExecution),
+		Status:            string(EnterpriseProjectAccessGuardActivationAuditEventRecorded),
+		ActorAdminID:      operatorID,
+		ReadinessStatus:   string(readiness.Status),
+		CurrentMode:       string(readiness.CurrentMode),
+		TargetMode:        string(readiness.TargetMode),
+		ReadinessSnapshot: readinessSnapshot,
+		BlockerSnapshot:   blockerSnapshot,
+		ReviewSnapshot:    reviewSnapshot,
+		AuditPlanSnapshot: auditPlanSnapshot,
+		ExecutionResult:   executionResult,
+		RollbackReference: "",
+		Source:            "admin_enterprise_project_access_guard_activation_execution",
+	}
+	if err := s.adminRepo.CreateEnterpriseProjectAccessGuardActivationAudit(ctx, audit); err != nil {
+		return nil, err
+	}
+	return &EnterpriseProjectAccessGuardActivationExecutionResult{
+		Status:          "activation_execution_recorded",
+		EventID:         audit.ID,
+		EventType:       EnterpriseProjectAccessGuardActivationAuditEventActivationExecution,
+		ReadinessStatus: readiness.Status,
+		CurrentMode:     readiness.CurrentMode,
+		TargetMode:      readiness.TargetMode,
+		Message:         "Project Access Guard activation execution audit evidence has been recorded without switching authorization.",
+		Recovery:        "This event only records activation execution evidence; enterprise authorization, projects writes, tenant isolation and organization-level RBAC remain disabled until a separate explicit activation task changes them.",
+	}, nil
+}
+
+func (s *AdminConsoleService) RecordEnterpriseProjectAccessGuardPostActivationValidation(ctx context.Context, operatorID string, input EnterpriseProjectAccessGuardPostActivationValidationInput, ip string) (*EnterpriseProjectAccessGuardPostActivationValidationResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if !input.ConfirmPostActivationValidation {
+		return nil, newEnterpriseProjectAccessGuardPostActivationValidationValidationError("confirm_post_activation_validation is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseProjectAccessGuardPostActivationValidationValidationError("operator admin id is required")
+	}
+	validationNote := strings.TrimSpace(input.ValidationNote)
+	if validationNote == "" {
+		return nil, newEnterpriseProjectAccessGuardPostActivationValidationValidationError("validation_note is required")
+	}
+	readiness, err := s.GetEnterpriseProjectAccessGuardActivationReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationReadiness(readiness) {
+		return nil, newEnterpriseProjectAccessGuardPostActivationValidationValidationError("project access guard activation readiness is not ready")
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationExecutionAuditPlanEvidence(readiness) {
+		return nil, newEnterpriseProjectAccessGuardPostActivationValidationValidationError("activation execution audit evidence is required")
+	}
+	readinessSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"status":                          readiness.Status,
+		"current_mode":                    readiness.CurrentMode,
+		"target_mode":                     readiness.TargetMode,
+		"can_activate_enterprise_owned":   readiness.CanActivateEnterpriseOwned,
+		"switch_status":                   readiness.SwitchStatus,
+		"authorization_dry_run_status":    readiness.AuthorizationDryRunStatus,
+		"project_count":                   readiness.ProjectCount,
+		"mapped_project_count":            readiness.MappedProjectCount,
+		"unmapped_project_count":          readiness.UnmappedProjectCount,
+		"extra_ownership_count":           readiness.ExtraOwnershipCount,
+		"compared_project_count":          readiness.ComparedProjectCount,
+		"aligned_project_count":           readiness.AlignedProjectCount,
+		"enterprise_unavailable_count":    readiness.EnterpriseUnavailableCount,
+		"authorization_drift_count":       readiness.AuthorizationDriftCount,
+		"enterprise_authorization_active": readiness.EnterpriseAuthorizationActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	blockerSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"blocker_preview_limit": readiness.BlockerPreviewLimit,
+		"blocker_candidates":    readiness.BlockerCandidates,
+	})
+	if err != nil {
+		return nil, err
+	}
+	reviewSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"validation_note":                    validationNote,
+		"validation_source":                  "admin_enterprise_project_access_guard_post_activation_validation",
+		"actor_admin_id":                     operatorID,
+		"ip":                                 strings.TrimSpace(ip),
+		"confirm_post_activation_validation": input.ConfirmPostActivationValidation,
+		"review_items":                       readiness.ReviewItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	auditPlanSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"audit_plan_items": readiness.AuditPlanItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	executionResult, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"validation_note":                    validationNote,
+		"validation_source":                  "admin_enterprise_project_access_guard_post_activation_validation",
+		"actor_admin_id":                     operatorID,
+		"ip":                                 strings.TrimSpace(ip),
+		"confirm_post_activation_validation": input.ConfirmPostActivationValidation,
+		"post_activation_validation_ran":     false,
+		"authorization_switch_executed":      false,
+		"projects_written":                   false,
+		"enterprise_authorization_enabled":   false,
+		"tenant_isolation_enabled":           false,
+		"organization_rbac_enabled":          false,
+		"current_mode":                       readiness.CurrentMode,
+		"target_mode":                        readiness.TargetMode,
+	})
+	if err != nil {
+		return nil, err
+	}
+	audit := &model.EnterpriseProjectAccessGuardActivationAudit{
+		EventType:         string(EnterpriseProjectAccessGuardActivationAuditEventPostActivationValidation),
+		Status:            string(EnterpriseProjectAccessGuardActivationAuditEventRecorded),
+		ActorAdminID:      operatorID,
+		ReadinessStatus:   string(readiness.Status),
+		CurrentMode:       string(readiness.CurrentMode),
+		TargetMode:        string(readiness.TargetMode),
+		ReadinessSnapshot: readinessSnapshot,
+		BlockerSnapshot:   blockerSnapshot,
+		ReviewSnapshot:    reviewSnapshot,
+		AuditPlanSnapshot: auditPlanSnapshot,
+		ExecutionResult:   executionResult,
+		RollbackReference: "",
+		Source:            "admin_enterprise_project_access_guard_post_activation_validation",
+	}
+	if err := s.adminRepo.CreateEnterpriseProjectAccessGuardActivationAudit(ctx, audit); err != nil {
+		return nil, err
+	}
+	return &EnterpriseProjectAccessGuardPostActivationValidationResult{
+		Status:          "post_activation_validation_recorded",
+		EventID:         audit.ID,
+		EventType:       EnterpriseProjectAccessGuardActivationAuditEventPostActivationValidation,
+		ReadinessStatus: readiness.Status,
+		CurrentMode:     readiness.CurrentMode,
+		TargetMode:      readiness.TargetMode,
+		Message:         "Project Access Guard post-activation validation audit evidence has been recorded without switching authorization.",
+		Recovery:        "This event only records post-activation validation planning evidence; real post-activation access validation still requires a separate explicit activation task that changes enterprise authorization.",
+	}, nil
+}
+
+func (s *AdminConsoleService) RecordEnterpriseProjectAccessGuardRollbackEvidence(ctx context.Context, operatorID string, input EnterpriseProjectAccessGuardRollbackEvidenceInput, ip string) (*EnterpriseProjectAccessGuardRollbackEvidenceResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if !input.ConfirmRollbackEvidence {
+		return nil, newEnterpriseProjectAccessGuardRollbackEvidenceValidationError("confirm_rollback_evidence is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseProjectAccessGuardRollbackEvidenceValidationError("operator admin id is required")
+	}
+	rollbackNote := strings.TrimSpace(input.RollbackNote)
+	if rollbackNote == "" {
+		return nil, newEnterpriseProjectAccessGuardRollbackEvidenceValidationError("rollback_note is required")
+	}
+	rollbackReference := strings.TrimSpace(input.RollbackReference)
+	if rollbackReference == "" {
+		return nil, newEnterpriseProjectAccessGuardRollbackEvidenceValidationError("rollback_reference is required")
+	}
+	readiness, err := s.GetEnterpriseProjectAccessGuardActivationReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationReadiness(readiness) {
+		return nil, newEnterpriseProjectAccessGuardRollbackEvidenceValidationError("project access guard activation readiness is not ready")
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardPostActivationValidationAuditPlanEvidence(readiness) {
+		return nil, newEnterpriseProjectAccessGuardRollbackEvidenceValidationError("post-activation validation audit evidence is required")
+	}
+	readinessSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"status":                          readiness.Status,
+		"current_mode":                    readiness.CurrentMode,
+		"target_mode":                     readiness.TargetMode,
+		"can_activate_enterprise_owned":   readiness.CanActivateEnterpriseOwned,
+		"switch_status":                   readiness.SwitchStatus,
+		"authorization_dry_run_status":    readiness.AuthorizationDryRunStatus,
+		"project_count":                   readiness.ProjectCount,
+		"mapped_project_count":            readiness.MappedProjectCount,
+		"unmapped_project_count":          readiness.UnmappedProjectCount,
+		"extra_ownership_count":           readiness.ExtraOwnershipCount,
+		"compared_project_count":          readiness.ComparedProjectCount,
+		"aligned_project_count":           readiness.AlignedProjectCount,
+		"enterprise_unavailable_count":    readiness.EnterpriseUnavailableCount,
+		"authorization_drift_count":       readiness.AuthorizationDriftCount,
+		"enterprise_authorization_active": readiness.EnterpriseAuthorizationActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	blockerSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"blocker_preview_limit": readiness.BlockerPreviewLimit,
+		"blocker_candidates":    readiness.BlockerCandidates,
+	})
+	if err != nil {
+		return nil, err
+	}
+	reviewSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"rollback_note":             rollbackNote,
+		"rollback_reference":        rollbackReference,
+		"rollback_source":           "admin_enterprise_project_access_guard_rollback_evidence",
+		"actor_admin_id":            operatorID,
+		"ip":                        strings.TrimSpace(ip),
+		"confirm_rollback_evidence": input.ConfirmRollbackEvidence,
+		"review_items":              readiness.ReviewItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	auditPlanSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"audit_plan_items": readiness.AuditPlanItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	executionResult, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"rollback_note":                    rollbackNote,
+		"rollback_reference":               rollbackReference,
+		"rollback_source":                  "admin_enterprise_project_access_guard_rollback_evidence",
+		"actor_admin_id":                   operatorID,
+		"ip":                               strings.TrimSpace(ip),
+		"confirm_rollback_evidence":        input.ConfirmRollbackEvidence,
+		"rollback_executed":                false,
+		"post_activation_validation_ran":   false,
+		"authorization_switch_executed":    false,
+		"projects_written":                 false,
+		"enterprise_authorization_enabled": false,
+		"tenant_isolation_enabled":         false,
+		"organization_rbac_enabled":        false,
+		"current_mode":                     readiness.CurrentMode,
+		"target_mode":                      readiness.TargetMode,
+	})
+	if err != nil {
+		return nil, err
+	}
+	audit := &model.EnterpriseProjectAccessGuardActivationAudit{
+		EventType:         string(EnterpriseProjectAccessGuardActivationAuditEventRollbackEvidence),
+		Status:            string(EnterpriseProjectAccessGuardActivationAuditEventRecorded),
+		ActorAdminID:      operatorID,
+		ReadinessStatus:   string(readiness.Status),
+		CurrentMode:       string(readiness.CurrentMode),
+		TargetMode:        string(readiness.TargetMode),
+		ReadinessSnapshot: readinessSnapshot,
+		BlockerSnapshot:   blockerSnapshot,
+		ReviewSnapshot:    reviewSnapshot,
+		AuditPlanSnapshot: auditPlanSnapshot,
+		ExecutionResult:   executionResult,
+		RollbackReference: rollbackReference,
+		Source:            "admin_enterprise_project_access_guard_rollback_evidence",
+	}
+	if err := s.adminRepo.CreateEnterpriseProjectAccessGuardActivationAudit(ctx, audit); err != nil {
+		return nil, err
+	}
+	return &EnterpriseProjectAccessGuardRollbackEvidenceResult{
+		Status:            "rollback_evidence_recorded",
+		EventID:           audit.ID,
+		EventType:         EnterpriseProjectAccessGuardActivationAuditEventRollbackEvidence,
+		ReadinessStatus:   readiness.Status,
+		CurrentMode:       readiness.CurrentMode,
+		TargetMode:        readiness.TargetMode,
+		RollbackReference: rollbackReference,
+		Message:           "Project Access Guard rollback evidence has been recorded without executing rollback.",
+		Recovery:          "This event only records rollback runbook evidence; real rollback and enterprise authorization changes still require a separate explicit execution task.",
+	}, nil
+}
+
+func (s *AdminConsoleService) ActivateEnterpriseProjectAccessGuardAuthorization(ctx context.Context, operatorID string, input EnterpriseProjectAccessGuardAuthorizationActivationInput, ip string) (*EnterpriseProjectAccessGuardAuthorizationActivationResult, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	if s.systemConfigService == nil {
+		return nil, fmt.Errorf("system config service not available")
+	}
+	if !input.ConfirmEnterpriseAuthorizationActivation {
+		return nil, newEnterpriseProjectAccessGuardAuthorizationActivationValidationError("confirm_enterprise_authorization_activation is required")
+	}
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil, newEnterpriseProjectAccessGuardAuthorizationActivationValidationError("operator admin id is required")
+	}
+	activationNote := strings.TrimSpace(input.ActivationNote)
+	if activationNote == "" {
+		return nil, newEnterpriseProjectAccessGuardAuthorizationActivationValidationError("activation_note is required")
+	}
+	readiness, err := s.GetEnterpriseProjectAccessGuardActivationReadiness(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationReadiness(readiness) {
+		return nil, newEnterpriseProjectAccessGuardAuthorizationActivationValidationError("project access guard activation readiness is not ready")
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationManualApprovalAuditPlanEvidence(readiness) {
+		return nil, newEnterpriseProjectAccessGuardAuthorizationActivationValidationError("manual approval audit evidence is required")
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardActivationExecutionAuditPlanEvidence(readiness) {
+		return nil, newEnterpriseProjectAccessGuardAuthorizationActivationValidationError("activation execution audit evidence is required")
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardPostActivationValidationAuditPlanEvidence(readiness) {
+		return nil, newEnterpriseProjectAccessGuardAuthorizationActivationValidationError("post-activation validation audit evidence is required")
+	}
+	if !hasAdminConsoleEnterpriseProjectAccessGuardRollbackEvidenceAuditPlanEvidence(readiness) {
+		return nil, newEnterpriseProjectAccessGuardAuthorizationActivationValidationError("rollback evidence audit evidence is required")
+	}
+
+	readinessSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"status":                          readiness.Status,
+		"current_mode":                    readiness.CurrentMode,
+		"target_mode":                     readiness.TargetMode,
+		"can_activate_enterprise_owned":   readiness.CanActivateEnterpriseOwned,
+		"switch_status":                   readiness.SwitchStatus,
+		"authorization_dry_run_status":    readiness.AuthorizationDryRunStatus,
+		"project_count":                   readiness.ProjectCount,
+		"mapped_project_count":            readiness.MappedProjectCount,
+		"unmapped_project_count":          readiness.UnmappedProjectCount,
+		"extra_ownership_count":           readiness.ExtraOwnershipCount,
+		"compared_project_count":          readiness.ComparedProjectCount,
+		"aligned_project_count":           readiness.AlignedProjectCount,
+		"enterprise_unavailable_count":    readiness.EnterpriseUnavailableCount,
+		"authorization_drift_count":       readiness.AuthorizationDriftCount,
+		"enterprise_authorization_active": readiness.EnterpriseAuthorizationActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	blockerSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"blocker_preview_limit": readiness.BlockerPreviewLimit,
+		"blocker_candidates":    readiness.BlockerCandidates,
+	})
+	if err != nil {
+		return nil, err
+	}
+	reviewSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"activation_note":   activationNote,
+		"activation_source": "admin_enterprise_project_access_guard_authorization_activation",
+		"actor_admin_id":    operatorID,
+		"ip":                strings.TrimSpace(ip),
+		"confirm_enterprise_authorization_activation": input.ConfirmEnterpriseAuthorizationActivation,
+		"review_items": readiness.ReviewItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	auditPlanSnapshot, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"audit_plan_items": readiness.AuditPlanItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	previousMode := readiness.CurrentMode
+	if err := s.systemConfigService.SetConfig(ctx, projectAccessGuardModeSystemConfigKey, string(ProjectAccessGuardModeEnterpriseOwned)); err != nil {
+		return nil, err
+	}
+	currentMode := ProjectAccessGuardModeEnterpriseOwned
+	confirmedMode, err := s.systemConfigService.GetConfig(ctx, projectAccessGuardModeSystemConfigKey)
+	if err != nil {
+		_ = s.systemConfigService.SetConfig(ctx, projectAccessGuardModeSystemConfigKey, string(previousMode))
+		return nil, err
+	}
+	if ProjectAccessGuardMode(strings.TrimSpace(confirmedMode)) != ProjectAccessGuardModeEnterpriseOwned {
+		_ = s.systemConfigService.SetConfig(ctx, projectAccessGuardModeSystemConfigKey, string(previousMode))
+		return nil, fmt.Errorf("enterprise authorization mode confirmation failed")
+	}
+	executionResult, err := marshalEnterpriseProjectAccessGuardActivationAuditObject(map[string]interface{}{
+		"activation_note":   activationNote,
+		"activation_source": "admin_enterprise_project_access_guard_authorization_activation",
+		"actor_admin_id":    operatorID,
+		"ip":                strings.TrimSpace(ip),
+		"confirm_enterprise_authorization_activation": input.ConfirmEnterpriseAuthorizationActivation,
+		"authorization_switch_executed":               true,
+		"config_key":                                  projectAccessGuardModeSystemConfigKey,
+		"previous_mode":                               previousMode,
+		"current_mode":                                currentMode,
+		"target_mode":                                 readiness.TargetMode,
+		"projects_written":                            false,
+		"enterprise_authorization_enabled":            true,
+		"tenant_isolation_enabled":                    false,
+		"organization_rbac_enabled":                   false,
+	})
+	if err != nil {
+		return nil, err
+	}
+	audit := &model.EnterpriseProjectAccessGuardActivationAudit{
+		EventType:         string(EnterpriseProjectAccessGuardActivationAuditEventActivationExecution),
+		Status:            string(EnterpriseProjectAccessGuardActivationAuditEventRecorded),
+		ActorAdminID:      operatorID,
+		ReadinessStatus:   string(readiness.Status),
+		CurrentMode:       string(previousMode),
+		TargetMode:        string(readiness.TargetMode),
+		ReadinessSnapshot: readinessSnapshot,
+		BlockerSnapshot:   blockerSnapshot,
+		ReviewSnapshot:    reviewSnapshot,
+		AuditPlanSnapshot: auditPlanSnapshot,
+		ExecutionResult:   executionResult,
+		RollbackReference: "",
+		Source:            "admin_enterprise_project_access_guard_authorization_activation",
+	}
+	if err := s.adminRepo.CreateEnterpriseProjectAccessGuardActivationAudit(ctx, audit); err != nil {
+		_ = s.systemConfigService.SetConfig(ctx, projectAccessGuardModeSystemConfigKey, string(previousMode))
+		return nil, err
+	}
+	return &EnterpriseProjectAccessGuardAuthorizationActivationResult{
+		Status:                        "enterprise_authorization_activated",
+		EventID:                       audit.ID,
+		EventType:                     EnterpriseProjectAccessGuardActivationAuditEventActivationExecution,
+		ReadinessStatus:               readiness.Status,
+		PreviousMode:                  previousMode,
+		CurrentMode:                   currentMode,
+		TargetMode:                    readiness.TargetMode,
+		EnterpriseAuthorizationActive: true,
+		ConfigKey:                     projectAccessGuardModeSystemConfigKey,
+		ConfigWritten:                 true,
+		ProjectsWritten:               false,
+		TenantIsolationEnabled:        false,
+		OrganizationRBACEnabled:       false,
+		Message:                       "Project Access Guard enterprise authorization has been activated by system_config.",
+		Recovery:                      "AuthorizeProjectAccess now consumes enterprise_project_ownerships and enterprise_members; tenant isolation and organization-level RBAC remain separate follow-up controls.",
+	}, nil
+}
+
+func hasAdminConsoleEnterpriseProjectAccessGuardActivationReadiness(readiness *EnterpriseProjectAccessGuardActivationReadiness) bool {
+	return readiness != nil &&
+		readiness.Status == ProjectAccessGuardEnterpriseActivationReadinessReady &&
+		readiness.CanActivateEnterpriseOwned &&
+		readiness.CurrentMode == ProjectAccessGuardModeLegacyUserOwned &&
+		readiness.TargetMode == ProjectAccessGuardModeEnterpriseOwned &&
+		len(readiness.BlockerCandidates) == 0 &&
+		!readiness.EnterpriseAuthorizationActive
+}
+
+func hasAdminConsoleEnterpriseProjectAccessGuardActivationManualApprovalAuditPlanEvidence(readiness *EnterpriseProjectAccessGuardActivationReadiness) bool {
+	if readiness == nil {
+		return false
+	}
+	for _, item := range readiness.AuditPlanItems {
+		if item.Source == ProjectAccessGuardEnterpriseActivationAuditManualApproval &&
+			item.Status == ProjectAccessGuardEnterpriseActivationAuditEvidenceReady {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAdminConsoleEnterpriseProjectAccessGuardActivationExecutionAuditPlanEvidence(readiness *EnterpriseProjectAccessGuardActivationReadiness) bool {
+	if readiness == nil {
+		return false
+	}
+	for _, item := range readiness.AuditPlanItems {
+		if item.Source == ProjectAccessGuardEnterpriseActivationAuditActivationExecution &&
+			item.Status == ProjectAccessGuardEnterpriseActivationAuditEvidenceReady {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAdminConsoleEnterpriseProjectAccessGuardPostActivationValidationAuditPlanEvidence(readiness *EnterpriseProjectAccessGuardActivationReadiness) bool {
+	if readiness == nil {
+		return false
+	}
+	for _, item := range readiness.AuditPlanItems {
+		if item.Source == ProjectAccessGuardEnterpriseActivationAuditPostActivationValidate &&
+			item.Status == ProjectAccessGuardEnterpriseActivationAuditEvidenceReady {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAdminConsoleEnterpriseProjectAccessGuardRollbackEvidenceAuditPlanEvidence(readiness *EnterpriseProjectAccessGuardActivationReadiness) bool {
+	if readiness == nil {
+		return false
+	}
+	for _, item := range readiness.AuditPlanItems {
+		if item.Source == ProjectAccessGuardEnterpriseActivationAuditRollbackEvidence &&
+			item.Status == ProjectAccessGuardEnterpriseActivationAuditEvidenceReady {
+			return true
+		}
+	}
+	return false
+}
+
+func marshalEnterpriseProjectAccessGuardActivationAuditObject(value map[string]interface{}) (string, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
+}
+
+func (s *AdminConsoleService) ListEnterpriseOrganizations(ctx context.Context) ([]model.EnterpriseOrganization, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	return s.adminRepo.ListEnterpriseOrganizations(ctx)
+}
+
+func (s *AdminConsoleService) ListEnterpriseTeams(ctx context.Context) ([]model.EnterpriseTeam, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	return s.adminRepo.ListEnterpriseTeams(ctx)
+}
+
+func (s *AdminConsoleService) CreateEnterpriseOrganization(ctx context.Context, operatorID string, input EnterpriseOrganizationCreateInput, ip string) (*model.EnterpriseOrganization, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	slug := strings.ToLower(strings.TrimSpace(input.Slug))
+	displayName := strings.TrimSpace(input.DisplayName)
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "active"
+	}
+	if !enterpriseOrganizationSlugPattern.MatchString(slug) {
+		return nil, newEnterpriseOrganizationCreateValidationError("organization slug must be 3-100 chars and contain only lowercase letters, numbers or hyphen")
+	}
+	if displayName == "" {
+		return nil, newEnterpriseOrganizationCreateValidationError("organization display_name is required")
+	}
+	if len([]rune(displayName)) > 120 {
+		return nil, newEnterpriseOrganizationCreateValidationError("organization display_name must be at most 120 characters")
+	}
+	if status != "active" && status != "disabled" {
+		return nil, newEnterpriseOrganizationCreateValidationError("organization status must be active or disabled")
+	}
+	organization := &model.EnterpriseOrganization{
+		ID:          utils.GenerateUUID(),
+		Slug:        slug,
+		DisplayName: displayName,
+		Status:      status,
+		Source:      "admin_console",
+	}
+	if err := s.adminRepo.CreateEnterpriseOrganization(ctx, organization); err != nil {
+		return nil, err
+	}
+	s.writeAudit(ctx, operatorID, "create_enterprise_organization", "enterprise_organization", organization.ID, "Created enterprise organization: "+organization.Slug, ip)
+	return organization, nil
+}
+
+func (s *AdminConsoleService) CreateEnterpriseTeam(ctx context.Context, operatorID string, input EnterpriseTeamCreateInput, ip string) (*model.EnterpriseTeam, error) {
+	if s == nil || s.adminRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	organizationID := strings.TrimSpace(input.OrganizationID)
+	slug := strings.ToLower(strings.TrimSpace(input.Slug))
+	displayName := strings.TrimSpace(input.DisplayName)
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "active"
+	}
+	if organizationID == "" {
+		return nil, newEnterpriseTeamCreateValidationError("organization_id is required")
+	}
+	organization, err := s.adminRepo.FindEnterpriseOrganizationByID(ctx, organizationID)
+	if err != nil {
+		return nil, newEnterpriseTeamCreateValidationError("enterprise organization not found")
+	}
+	if !enterpriseOrganizationSlugPattern.MatchString(slug) {
+		return nil, newEnterpriseTeamCreateValidationError("team slug must be 3-100 chars and contain only lowercase letters, numbers or hyphen")
+	}
+	if displayName == "" {
+		return nil, newEnterpriseTeamCreateValidationError("team display_name is required")
+	}
+	if len([]rune(displayName)) > 120 {
+		return nil, newEnterpriseTeamCreateValidationError("team display_name must be at most 120 characters")
+	}
+	if status != "active" && status != "disabled" {
+		return nil, newEnterpriseTeamCreateValidationError("team status must be active or disabled")
+	}
+	team := &model.EnterpriseTeam{
+		ID:             utils.GenerateUUID(),
+		OrganizationID: organization.ID,
+		Slug:           slug,
+		DisplayName:    displayName,
+		Status:         status,
+	}
+	if err := s.adminRepo.CreateEnterpriseTeam(ctx, team); err != nil {
+		return nil, err
+	}
+	s.writeAudit(ctx, operatorID, "create_enterprise_team", "enterprise_team", team.ID, "Created enterprise team: "+organization.Slug+"/"+team.Slug, ip)
+	return team, nil
+}
+
+func (s *AdminConsoleService) BindEnterpriseMember(ctx context.Context, operatorID string, input EnterpriseMemberBindInput, ip string) (*model.EnterpriseMember, error) {
+	if s == nil || s.adminRepo == nil || s.userRepo == nil {
+		return nil, fmt.Errorf("admin repository not available")
+	}
+	organizationID := strings.TrimSpace(input.OrganizationID)
+	teamID := strings.TrimSpace(input.TeamID)
+	userID := strings.TrimSpace(input.UserID)
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "active"
+	}
+	if organizationID == "" {
+		return nil, newEnterpriseMemberBindValidationError("organization_id is required")
+	}
+	if teamID == "" {
+		return nil, newEnterpriseMemberBindValidationError("team_id is required")
+	}
+	if userID == "" {
+		return nil, newEnterpriseMemberBindValidationError("user_id is required")
+	}
+	organization, err := s.adminRepo.FindEnterpriseOrganizationByID(ctx, organizationID)
+	if err != nil {
+		return nil, newEnterpriseMemberBindValidationError("enterprise organization not found")
+	}
+	team, err := s.adminRepo.FindEnterpriseTeamByID(ctx, teamID)
+	if err != nil {
+		return nil, newEnterpriseMemberBindValidationError("enterprise team not found")
+	}
+	if team.OrganizationID != organization.ID {
+		return nil, newEnterpriseMemberBindValidationError("enterprise team does not belong to organization")
+	}
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return nil, newEnterpriseMemberBindValidationError("user not found")
+	}
+	if status != "active" && status != "disabled" {
+		return nil, newEnterpriseMemberBindValidationError("member status must be active or disabled")
+	}
+	member := &model.EnterpriseMember{
+		OrganizationID: organization.ID,
+		TeamID:         &team.ID,
+		UserID:         user.ID,
+		Role:           "member",
+		Status:         status,
+		Source:         "admin_console",
+	}
+	if err := s.adminRepo.CreateEnterpriseMember(ctx, member); err != nil {
+		return nil, err
+	}
+	s.writeAudit(ctx, operatorID, "bind_enterprise_member", "enterprise_member", fmt.Sprintf("%d", member.ID), "Bound enterprise member: "+organization.Slug+"/"+team.Slug+"/"+user.Email, ip)
+	return member, nil
+}
