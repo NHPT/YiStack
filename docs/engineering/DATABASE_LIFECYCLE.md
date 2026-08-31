@@ -1,77 +1,75 @@
-# Database Lifecycle
+# 数据库生命周期
 
-## Scope
+[**简体中文**](DATABASE_LIFECYCLE.md) |
+[English](DATABASE_LIFECYCLE.en.md)
 
-YiStack is pre-release. `backend/init.sql` is the single source of truth for a
-clean Supabase database. The baseline version is
-`000000000000_contributor_alpha`.
+> 本文件是当前数据库生命周期规则的中文主版本。中英文内容不一致时，以本
+> 文件为准。
 
-The baseline marker does not claim that arbitrary historical databases are
-upgradeable. Existing databases are supported only when their last recorded
-schema version and source commit are known.
+## 适用范围
 
-## Clean Installation
+YiStack 当前处于预发布阶段。`backend/init.sql` 是全新 Supabase 数据库的
+单点真源，基线版本为 `000000000000_contributor_alpha`。
 
-For a new Supabase project:
+基线标记不代表任意历史数据库都可以升级。只有最后记录的数据库结构版本和
+对应源码提交均已知时，现有数据库才属于支持范围。
 
-1. create an empty project;
-2. apply `backend/init.sql` with `ON_ERROR_STOP`;
-3. apply it a second time to verify idempotency;
-4. verify the baseline row in `public.schema_migrations`;
-5. replace seed credentials and configure at least one provider before
-   exposing the service.
+## 全新安装
 
-The repository check `bash scripts/verify-supabase-baseline.sh` performs this
-flow against an isolated PostgreSQL container with Supabase-compatible auth
-roles and functions.
+对于新的 Supabase 项目：
 
-## Migration Contract
+1. 创建空项目；
+2. 使用 `ON_ERROR_STOP` 执行 `backend/init.sql`；
+3. 再执行一次，验证可重复执行；
+4. 检查 `public.schema_migrations` 中的基线记录；
+5. 对外提供服务前替换种子凭据，并至少配置一个 Provider。
 
-Future upgrade migrations use:
+仓库门禁 `bash scripts/verify-supabase-baseline.sh` 会在隔离的 PostgreSQL
+容器中执行这套流程，并补齐兼容 Supabase 的认证角色和函数。
+
+## Migration 契约
+
+后续升级脚本使用以下路径：
 
 ```text
 backend/migrations/<UTC timestamp>_<name>.sql
 backend/migrations/rollback/<UTC timestamp>_<name>.sql
 ```
 
-Every forward migration must:
+每个正向 migration 必须：
 
-- run in a transaction unless PostgreSQL forbids it;
-- be safe to retry or fail before recording its version;
-- lock or use compare-and-set semantics for conflicting state changes;
-- preserve data by default;
-- insert exactly one matching `public.schema_migrations` row;
-- state the oldest source version it accepts;
-- include tests for clean install and supported upgrade paths.
+- 在事务中运行，除非 PostgreSQL 明确不允许；
+- 可以安全重试，或者在记录版本前失败；
+- 对冲突状态变更加锁或使用 compare-and-set；
+- 默认保留数据；
+- 准确插入一条对应的 `public.schema_migrations` 记录；
+- 声明可接受的最旧来源版本；
+- 覆盖全新安装及受支持升级路径的测试。
 
-`backend/init.sql` must be updated in the same change so a clean installation
-arrives directly at the latest schema.
+同一次变更必须同步更新 `backend/init.sql`，确保全新安装直接到达最新结构。
 
-## Rollback Contract
+## Rollback 契约
 
-Every migration must provide one of:
+每个 migration 必须提供以下其中一项：
 
-- a tested rollback SQL file; or
-- an explicit `IRREVERSIBLE` header with backup/restore recovery steps.
+- 已测试的 rollback SQL；或
+- 明确的 `IRREVERSIBLE` 头部及备份、恢复步骤。
 
-Rollback is never automatic in application startup. Before applying a
-destructive or irreversible migration, operators must take and verify a
-database backup. Application rollback is allowed only when the target binary
-is compatible with the current database version.
+应用启动时绝不自动 rollback。执行破坏性或不可逆 migration 前，运维人员
+必须创建并验证数据库备份。只有目标程序版本兼容当前数据库版本时，才允许
+回滚应用。
 
-The baseline rollback only removes the baseline marker when no later
-migration exists. It does not drop application tables or user data. Full
-baseline rollback requires restoring the pre-install database snapshot.
+基线 rollback 仅在不存在后续 migration 时删除基线标记，不会删除业务表或
+用户数据。完整撤销基线必须恢复安装前的数据库快照。
 
-## Release Gate
+## 发布门禁
 
-Before the first tag that supports upgrading an existing installation:
+在发布首个支持现有安装升级的 tag 前，必须：
 
-- freeze the baseline checksum in release notes;
-- add a migration runner with locking and checksum validation;
-- test upgrade and rollback from every declared supported source version;
-- publish the application/database compatibility matrix;
-- reject startup on unknown or newer database versions.
+- 在发布说明中固定基线 checksum；
+- 提供带锁和 checksum 校验的 migration runner；
+- 测试从每个声明支持的来源版本执行升级和 rollback；
+- 发布应用版本与数据库版本兼容矩阵；
+- 遇到未知或更新的数据库版本时拒绝启动。
 
-Until that gate is complete, YiStack supports clean installation only and
-must not claim in-place upgrade compatibility.
+该门禁完成前，YiStack 只支持全新安装，不得宣称支持原地升级。

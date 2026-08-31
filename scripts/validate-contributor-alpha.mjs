@@ -27,7 +27,15 @@ const requiredFiles = [
   '.github/workflows/ci.yml',
   '.github/workflows/canonical-eval.yml',
   'docs/CHANGELOG.md',
+  'docs/CHANGELOG.en.md',
+  'docs/DEVELOPER_GUIDE.en.md',
+  'docs/ARCHITECTURE.en.md',
+  'docs/PRODUCT.en.md',
   'docs/engineering/DATABASE_LIFECYCLE.md',
+  'docs/engineering/DATABASE_LIFECYCLE.en.md',
+  'docs/engineering/PRINCIPLES.en.md',
+  'docs/engineering/DEVELOPMENT_WORKFLOW.en.md',
+  'docs/roadmap/ROADMAP.en.md',
   'backend/migrations/000000000000_contributor_alpha.sql',
   'backend/migrations/rollback/000000000000_contributor_alpha.sql',
 ];
@@ -64,10 +72,12 @@ const contributingEnglish = read('CONTRIBUTING.en.md');
 const codeOfConduct = read('CODE_OF_CONDUCT.md');
 const codeOfConductChinese = read('CODE_OF_CONDUCT.zh-CN.md');
 const product = read('docs/PRODUCT.md');
+const productEnglish = read('docs/PRODUCT.en.md');
 for (const [name, source] of [
   ['README.md', readme],
   ['README.en.md', readmeEnglish],
   ['docs/PRODUCT.md', product],
+  ['docs/PRODUCT.en.md', productEnglish],
 ]) {
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
@@ -84,6 +94,52 @@ assert.match(codeOfConductChinese, /\[English \(canonical\)\]\(CODE_OF_CONDUCT\.
 assert.match(contributing, /`main` 分支/);
 assert.match(contributingEnglish, /the `main` branch/);
 
+const bilingualDocumentPairs = [
+  ['docs/DEVELOPER_GUIDE.md', 'docs/DEVELOPER_GUIDE.en.md'],
+  ['docs/ARCHITECTURE.md', 'docs/ARCHITECTURE.en.md'],
+  ['docs/PRODUCT.md', 'docs/PRODUCT.en.md'],
+  ['docs/engineering/PRINCIPLES.md', 'docs/engineering/PRINCIPLES.en.md'],
+  ['docs/engineering/DEVELOPMENT_WORKFLOW.md', 'docs/engineering/DEVELOPMENT_WORKFLOW.en.md'],
+  ['docs/engineering/DATABASE_LIFECYCLE.md', 'docs/engineering/DATABASE_LIFECYCLE.en.md'],
+  ['docs/roadmap/ROADMAP.md', 'docs/roadmap/ROADMAP.en.md'],
+  ['docs/CHANGELOG.md', 'docs/CHANGELOG.en.md'],
+];
+for (const [chinesePath, englishPath] of bilingualDocumentPairs) {
+  const chinese = read(chinesePath);
+  const english = read(englishPath);
+  assert.ok(
+    chinese.includes(path.basename(englishPath)),
+    `${chinesePath} must link to ${englishPath}`,
+  );
+  assert.ok(
+    english.includes(path.basename(chinesePath)),
+    `${englishPath} must link to ${chinesePath}`,
+  );
+  assert.match(
+    english,
+    /version is authoritative/,
+    `${englishPath} must identify the authoritative Chinese version`,
+  );
+  assert.ok(readme.includes(`(${chinesePath})`), `README.md must link to ${chinesePath}`);
+  assert.ok(
+    readmeEnglish.includes(`(${englishPath})`),
+    `README.en.md must link to ${englishPath}`,
+  );
+}
+
+for (const invalidWorkflowPath of [
+  '.github/workflows/CODEOWNERS',
+  '.github/workflows/PULL_REQUEST_TEMPLATE.md',
+  '.github/workflows/ISSUE_TEMPLATE',
+  '.github/workflows/workflows',
+]) {
+  assert.equal(
+    fs.existsSync(path.join(rootDir, invalidWorkflowPath)),
+    false,
+    `${invalidWorkflowPath} must not exist; repository metadata belongs directly under .github`,
+  );
+}
+
 for (const relativePath of [
   'README.md',
   'README.en.md',
@@ -92,6 +148,7 @@ for (const relativePath of [
   'CODE_OF_CONDUCT.zh-CN.md',
   '.github/ISSUE_TEMPLATE/config.yml',
   'docs/DEVELOPER_GUIDE.md',
+  ...bilingualDocumentPairs.map(([, englishPath]) => englishPath),
 ]) {
   assert.doesNotMatch(
     read(relativePath),
@@ -108,6 +165,7 @@ for (const relativePath of [
   'docs/PRODUCT.md',
   'docs/engineering/YES.md',
   'docs/roadmap/ROADMAP.md',
+  ...bilingualDocumentPairs.map(([, englishPath]) => englishPath),
 ]) {
   assert.doesNotMatch(
     read(relativePath),

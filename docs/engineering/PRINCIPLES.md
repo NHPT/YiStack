@@ -1,5 +1,9 @@
 # YiStack Engineering Principles
 
+[**简体中文**](PRINCIPLES.md) | [English](PRINCIPLES.en.md)
+
+> 本文件是工程原则的中文主版本。中英文内容不一致时，以本文件为准。
+>
 > 本文档定义 YiStack 工程体系的最高原则。
 >
 > 本文档属于 YES Engineering Kernel 的 Principle Layer。

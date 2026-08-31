@@ -123,14 +123,14 @@ runtime/       本地运行工作区与证据，不进入源码审查
 
 ## 文档
 
-- [开发者指南](docs/DEVELOPER_GUIDE.md)
-- [架构设计](docs/ARCHITECTURE.md)
-- [产品边界](docs/PRODUCT.md)
-- [工程原则](docs/engineering/PRINCIPLES.md)
-- [开发工作流](docs/engineering/DEVELOPMENT_WORKFLOW.md)
-- [数据库生命周期](docs/engineering/DATABASE_LIFECYCLE.md)
-- [公开路线图](docs/roadmap/ROADMAP.md)
-- [变更记录](docs/CHANGELOG.md)
+- [开发者指南](docs/DEVELOPER_GUIDE.md) / [English](docs/DEVELOPER_GUIDE.en.md)
+- [架构设计](docs/ARCHITECTURE.md) / [English](docs/ARCHITECTURE.en.md)
+- [产品边界](docs/PRODUCT.md) / [English](docs/PRODUCT.en.md)
+- [工程原则](docs/engineering/PRINCIPLES.md) / [English](docs/engineering/PRINCIPLES.en.md)
+- [开发工作流](docs/engineering/DEVELOPMENT_WORKFLOW.md) / [English](docs/engineering/DEVELOPMENT_WORKFLOW.en.md)
+- [数据库生命周期](docs/engineering/DATABASE_LIFECYCLE.md) / [English](docs/engineering/DATABASE_LIFECYCLE.en.md)
+- [公开路线图](docs/roadmap/ROADMAP.md) / [English](docs/roadmap/ROADMAP.en.md)
+- [变更记录](docs/CHANGELOG.md) / [English](docs/CHANGELOG.en.md)
 
 ## 参与贡献
 

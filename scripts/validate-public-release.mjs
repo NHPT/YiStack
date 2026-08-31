@@ -30,7 +30,7 @@ const forbiddenTextPatterns = [
 const forbiddenPaths = [
   /^docs\/debug-archive(?:\/|$)/,
   /^docs\/internal(?:\/|$)/,
-  /^docs\/roadmap\/(?!ROADMAP\.md$)/,
+  /^docs\/roadmap\/(?!ROADMAP(?:\.en)?\.md$)/,
   /(^|\/)\.env(?:$|\.(?!example$))/,
   /^runtime(?:\/|$)/,
   /^logs(?:\/|$)/,

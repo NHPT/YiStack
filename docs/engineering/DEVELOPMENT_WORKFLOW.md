@@ -1,5 +1,10 @@
 # YiStack Development Workflow
 
+[**简体中文**](DEVELOPMENT_WORKFLOW.md) |
+[English](DEVELOPMENT_WORKFLOW.en.md)
+
+> 本文件是开发流程的中文主版本。中英文内容不一致时，以本文件为准。
+>
 > 本文档定义 YiStack 的标准开发流程。
 >
 > 目标不是增加流程负担，而是避免 AI 与人工协作时跳步、漏步、跑偏。

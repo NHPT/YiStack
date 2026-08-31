@@ -29,11 +29,11 @@ acceptance, and version control into a traceable workflow.
 | Plugin system and template marketplace | Not implemented | Planned for a later phase |
 | Commercial editions, SSO, Kubernetes, and SLA | Not released | Product assumptions, not commitments of the current open-source version |
 
-Public changes are recorded in [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
-Product direction is defined by [`docs/PRODUCT.md`](docs/PRODUCT.md) and
-[`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md). Implementation status must
-be verified by executable gates. These documents are currently maintained in
-Chinese.
+Public changes are recorded in
+[`docs/CHANGELOG.en.md`](docs/CHANGELOG.en.md). Product direction is defined by
+[`docs/PRODUCT.en.md`](docs/PRODUCT.en.md) and
+[`docs/roadmap/ROADMAP.en.md`](docs/roadmap/ROADMAP.en.md). Implementation
+status must be verified by executable gates.
 
 ## Technology Stack
 
@@ -126,7 +126,7 @@ pnpm eval:smoke
 Contributor Alpha only guarantees clean installation through
 `backend/init.sql`. Baselines, future migration naming, compatibility scope,
 and rollback requirements are documented in
-[`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md).
+[`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 YiStack does not claim support for upgrading arbitrary existing databases until
 the migration runner and compatibility matrix are complete.
 
@@ -144,14 +144,14 @@ runtime/       Local workspaces and evidence; excluded from source review
 
 ## Documentation
 
-- [Developer Guide](docs/DEVELOPER_GUIDE.md) (Chinese)
-- [Architecture](docs/ARCHITECTURE.md) (Chinese)
-- [Product Boundaries](docs/PRODUCT.md) (Chinese)
-- [Engineering Principles](docs/engineering/PRINCIPLES.md) (Chinese)
-- [Development Workflow](docs/engineering/DEVELOPMENT_WORKFLOW.md) (Chinese)
-- [Database Lifecycle](docs/engineering/DATABASE_LIFECYCLE.md) (Chinese)
-- [Public Roadmap](docs/roadmap/ROADMAP.md) (Chinese)
-- [Changelog](docs/CHANGELOG.md) (Chinese)
+- [Developer Guide](docs/DEVELOPER_GUIDE.en.md) / [简体中文](docs/DEVELOPER_GUIDE.md)
+- [Architecture](docs/ARCHITECTURE.en.md) / [简体中文](docs/ARCHITECTURE.md)
+- [Product Boundaries](docs/PRODUCT.en.md) / [简体中文](docs/PRODUCT.md)
+- [Engineering Principles](docs/engineering/PRINCIPLES.en.md) / [简体中文](docs/engineering/PRINCIPLES.md)
+- [Development Workflow](docs/engineering/DEVELOPMENT_WORKFLOW.en.md) / [简体中文](docs/engineering/DEVELOPMENT_WORKFLOW.md)
+- [Database Lifecycle](docs/engineering/DATABASE_LIFECYCLE.en.md) / [简体中文](docs/engineering/DATABASE_LIFECYCLE.md)
+- [Public Roadmap](docs/roadmap/ROADMAP.en.md) / [简体中文](docs/roadmap/ROADMAP.md)
+- [Changelog](docs/CHANGELOG.en.md) / [简体中文](docs/CHANGELOG.md)
 
 ## Contributing
 

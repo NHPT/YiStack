@@ -1,5 +1,10 @@
 # YiStack 一栈 - 开发者指南
 
+[**简体中文**](DEVELOPER_GUIDE.md) |
+[English](DEVELOPER_GUIDE.en.md)
+
+> 本文件是开发者指南的中文主版本。中英文内容不一致时，以本文件为准。
+>
 > 本文档面向新的开发伙伴，帮助你快速上手项目开发。
 
 ---
@@ -593,7 +598,7 @@ podman stop $(podman ps -q --filter "publish=PORT")
 2. 阅读 [API.md](./API.md) 了解 API 设计
 3. 查看代码实现，对照架构文档
 4. 运行项目，测试基本功能
-5. 根据 [实现优先级](../ARCHITECTURE.md#实现优先级) 开始开发
+5. 根据 [架构边界](./ARCHITECTURE.md) 和公开路线图选择开发任务
 
 ---
 

@@ -1,5 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Security vulnerability
-    url: https://github.com/NHPT/YiStack/security/advisories/new
-    about: Report suspected vulnerabilities privately.

@@ -46,7 +46,7 @@ cp .env.example .env
 Initialize a new Supabase project by applying `backend/init.sql`. The file is
 the single clean-install schema source for the current pre-release line.
 Database upgrade rules are defined in
-[`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md).
+[`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 
 ## Required Validation
 

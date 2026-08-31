@@ -1,5 +1,9 @@
 # YiStack 产品边界
 
+[**简体中文**](PRODUCT.md) | [English](PRODUCT.en.md)
+
+> 本文件是产品边界的中文主版本。中英文内容不一致时，以本文件为准。
+
 本文档定义 YiStack 的产品定位和能力边界，不以路线图或商业设想冒充已交付功能。
 
 > **规划不等于已实现。** 公开状态只以 `README.md`、`docs/CHANGELOG.md`、
