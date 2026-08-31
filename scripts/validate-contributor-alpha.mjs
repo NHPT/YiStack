@@ -183,6 +183,7 @@ assert.match(workflow, /push:\s+branches:\s+- main/);
 assert.doesNotMatch(workflow, /push:\s+branches:\s+- master/);
 for (const command of [
   'pnpm install --frozen-lockfile',
+  'pnpm exec playwright install --with-deps chromium',
   'pnpm lint',
   'pnpm build',
   'pnpm yes:validate',
