@@ -28,7 +28,7 @@ YiStack v1.0.0 通过经过审查的 issue 和 pull request 接受贡献；
 | --- | --- |
 | Node.js | 22.x |
 | pnpm | 11.5.2 |
-| Go | 1.21.6 或更高的 1.x 版本 |
+| Go | 1.26.6 或更高的 1.x 版本 |
 | Podman | 3.4 或更高版本，rootless |
 | PostgreSQL | 15 或更高版本，或一个 Supabase 项目 |
 

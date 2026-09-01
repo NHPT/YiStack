@@ -641,9 +641,9 @@ func TestImageForProjectType(t *testing.T) {
 }
 
 func TestBuildImageCandidatesPrefersDockerHubForDaocloudMirror(t *testing.T) {
-	candidates := buildImageCandidates("docker.m.daocloud.io/library/golang:1.21-alpine")
+	candidates := buildImageCandidates("docker.m.daocloud.io/library/golang:1.26-alpine")
 	expected := []string{
-		"docker.io/library/golang:1.21-alpine",
+		"docker.io/library/golang:1.26-alpine",
 	}
 
 	if len(candidates) != len(expected) {

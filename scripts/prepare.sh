@@ -8,7 +8,7 @@ echo "🔧 Preparing YiStack environment..."
 
 # 安装 Go（优先使用系统已有版本；不存在或版本过低时再安装）
 install_go() {
-    local GO_VERSION="1.21.6"
+    local GO_VERSION="1.26.6"
     local GO_ARCH="linux-amd64"
     local GO_BIN=""
 
@@ -33,7 +33,7 @@ install_go() {
             echo "✅ Using system Go: $("$GO_BIN" version)"
             "$GO_BIN" env -w GOPROXY=https://goproxy.cn,direct 2>/dev/null
             "$GO_BIN" env -w GO111MODULE=on 2>/dev/null
-            "$GO_BIN" env -w GOSUMDB=off 2>/dev/null
+            "$GO_BIN" env -w 'GOSUMDB=sum.golang.org https://goproxy.cn/sumdb/sum.golang.org' 2>/dev/null
             return 0
         fi
 
@@ -73,7 +73,7 @@ install_go() {
     # 配置 GOPROXY（永久生效）
     /usr/bin/go env -w GOPROXY=https://goproxy.cn,direct
     /usr/bin/go env -w GO111MODULE=on
-    /usr/bin/go env -w GOSUMDB=off
+    /usr/bin/go env -w 'GOSUMDB=sum.golang.org https://goproxy.cn/sumdb/sum.golang.org'
 
     echo "✅ Go installed: $(/usr/bin/go version)"
     echo "✅ GOPROXY configured: https://goproxy.cn,direct"

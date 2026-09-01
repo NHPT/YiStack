@@ -29,7 +29,7 @@ Required tools:
 | --- | --- |
 | Node.js | 22.x |
 | pnpm | 11.5.2 |
-| Go | 1.21.6 or newer 1.x |
+| Go | 1.26.6 or newer 1.x |
 | Podman | 3.4 or newer, rootless |
 | PostgreSQL | 15 or newer, or a Supabase project |
 

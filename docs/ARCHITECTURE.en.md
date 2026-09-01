@@ -680,7 +680,7 @@ conflict, repair, or browser acceptance evidence when relevant.
 | Frontend | Next.js / React / TypeScript | 16 / 19 / 5.9 | App Router workspace |
 | UI | shadcn/ui, Radix UI, Tailwind CSS | current lockfile | Accessible components |
 | Editor | Monaco Editor | current lockfile | Source editing |
-| Backend | Go and Hertz | Go 1.21.6+ | API and orchestration |
+| Backend | Go and Hertz | Go 1.26.6+ | API and orchestration |
 | ORM | GORM | current lockfile | PostgreSQL access |
 | Runtime | rootless Podman | 3.4+ | Project isolation |
 | Database | Supabase/PostgreSQL | PostgreSQL 15+ for verification | Metadata and durable state |
