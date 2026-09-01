@@ -38,6 +38,7 @@ const requiredFiles = [
   'docs/engineering/DEVELOPMENT_WORKFLOW.en.md',
   'docs/roadmap/ROADMAP.en.md',
   'pnpm-workspace.yaml',
+  'scripts/verify-repository-integrity.sh',
   'scripts/verify-clean-checkout.sh',
   'scripts/verify-supabase-baseline.sh',
   'backend/migrations/000000000000_contributor_alpha.sql',
@@ -200,6 +201,7 @@ assert.match(workflow, /push:\s+branches:\s+- main/);
 assert.match(workflow, /push:\s+branches:\s+- main\s+- ["']release\/\*\*["']/);
 assert.doesNotMatch(workflow, /push:\s+branches:\s+- master/);
 for (const command of [
+  'bash scripts/verify-repository-integrity.sh',
   'pnpm install --frozen-lockfile',
   'pnpm exec playwright install --with-deps chromium',
   'pnpm lint',
@@ -221,6 +223,12 @@ for (const action of [
   assert.ok(workflow.includes(action), `CI must use: ${action}`);
 }
 
+const cleanCheckoutScript = read('scripts/verify-clean-checkout.sh');
+assert.ok(
+  cleanCheckoutScript.includes('bash "$ROOT_DIR/scripts/verify-repository-integrity.sh"'),
+  'clean checkout must reject unresolved merge conflicts before installing dependencies',
+);
+
 const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');
 assert.ok(liveEvalWorkflow.includes('pnpm eval:smoke'));
 assert.ok(liveEvalWorkflow.includes('YISTACK_EVAL_TOKEN'));
@@ -238,6 +246,11 @@ assert.match(
   workspace,
   /browserslist@4\.28\.8>electron-to-chromium:\s+1\.5\.334/,
 );
+
+const lockfile = read('pnpm-lock.yaml');
+assert.doesNotMatch(lockfile, /^(<<<<<<< |>>>>>>> )/m);
+assert.match(lockfile, /electron-to-chromium@1\.5\.334:/);
+assert.doesNotMatch(lockfile, /electron-to-chromium@1\.5\.417/);
 
 const releaseConfig = read('.github/release.yml');
 assert.match(releaseConfig, /changelog:/);
