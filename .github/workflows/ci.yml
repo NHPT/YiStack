@@ -12,8 +12,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  change_scope:
+    name: Change scope
+    runs-on: ubuntu-24.04
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          docs_only=false
+          if [[ "$EVENT_NAME" == "pull_request" ]] &&
+             git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null &&
+             git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null; then
+            mapfile -t changed_files < <(
+              git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA"
+            )
+            if (( ${#changed_files[@]} > 0 )); then
+              docs_only=true
+              for file in "${changed_files[@]}"; do
+                case "$file" in
+                  *.md|docs/*) ;;
+                  *)
+                    docs_only=false
+                    break
+                    ;;
+                esac
+              done
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          printf 'Documentation-only change: %s\n' "$docs_only"
+
   quality:
     name: Quality gate
+    needs: change_scope
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -47,24 +90,34 @@ jobs:
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
 
       - name: Install dependencies
+        if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Dependency audit
+        if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm audit --audit-level high
 
       - name: Install Playwright Chromium
+        if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Public release audit
         run: GITLEAKS_BIN="$(go env GOPATH)/bin/gitleaks" pnpm release:audit
 
+      - name: Documentation contract
+        if: needs.change_scope.outputs.docs_only == 'true'
+        run: node scripts/validate-contributor-alpha.mjs
+
       - name: ESLint
+        if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm lint
 
       - name: Production build
+        if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm build
 
       - name: YES engineering gate
+        if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm yes:validate
 
       - name: Patch whitespace
@@ -72,6 +125,7 @@ jobs:
 
   clean-checkout:
     name: Clean checkout reproducibility
+    needs: change_scope
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -91,17 +145,26 @@ jobs:
           cache: pnpm
 
       - name: Set up Go
+        if: needs.change_scope.outputs.docs_only != 'true'
         uses: actions/setup-go@v7
         with:
           go-version: 1.26.6
           cache-dependency-path: backend/go.sum
 
       - name: Install Podman
+        if: needs.change_scope.outputs.docs_only != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install --yes podman
 
       - name: Verify clean checkout
+        if: needs.change_scope.outputs.docs_only != 'true'
         env:
           YISTACK_REQUIRE_CLEAN_TREE: "true"
         run: bash scripts/verify-clean-checkout.sh
+
+      - name: Verify documentation checkout
+        if: needs.change_scope.outputs.docs_only == 'true'
+        run: |
+          bash scripts/verify-repository-integrity.sh
+          node scripts/validate-contributor-alpha.mjs
