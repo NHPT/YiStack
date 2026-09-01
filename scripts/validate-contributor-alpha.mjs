@@ -38,6 +38,7 @@ const requiredFiles = [
   'docs/engineering/DEVELOPMENT_WORKFLOW.en.md',
   'docs/roadmap/ROADMAP.en.md',
   'pnpm-workspace.yaml',
+  'scripts/verify-repository-integrity.sh',
   'scripts/verify-clean-checkout.sh',
   'scripts/verify-supabase-baseline.sh',
   'backend/migrations/000000000000_contributor_alpha.sql',
@@ -200,6 +201,7 @@ assert.match(workflow, /push:\s+branches:\s+- main/);
 assert.match(workflow, /push:\s+branches:\s+- main\s+- ["']release\/\*\*["']/);
 assert.doesNotMatch(workflow, /push:\s+branches:\s+- master/);
 for (const command of [
+  'bash scripts/verify-repository-integrity.sh',
   'pnpm install --frozen-lockfile',
   'pnpm exec playwright install --with-deps chromium',
   'pnpm lint',
@@ -211,6 +213,11 @@ for (const command of [
 ]) {
   assert.ok(workflow.includes(command), `CI must run: ${command}`);
 }
+assert.match(
+  workflow,
+  /name: Set up Go for Gitleaks[\s\S]*go-version:\s+1\.24\.11[\s\S]*name: Install Gitleaks[\s\S]*go install github\.com\/zricethezav\/gitleaks\/v8@v8\.30\.1[\s\S]*name: Set up project Go[\s\S]*go-version:\s+1\.21\.6/,
+  'Gitleaks must use Go 1.24.11 before CI restores the Go 1.21.6 project baseline',
+);
 
 for (const action of [
   'actions/checkout@v6',
@@ -220,6 +227,12 @@ for (const action of [
 ]) {
   assert.ok(workflow.includes(action), `CI must use: ${action}`);
 }
+
+const cleanCheckoutScript = read('scripts/verify-clean-checkout.sh');
+assert.ok(
+  cleanCheckoutScript.includes('bash "$ROOT_DIR/scripts/verify-repository-integrity.sh"'),
+  'clean checkout must reject unresolved merge conflicts before installing dependencies',
+);
 
 const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');
 assert.ok(liveEvalWorkflow.includes('pnpm eval:smoke'));
@@ -238,6 +251,11 @@ assert.match(
   workspace,
   /browserslist@4\.28\.8>electron-to-chromium:\s+1\.5\.334/,
 );
+
+const lockfile = read('pnpm-lock.yaml');
+assert.doesNotMatch(lockfile, /^(<<<<<<< |>>>>>>> )/m);
+assert.match(lockfile, /electron-to-chromium@1\.5\.334:/);
+assert.doesNotMatch(lockfile, /electron-to-chromium@1\.5\.417/);
 
 const releaseConfig = read('.github/release.yml');
 assert.match(releaseConfig, /changelog:/);
