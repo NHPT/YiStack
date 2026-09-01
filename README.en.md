@@ -166,22 +166,22 @@ runtime/       Local workspaces and evidence; excluded from source review
 
 ## Documentation
 
-- [Developer Guide](docs/DEVELOPER_GUIDE.en.md) / [简体中文](docs/DEVELOPER_GUIDE.md)
-- [Architecture](docs/ARCHITECTURE.en.md) / [简体中文](docs/ARCHITECTURE.md)
-- [Product Boundaries](docs/PRODUCT.en.md) / [简体中文](docs/PRODUCT.md)
-- [Engineering Principles](docs/engineering/PRINCIPLES.en.md) / [简体中文](docs/engineering/PRINCIPLES.md)
-- [Development Workflow](docs/engineering/DEVELOPMENT_WORKFLOW.en.md) / [简体中文](docs/engineering/DEVELOPMENT_WORKFLOW.md)
-- [Database Lifecycle](docs/engineering/DATABASE_LIFECYCLE.en.md) / [简体中文](docs/engineering/DATABASE_LIFECYCLE.md)
-- [Public Roadmap](docs/roadmap/ROADMAP.en.md) / [简体中文](docs/roadmap/ROADMAP.md)
-- [Changelog](docs/CHANGELOG.en.md) / [简体中文](docs/CHANGELOG.md)
+- [Developer Guide](docs/DEVELOPER_GUIDE.en.md)
+- [Architecture](docs/ARCHITECTURE.en.md)
+- [Product Boundaries](docs/PRODUCT.en.md)
+- [Engineering Principles](docs/engineering/PRINCIPLES.en.md)
+- [Development Workflow](docs/engineering/DEVELOPMENT_WORKFLOW.en.md)
+- [Database Lifecycle](docs/engineering/DATABASE_LIFECYCLE.en.md)
+- [Public Roadmap](docs/roadmap/ROADMAP.en.md)
+- [Changelog](docs/CHANGELOG.en.md)
 
 ## Contributing
 
 Before opening an issue or pull request, read:
 
-- [Contributing Guide](CONTRIBUTING.en.md) / [简体中文](CONTRIBUTING.md)
+- [Contributing Guide](CONTRIBUTING.en.md)
 - [Security Policy](SECURITY.md)
-- [Code of Conduct](CODE_OF_CONDUCT.md) / [简体中文](CODE_OF_CONDUCT.zh-CN.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Governance](GOVERNANCE.md)
 - [Maintainers](MAINTAINERS.md)
 

@@ -26,6 +26,8 @@ const requiredFiles = [
   '.github/ISSUE_TEMPLATE/feature_request.yml',
   '.github/ISSUE_TEMPLATE/config.yml',
   '.github/workflows/ci.yml',
+  '.github/workflows/codeql.yml',
+  '.github/codeql/codeql-config.yml',
   '.github/workflows/canonical-eval.yml',
   'docs/CHANGELOG.md',
   'docs/CHANGELOG.en.md',
@@ -109,6 +111,14 @@ assert.doesNotMatch(readme, /高级 AI 模型、50\+ 模板|^- \*\*插件系统\
 assert.match(product, /规划不等于已实现/);
 assert.match(readme, /\[English\]\(README\.en\.md\)/);
 assert.match(readmeEnglish, /\[简体中文\]\(README\.md\)/);
+assert.match(readme, /\[贡献指南\]\(CONTRIBUTING\.md\)/);
+assert.doesNotMatch(readme, /\(CONTRIBUTING\.en\.md\)/);
+assert.match(readmeEnglish, /\[Contributing Guide\]\(CONTRIBUTING\.en\.md\)/);
+assert.doesNotMatch(readmeEnglish, /\(CONTRIBUTING\.md\)/);
+assert.match(readme, /\[行为准则\]\(CODE_OF_CONDUCT\.zh-CN\.md\)/);
+assert.doesNotMatch(readme, /\(CODE_OF_CONDUCT\.md\)/);
+assert.match(readmeEnglish, /\[Code of Conduct\]\(CODE_OF_CONDUCT\.md\)/);
+assert.doesNotMatch(readmeEnglish, /\(CODE_OF_CONDUCT\.zh-CN\.md\)/);
 assert.match(contributing, /\[English\]\(CONTRIBUTING\.en\.md\)/);
 assert.match(contributingEnglish, /\[简体中文\]\(CONTRIBUTING\.md\)/);
 assert.match(codeOfConduct, /\[简体中文\]\(CODE_OF_CONDUCT\.zh-CN\.md\)/);
@@ -143,9 +153,14 @@ for (const [chinesePath, englishPath] of bilingualDocumentPairs) {
     `${englishPath} must identify the authoritative Chinese version`,
   );
   assert.ok(readme.includes(`(${chinesePath})`), `README.md must link to ${chinesePath}`);
+  assert.ok(!readme.includes(`(${englishPath})`), `README.md must not link to ${englishPath}`);
   assert.ok(
     readmeEnglish.includes(`(${englishPath})`),
     `README.en.md must link to ${englishPath}`,
+  );
+  assert.ok(
+    !readmeEnglish.includes(`(${chinesePath})`),
+    `README.en.md must not link to ${chinesePath}`,
   );
 }
 
@@ -216,6 +231,22 @@ for (const command of [
 ]) {
   assert.ok(workflow.includes(command), `CI must run: ${command}`);
 }
+assert.match(workflow, /^\s+change_scope:\s*$/m);
+assert.match(workflow, /docs_only:\s*\$\{\{\s*steps\.classify\.outputs\.docs_only\s*\}\}/);
+assert.match(workflow, /git diff --name-only --no-renames "\$BASE_SHA" "\$HEAD_SHA"/);
+assert.match(workflow, /\*\.md\|docs\/\*/);
+assert.match(
+  workflow,
+  /name: Documentation contract[\s\S]*needs\.change_scope\.outputs\.docs_only == 'true'[\s\S]*node scripts\/validate-contributor-alpha\.mjs/,
+);
+assert.match(
+  workflow,
+  /name: Install dependencies[\s\S]*needs\.change_scope\.outputs\.docs_only != 'true'[\s\S]*pnpm install --frozen-lockfile/,
+);
+assert.match(
+  workflow,
+  /name: Verify clean checkout[\s\S]*needs\.change_scope\.outputs\.docs_only != 'true'[\s\S]*bash scripts\/verify-clean-checkout\.sh/,
+);
 for (const duplicateStep of [
   'name: Go tests',
   'name: Canonical eval smoke subset',
@@ -252,6 +283,47 @@ for (const action of [
 ]) {
   assert.ok(workflow.includes(action), `CI must use: ${action}`);
 }
+
+const codeqlWorkflow = read('.github/workflows/codeql.yml');
+assert.match(codeqlWorkflow, /^  pull_request:\s*$/m);
+assert.match(codeqlWorkflow, /^  schedule:\s*$/m);
+assert.match(codeqlWorkflow, /^  workflow_dispatch:\s*$/m);
+assert.doesNotMatch(
+  codeqlWorkflow,
+  /^  push:\s*$/m,
+  'CodeQL must not repeat the complete PR analysis after every merge',
+);
+for (const language of ['javascript-typescript', 'go', 'actions']) {
+  assert.ok(codeqlWorkflow.includes(`language: ${language}`), `CodeQL must analyze: ${language}`);
+}
+for (const action of [
+  'actions/checkout@v6',
+  'actions/setup-go@v7',
+  'github/codeql-action/init@v4',
+  'github/codeql-action/autobuild@v4',
+  'github/codeql-action/analyze@v4',
+]) {
+  assert.ok(codeqlWorkflow.includes(action), `CodeQL must use: ${action}`);
+}
+assert.match(codeqlWorkflow, /config-file:\s+\.\/\.github\/codeql\/codeql-config\.yml/);
+assert.match(codeqlWorkflow, /language:\s+javascript-typescript\s+build-mode:\s+none/);
+assert.match(codeqlWorkflow, /language:\s+go\s+build-mode:\s+autobuild/);
+
+const codeqlConfig = read('.github/codeql/codeql-config.yml');
+for (const excludedModel of [
+  'scripts/validate-workspace-resource-consistency-model.ts',
+  'scripts/validate-workspace-message-restore-model.ts',
+]) {
+  assert.ok(
+    codeqlConfig.includes(`- ${excludedModel}`),
+    `CodeQL must exclude the non-runtime validation model: ${excludedModel}`,
+  );
+}
+assert.doesNotMatch(
+  codeqlConfig,
+  /^\s*-\s+(src|scripts|backend)\/\*\*/m,
+  'CodeQL exclusions must not hide a complete source tree',
+);
 
 const cleanCheckoutScript = read('scripts/verify-clean-checkout.sh');
 assert.ok(

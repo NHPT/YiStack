@@ -1,0 +1,7 @@
+name: YiStack CodeQL configuration
+
+paths-ignore:
+  # These deterministic contract models are exercised by pnpm yes:validate.
+  # They contain multi-megabyte source-pattern assertions, not runtime code.
+  - scripts/validate-workspace-resource-consistency-model.ts
+  - scripts/validate-workspace-message-restore-model.ts
