@@ -197,9 +197,13 @@ for (const relativePath of [
 }
 
 const workflow = read('.github/workflows/ci.yml');
-assert.match(workflow, /push:\s+branches:\s+- main/);
-assert.match(workflow, /push:\s+branches:\s+- main\s+- ["']release\/\*\*["']/);
-assert.doesNotMatch(workflow, /push:\s+branches:\s+- master/);
+assert.match(workflow, /^  pull_request:\s*$/m);
+assert.match(workflow, /^  workflow_dispatch:\s*$/m);
+assert.doesNotMatch(
+  workflow,
+  /^  push:\s*$/m,
+  'CI must not rerun the complete required gate after a PR is merged',
+);
 for (const command of [
   'bash scripts/verify-repository-integrity.sh',
   'pnpm install --frozen-lockfile',
@@ -207,11 +211,31 @@ for (const command of [
   'pnpm lint',
   'pnpm build',
   'pnpm yes:validate',
-  'go test ./...',
-  'pnpm eval:smoke:ci',
   'bash scripts/verify-clean-checkout.sh',
 ]) {
   assert.ok(workflow.includes(command), `CI must run: ${command}`);
+}
+for (const duplicateStep of [
+  'name: Go tests',
+  'name: Canonical eval smoke subset',
+  'name: Contributor Alpha contract',
+]) {
+  assert.ok(
+    !workflow.includes(duplicateStep),
+    `CI must delegate the duplicate step to the YES engineering gate: ${duplicateStep}`,
+  );
+}
+
+const yesValidation = read('scripts/validate-yes.sh');
+for (const delegatedCommand of [
+  'node "$ROOT_DIR/scripts/validate-generation-benchmark-model.mjs"',
+  'node "$ROOT_DIR/scripts/validate-contributor-alpha.mjs"',
+  'go test ./... -count=1',
+]) {
+  assert.ok(
+    yesValidation.includes(delegatedCommand),
+    `YES engineering gate must run: ${delegatedCommand}`,
+  );
 }
 assert.match(
   workflow,
