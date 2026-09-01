@@ -8,6 +8,25 @@ YiStack 是面向开发者和小型团队的开源 AI 应用生成与工程工�
 
 > 当前版本：**v1.0.0**。这是 YiStack 首个稳定开源版本；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。当前仅承诺全新数据库安装，不承诺任意历史数据库版本的原地升级。
 
+## 产品预览
+
+![YiStack 工作台中的生成流程、质量门禁和 Monaco 代码编辑器](docs/assets/screenshots/workspace-overview.png)
+
+<p align="center">从需求、工程执行和质量门禁到可审阅源码的统一工作台</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/verified-preview.png" alt="YiStack 运行预览与浏览器验收"></td>
+    <td width="50%"><img src="docs/assets/screenshots/git-delivery.png" alt="YiStack Git 提交与差异视图"></td>
+  </tr>
+  <tr>
+    <td align="center">真实运行预览与浏览器验收</td>
+    <td align="center">Git 提交、文件差异与交付追踪</td>
+  </tr>
+</table>
+
+> 截图来自真实 YiStack 界面，使用脱敏演示项目和确定性演示数据。
+
 ## 当前能力
 
 | 能力 | 状态 | 边界 |

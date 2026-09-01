@@ -16,6 +16,25 @@ workflow.
 > [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Only clean database installation
 > is guaranteed; arbitrary in-place upgrades from historical versions are not.
 
+## Product Preview
+
+![YiStack workspace with generation workflow, quality gates, and Monaco code editor](docs/assets/screenshots/workspace-overview.png)
+
+<p align="center">One workspace from requirements and engineering execution to verified, reviewable source code</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/verified-preview.png" alt="YiStack runtime preview and browser acceptance"></td>
+    <td width="50%"><img src="docs/assets/screenshots/git-delivery.png" alt="YiStack Git commit and diff view"></td>
+  </tr>
+  <tr>
+    <td align="center">Live runtime preview and browser acceptance</td>
+    <td align="center">Git commits, file diffs, and delivery traceability</td>
+  </tr>
+</table>
+
+> Screenshots are captured from the real YiStack interface with a sanitized demo project and deterministic demo data.
+
 ## Current Capabilities
 
 | Capability | Status | Boundary |

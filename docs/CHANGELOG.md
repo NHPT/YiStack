@@ -27,6 +27,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - owner/editor/viewer 项目协作，以及版本化官方模板。
 - Apache-2.0、CI、贡献指南、安全策略、治理文件和发布审计。
 - README、贡献指南、行为准则和核心公开文档的中英文入口。
+- README 中新增使用脱敏演示数据拍摄的真实工作台、运行预览和 Git 交付截图。
 
 ### 变更
 
@@ -36,6 +37,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - `runtime/`、环境文件、调试归档和生成证据从发布面排除。
 - CI 在干净环境安装 Playwright Chromium、通过真实 SQL 查询等待数据库就绪，并升级到 Node.js 24 兼容的 GitHub Actions。
 - pnpm 显式执行 24 小时依赖成熟期策略，锁文件保持为唯一依赖真源。
+- Go 基线升级至 1.26.6，Node.js 与 Go 生产依赖完成安全升级。
 
 ### 安全
 
@@ -44,6 +46,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - GitHub 和部署凭据仅在服务端加密保存，不进入项目文件或 API 响应。
 - 发布门禁扫描公开文件、提交元数据和完整 Git 历史中的凭据及隐私信息。
 - Mermaid 升级至 11.16.1，包含上游原型污染防护增强。
+- CI 新增 High/Critical 依赖审计门禁；发布时 npm 与 Go 可达漏洞均无 High/Critical。
 
 ### 发布说明
 

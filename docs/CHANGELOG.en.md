@@ -37,6 +37,8 @@ No public changes yet.
   files, and release auditing.
 - Chinese and English entry points for the README, contribution guide, code of
   conduct, and core public documentation.
+- Real workspace, runtime preview, and Git delivery screenshots captured with
+  sanitized deterministic demo data.
 
 ### Changed
 
@@ -50,6 +52,8 @@ No public changes yet.
   with a real SQL query, and uses Node.js 24-compatible GitHub Actions.
 - pnpm explicitly enforces a 24-hour dependency maturity window, with its
   lockfile as the only dependency source of truth.
+- The Go baseline is upgraded to 1.26.6, with security updates across the
+  Node.js and Go production dependency graphs.
 
 ### Security
 
@@ -63,6 +67,8 @@ No public changes yet.
   for credentials and private information.
 - Mermaid is updated to 11.16.1, including upstream prototype-pollution
   hardening.
+- CI now blocks High/Critical dependency advisories; the release contains no
+  High/Critical npm advisories or reachable Go vulnerabilities.
 
 ### Release Notes
 
