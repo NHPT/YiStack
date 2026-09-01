@@ -41,7 +41,7 @@ status must be verified by executable gates.
 ## Technology Stack
 
 - Frontend: Next.js 16, React 19, TypeScript 5.9, Tailwind CSS 4, Monaco Editor
-- Backend: Go 1.21.6+, Hertz, GORM
+- Backend: Go 1.26.6+, Hertz, GORM
 - Database: Supabase/PostgreSQL
 - Runtime: rootless Podman
 - Package manager: pnpm 11.5.2
@@ -52,7 +52,7 @@ status must be verified by executable gates.
 | --- | --- |
 | Node.js | 22.x |
 | pnpm | 11.5.2 |
-| Go | 1.21.6 or a newer 1.x release |
+| Go | 1.26.6 or a newer 1.x release |
 | Podman | 3.4+, rootless |
 | Database | Supabase, or PostgreSQL 15+ for SQL verification |
 

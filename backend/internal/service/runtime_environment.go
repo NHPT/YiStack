@@ -364,7 +364,7 @@ func verifyRuntimeEnvironment(ctx context.Context, containerMgr *container.Manag
 		if detail == "" {
 			detail = fmt.Sprintf("runtime verify failed with exit code %d", result.ExitCode)
 		}
-		return fmt.Errorf(detail)
+		return fmt.Errorf("%s", detail)
 	}
 	return nil
 }
@@ -600,7 +600,7 @@ func waitForAptLocksToClear(ctx context.Context, containerMgr *container.Manager
 		if detail == "" {
 			detail = "waiting for apt locks failed"
 		}
-		return fmt.Errorf(detail)
+		return fmt.Errorf("%s", detail)
 	}
 	return nil
 }

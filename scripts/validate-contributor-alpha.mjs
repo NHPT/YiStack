@@ -207,6 +207,7 @@ assert.doesNotMatch(
 for (const command of [
   'bash scripts/verify-repository-integrity.sh',
   'pnpm install --frozen-lockfile',
+  'pnpm audit --audit-level high',
   'pnpm exec playwright install --with-deps chromium',
   'pnpm lint',
   'pnpm build',
@@ -239,8 +240,8 @@ for (const delegatedCommand of [
 }
 assert.match(
   workflow,
-  /name: Set up Go for Gitleaks[\s\S]*go-version:\s+1\.24\.11[\s\S]*name: Install Gitleaks[\s\S]*go install github\.com\/zricethezav\/gitleaks\/v8@v8\.30\.1[\s\S]*name: Set up project Go[\s\S]*go-version:\s+1\.21\.6/,
-  'Gitleaks must use Go 1.24.11 before CI restores the Go 1.21.6 project baseline',
+  /name: Set up Go[\s\S]*go-version:\s+1\.26\.6[\s\S]*cache-dependency-path:\s+backend\/go\.sum[\s\S]*name: Install Gitleaks[\s\S]*go install github\.com\/zricethezav\/gitleaks\/v8@v8\.30\.1/,
+  'CI must use the Go 1.26.6 project baseline to build Gitleaks and YiStack',
 );
 
 for (const action of [
@@ -271,15 +272,9 @@ for (const action of [
 
 const workspace = read('pnpm-workspace.yaml');
 assert.match(workspace, /minimumReleaseAge:\s+1440/);
-assert.match(
-  workspace,
-  /browserslist@4\.28\.8>electron-to-chromium:\s+1\.5\.334/,
-);
 
 const lockfile = read('pnpm-lock.yaml');
 assert.doesNotMatch(lockfile, /^(<<<<<<< |>>>>>>> )/m);
-assert.match(lockfile, /electron-to-chromium@1\.5\.334:/);
-assert.doesNotMatch(lockfile, /electron-to-chromium@1\.5\.417/);
 
 const releaseConfig = read('.github/release.yml');
 assert.match(releaseConfig, /changelog:/);

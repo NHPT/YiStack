@@ -53,7 +53,7 @@ graph LR
 | --- | --- | --- |
 | Node.js | 22.x | Frontend development |
 | pnpm | 11.5.2 | Package management |
-| Go | 1.21.6+ | Backend development |
+| Go | 1.26.6+ | Backend development |
 | Podman | 3.4+ | Container runtime |
 | Git | Any supported version | Version control |
 

@@ -55,7 +55,7 @@ func ensureProjectPreviewServer(
 		if detail == "" {
 			detail = fmt.Sprintf("preview server start failed with exit code %d", result.ExitCode)
 		}
-		return fmt.Errorf(detail)
+		return fmt.Errorf("%s", detail)
 	}
 	return nil
 }

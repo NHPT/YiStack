@@ -649,7 +649,7 @@ func (s *ProjectService) cleanupProjectResources(ctx context.Context, project *m
 	}
 
 	if len(cleanupErrors) > 0 {
-		return fmt.Errorf(strings.Join(cleanupErrors, " | "))
+		return fmt.Errorf("%s", strings.Join(cleanupErrors, " | "))
 	}
 
 	return nil

@@ -32,7 +32,7 @@ YiStack 是面向开发者和小型团队的开源 AI 应用生成与工程工�
 ## 技术栈
 
 - Frontend: Next.js 16, React 19, TypeScript 5.9, Tailwind CSS 4, Monaco Editor
-- Backend: Go 1.21.6+, Hertz, GORM
+- Backend: Go 1.26.6+, Hertz, GORM
 - Database: Supabase/PostgreSQL
 - Runtime: rootless Podman
 - Package manager: pnpm 11.5.2
@@ -43,7 +43,7 @@ YiStack 是面向开发者和小型团队的开源 AI 应用生成与工程工�
 | --- | --- |
 | Node.js | 22.x |
 | pnpm | 11.5.2 |
-| Go | 1.21.6 或更高的 1.x 版本 |
+| Go | 1.26.6 或更高的 1.x 版本 |
 | Podman | 3.4+，rootless |
 | Database | Supabase，或用于 SQL 验证的 PostgreSQL 15+ |
 

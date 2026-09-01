@@ -37,8 +37,8 @@ if [ "$pnpm_version" != "11.5.2" ]; then
   echo "[R7] pnpm 11.5.2 is required; found $pnpm_version." >&2
   exit 1
 fi
-if ! version_ge "$go_version" "1.21.6"; then
-  echo "[R7] Go 1.21.6 or newer is required; found $go_version." >&2
+if ! version_ge "$go_version" "1.26.6"; then
+  echo "[R7] Go 1.26.6 or newer is required; found $go_version." >&2
   exit 1
 fi
 if ! version_ge "$podman_version" "3.4.0"; then
