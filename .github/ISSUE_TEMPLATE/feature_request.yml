@@ -38,5 +38,5 @@ body:
       options:
         - label: I checked the roadmap and existing issues.
           required: true
-        - label: I understand acceptance is decided before implementation during Contributor Alpha.
+        - label: I understand acceptance is decided before implementation and passing CI does not guarantee inclusion.
           required: true

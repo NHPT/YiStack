@@ -28,9 +28,9 @@ The main sequence is:
 1. `LT-02R` R1-R7 are complete and have passed the Production Gate: truthful
    generation, project gates, patch/repair, durable Job/SSE, browser benchmark,
    platform integrations, and the Contributor Alpha repository gate.
-2. Enable required GitHub Actions checks and branch protection, then begin
-   controlled Contributor Alpha pull requests. Local files must not claim that
-   remote settings are enabled without verification.
+2. The GitHub remote, required Actions checks, and branch protection are
+   enabled. After v1.0.0, continue accepting community contributions through
+   controlled pull requests.
 3. Resume real `LT-08` enterprise governance work. Readiness-only directories
    must not be presented as completed functionality.
 4. Validate real cloud lifecycles for multiple deployment providers and the

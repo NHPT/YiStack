@@ -29,7 +29,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | 合同已实现 | 本地 adapter、失败边界和测试完成，外部平台 lifecycle 仍需凭据验收 |
 | 试验性 | 可使用，但 API 或存储结构可能在稳定版前变化 |
 | 规划中 | 尚未完成，不构成版本承诺 |
-| 不在当前范围 | Contributor Alpha 不提供 |
+| 不在当前范围 | v1.0.0 不提供 |
 
 ## 3. 当前产品能力
 
@@ -106,7 +106,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 - 当前默认集成 Supabase/PostgreSQL
 - `backend/init.sql` 是全新安装的单点真源
 - `public.schema_migrations` 记录已知 baseline 和后续升级
-- Contributor Alpha 尚不承诺未知历史数据库的升级兼容
+- v1.0.0 尚不承诺未知历史数据库的升级兼容
 
 ## 7. 外部集成边界
 
@@ -121,7 +121,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 
 ## 8. 开源与贡献阶段
 
-Contributor Alpha 仓库门禁已通过。发布 GitHub remote 并启用 required checks 与 branch protection 后，允许受控 pull request：
+v1.0.0 发布门禁、GitHub required checks 与 branch protection 已启用。公开仓库通过受控 pull request 接受贡献：
 
 - issue 先确定范围；
 - CODEOWNERS 审查；
@@ -129,7 +129,7 @@ Contributor Alpha 仓库门禁已通过。发布 GitHub remote 并启用 require
 - 数据库和安全边界具备迁移/rollback 说明；
 - 用户可见变更具备浏览器验收证据。
 
-Contributor Alpha 不等同于稳定版或 Community Beta。开放节奏和剩余门禁见 `docs/roadmap/ROADMAP.md`。
+v1.0.0 是首个稳定开源版本；稳定范围仅覆盖本文档明确列为已实现的能力和全新数据库安装路径。未实现能力与后续优先级见 `docs/roadmap/ROADMAP.md`。
 
 ## 9. 商业与版本说明
 

@@ -2,16 +2,19 @@
 
 [简体中文](README.md) | [**English**](README.en.md)
 
-YiStack is an AI application generation and engineering workspace driven by
-natural-language requirements. It organizes solution approval, code generation,
-project-level validation, bounded automatic repair, container execution, browser
-acceptance, and version control into a traceable workflow.
+**From natural-language requirements to runnable, verified, and evolvable
+applications.**
 
-> Current stage: **Contributor Alpha**. The source code is now published on
-> GitHub and the repository baseline has passed. Before accepting external
-> contributions, required CI checks and branch protection must be verified.
-> YiStack has not published a stable release and does not promise in-place
-> upgrades from arbitrary historical versions.
+YiStack is an open-source AI application generation and engineering workspace
+for developers and small teams. It turns solution approval, code generation,
+project-level validation, bounded automatic repair, container execution,
+browser acceptance, and Git versioning into a traceable, recoverable delivery
+workflow.
+
+> Current release: **v1.0.0**, YiStack's first stable open-source release. Its
+> stability scope is limited to the capabilities documented in this README and
+> [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Only clean database installation
+> is guaranteed; arbitrary in-place upgrades from historical versions are not.
 
 ## Current Capabilities
 
@@ -70,8 +73,8 @@ Apply the following file to a new Supabase project:
 backend/init.sql
 ```
 
-`backend/init.sql` is the single clean-install schema source for the current
-pre-release line. It creates the provider catalog but does not enable an LLM
+`backend/init.sql` is the single clean-install schema source for v1.0.0. It
+creates the provider catalog but does not enable an LLM
 provider by default. Configure and preflight at least one provider in the admin
 console before starting generation. Never commit API keys.
 
@@ -123,9 +126,9 @@ pnpm eval:smoke
 
 ## Database Upgrade Boundary
 
-Contributor Alpha only guarantees clean installation through
-`backend/init.sql`. Baselines, future migration naming, compatibility scope,
-and rollback requirements are documented in
+v1.0.0 guarantees only clean installation through `backend/init.sql`.
+Baselines, future migration naming, compatibility scope, and rollback
+requirements are documented in
 [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 YiStack does not claim support for upgrading arbitrary existing databases until
 the migration runner and compatibility matrix are complete.

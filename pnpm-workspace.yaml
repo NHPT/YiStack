@@ -3,3 +3,6 @@ allowBuilds:
   msw: true
   sharp: true
   unrs-resolver: true
+minimumReleaseAge: 1440
+overrides:
+  browserslist@4.28.8>electron-to-chromium: 1.5.334

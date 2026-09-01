@@ -4,8 +4,8 @@
 
 > 本文件是当前贡献流程的中文主版本。中英文内容不一致时，以本文件为准。
 
-YiStack 当前处于 **Contributor Alpha** 阶段。项目通过经过审查的 issue 和
-pull request 接受贡献；`main` 分支不是未经审查的集成分支。
+YiStack v1.0.0 通过经过审查的 issue 和 pull request 接受贡献；
+`main` 分支不是未经审查的集成分支。
 
 提交贡献即表示你同意按照
 [Apache License 2.0](LICENSE) 对该贡献进行许可。
@@ -41,8 +41,8 @@ pnpm install --frozen-lockfile
 cp .env.example .env
 ```
 
-新建 Supabase 项目后执行 `backend/init.sql`。该文件是当前 pre-release
-版本的全新安装数据库单点真源。数据库升级规则见
+新建 Supabase 项目后执行 `backend/init.sql`。该文件是 v1.0.0
+全新安装数据库的单点真源。数据库升级规则见
 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。
 
 ## 必须执行的验证

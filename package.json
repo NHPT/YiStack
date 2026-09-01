@@ -1,8 +1,8 @@
 {
   "name": "yistack",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "YiStack - 一栈生成万物。基于自然语言的应用生成平台",
+  "description": "YiStack - 从自然语言需求到可运行、可验证、可迭代应用的开源 AI 工程工作台",
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.5.2",
   "engines": {
@@ -117,5 +117,31 @@
     "tsup": "8.5.1",
     "tsx": "4.21.0",
     "typescript": "5.9.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NHPT/YiStack.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NHPT/YiStack/issues"
+  },
+  "homepage": "https://github.com/NHPT/YiStack#readme",
+  "keywords": [
+    "ai",
+    "ai-code-generation",
+    "app-builder",
+    "code-generation",
+    "developer-tools",
+    "full-stack",
+    "golang",
+    "llm",
+    "monaco-editor",
+    "nextjs",
+    "podman",
+    "postgresql",
+    "react",
+    "self-hosted",
+    "supabase",
+    "typescript"
+  ]
 }

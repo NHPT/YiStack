@@ -8,8 +8,8 @@
 
 ## 适用范围
 
-YiStack 当前处于预发布阶段。`backend/init.sql` 是全新 Supabase 数据库的
-单点真源，基线版本为 `000000000000_contributor_alpha`。
+YiStack v1.0.0 的 `backend/init.sql` 是全新 Supabase 数据库的单点真源，
+基线版本为 `000000000000_contributor_alpha`。
 
 基线标记不代表任意历史数据库都可以升级。只有最后记录的数据库结构版本和
 对应源码提交均已知时，现有数据库才属于支持范围。

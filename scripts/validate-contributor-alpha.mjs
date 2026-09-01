@@ -21,6 +21,7 @@ const requiredFiles = [
   'MAINTAINERS.md',
   '.github/CODEOWNERS',
   '.github/PULL_REQUEST_TEMPLATE.md',
+  '.github/release.yml',
   '.github/ISSUE_TEMPLATE/bug_report.yml',
   '.github/ISSUE_TEMPLATE/feature_request.yml',
   '.github/ISSUE_TEMPLATE/config.yml',
@@ -36,6 +37,7 @@ const requiredFiles = [
   'docs/engineering/PRINCIPLES.en.md',
   'docs/engineering/DEVELOPMENT_WORKFLOW.en.md',
   'docs/roadmap/ROADMAP.en.md',
+  'pnpm-workspace.yaml',
   'scripts/verify-clean-checkout.sh',
   'scripts/verify-supabase-baseline.sh',
   'backend/migrations/000000000000_contributor_alpha.sql',
@@ -54,12 +56,22 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
+assert.equal(packageJSON.version, '1.0.0');
+assert.match(packageJSON.description, /开源 AI 工程工作台/);
+assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
+assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
+assert.ok(packageJSON.keywords.includes('ai-code-generation'));
 assert.equal(packageJSON.license, 'Apache-2.0');
 assert.equal(packageJSON.packageManager, 'pnpm@11.5.2');
 assert.equal(packageJSON.engines.node, '>=22 <23');
 assert.equal(packageJSON.engines.pnpm, '11.5.2');
 assert.equal(packageJSON.dependencies['embla-carousel'], '8.6.0');
 assert.equal(packageJSON.dependencies['embla-carousel-react'], '8.6.0');
+assert.equal(
+  fs.existsSync(path.join(rootDir, 'package-lock.json')),
+  false,
+  'package-lock.json must not coexist with the pnpm lockfile',
+);
 for (const script of [
   'contributor:validate',
   'checkout:verify',
@@ -77,6 +89,8 @@ const codeOfConduct = read('CODE_OF_CONDUCT.md');
 const codeOfConductChinese = read('CODE_OF_CONDUCT.zh-CN.md');
 const product = read('docs/PRODUCT.md');
 const productEnglish = read('docs/PRODUCT.en.md');
+const changelog = read('docs/CHANGELOG.md');
+const changelogEnglish = read('docs/CHANGELOG.en.md');
 for (const [name, source] of [
   ['README.md', readme],
   ['README.en.md', readmeEnglish],
@@ -86,7 +100,10 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /Contributor Alpha/);
+assert.match(readme, /当前版本：\*\*v1\.0\.0\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.0\.0\*\*/);
+assert.match(changelog, /## \[1\.0\.0\] - 2026-09-01/);
+assert.match(changelogEnglish, /## \[1\.0\.0\] - 2026-09-01/);
 assert.doesNotMatch(readme, /高级 AI 模型、50\+ 模板|^- \*\*插件系统\*\*：/m);
 assert.match(product, /规划不等于已实现/);
 assert.match(readme, /\[English\]\(README\.en\.md\)/);
@@ -180,6 +197,7 @@ for (const relativePath of [
 
 const workflow = read('.github/workflows/ci.yml');
 assert.match(workflow, /push:\s+branches:\s+- main/);
+assert.match(workflow, /push:\s+branches:\s+- main\s+- ["']release\/\*\*["']/);
 assert.doesNotMatch(workflow, /push:\s+branches:\s+- master/);
 for (const command of [
   'pnpm install --frozen-lockfile',
@@ -194,9 +212,37 @@ for (const command of [
   assert.ok(workflow.includes(command), `CI must run: ${command}`);
 }
 
+for (const action of [
+  'actions/checkout@v6',
+  'pnpm/action-setup@v6',
+  'actions/setup-node@v6',
+  'actions/setup-go@v7',
+]) {
+  assert.ok(workflow.includes(action), `CI must use: ${action}`);
+}
+
 const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');
 assert.ok(liveEvalWorkflow.includes('pnpm eval:smoke'));
 assert.ok(liveEvalWorkflow.includes('YISTACK_EVAL_TOKEN'));
+for (const action of [
+  'actions/checkout@v6',
+  'pnpm/action-setup@v6',
+  'actions/setup-node@v6',
+]) {
+  assert.ok(liveEvalWorkflow.includes(action), `canonical eval must use: ${action}`);
+}
+
+const workspace = read('pnpm-workspace.yaml');
+assert.match(workspace, /minimumReleaseAge:\s+1440/);
+assert.match(
+  workspace,
+  /browserslist@4\.28\.8>electron-to-chromium:\s+1\.5\.334/,
+);
+
+const releaseConfig = read('.github/release.yml');
+assert.match(releaseConfig, /changelog:/);
+assert.match(releaseConfig, /Security/);
+assert.match(releaseConfig, /Dependencies/);
 
 const supabaseBaseline = read('scripts/verify-supabase-baseline.sh');
 assert.match(
@@ -241,4 +287,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] Contributor Alpha repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.0.0 public release repository contract valid (${requiredFiles.length} required files).`);

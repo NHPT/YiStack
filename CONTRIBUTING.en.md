@@ -5,9 +5,8 @@
 > This is an English translation of the contribution guide. If the two
 > versions differ, the Chinese version is authoritative.
 
-YiStack is currently in **Contributor Alpha**. Contributions are accepted
-through reviewed issues and pull requests; the `main` branch is not an
-unreviewed integration branch.
+YiStack v1.0.0 accepts contributions through reviewed issues and pull
+requests; the `main` branch is not an unreviewed integration branch.
 
 By submitting a contribution, you agree that it is licensed under the
 [Apache License 2.0](LICENSE).
@@ -44,8 +43,8 @@ cp .env.example .env
 ```
 
 Initialize a new Supabase project by applying `backend/init.sql`. The file is
-the single clean-install schema source for the current pre-release line.
-Database upgrade rules are defined in
+the single clean-install schema source for v1.0.0. Database upgrade rules are
+defined in
 [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 
 ## Required Validation

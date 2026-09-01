@@ -2,9 +2,11 @@
 
 [**简体中文**](README.md) | [English](README.en.md)
 
-YiStack 是一个以自然语言驱动的应用生成与工程工作台。它将方案确认、代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和版本管理组织成可追踪流程。
+**从自然语言需求到可运行、可验证、可迭代的完整应用。**
 
-> 当前阶段：**Contributor Alpha**。代码已发布到 GitHub；仓库基线已通过。在接受外部贡献前仍需确认 required CI 与 branch protection 已正确启用。项目尚未发布稳定版本，也不承诺任意历史版本的原地升级。
+YiStack 是面向开发者和小型团队的开源 AI 应用生成与工程工作台。它将方案确认、代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 版本管理组织成一条可追踪、可恢复的交付流程。
+
+> 当前版本：**v1.0.0**。这是 YiStack 首个稳定开源版本；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。当前仅承诺全新数据库安装，不承诺任意历史数据库版本的原地升级。
 
 ## 当前能力
 
@@ -62,7 +64,7 @@ cp .env.example .env
 backend/init.sql
 ```
 
-`backend/init.sql` 是当前 pre-release 版本的全新安装真源。它会创建 Provider catalog，但默认不启用任何 LLM Provider。启动前应在管理端配置并预检至少一个 Provider；不要把 API Key 写入仓库。
+`backend/init.sql` 是 v1.0.0 的全新安装真源。它会创建 Provider catalog，但默认不启用任何 LLM Provider。启动前应在管理端配置并预检至少一个 Provider；不要把 API Key 写入仓库。
 
 启动本地开发环境：
 
@@ -107,7 +109,7 @@ pnpm eval:smoke
 
 ## 数据库升级边界
 
-Contributor Alpha 只承诺从空数据库执行 `backend/init.sql`。baseline、未来 migration 命名、兼容范围和 rollback 要求见 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。在 migration runner 和版本兼容矩阵完成前，不声明支持任意存量数据库原地升级。
+v1.0.0 只承诺从空数据库执行 `backend/init.sql`。baseline、未来 migration 命名、兼容范围和 rollback 要求见 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。在 migration runner 和版本兼容矩阵完成前，不声明支持任意存量数据库原地升级。
 
 ## 项目结构
 

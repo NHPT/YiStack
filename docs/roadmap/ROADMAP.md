@@ -26,7 +26,7 @@
 因此，当前主线顺序调整为：
 
 1. `LT-02R` R1-R7 已完成并通过 Production Gate：生成真实性、项目 Gate、patch/repair、持久 Job/SSE、浏览器 benchmark、平台集成与 Contributor Alpha 仓库门禁均已落地
-2. 发布 GitHub remote 后启用 required Actions checks 与 branch protection，开始受控 Contributor Alpha PR；当前本地仓库不伪造远端启用状态
+2. GitHub remote、required Actions checks 与 branch protection 已启用；发布 v1.0.0 后继续通过受控 pull request 接受社区贡献
 3. 恢复 `LT-08` 企业级治理真实能力主线，禁止继续以 readiness-only 目录冒充真实完成
 4. 多部署 Provider 真实云端 lifecycle 与首个存量升级 tag 的 migration runner 按既定边界集中验收
 

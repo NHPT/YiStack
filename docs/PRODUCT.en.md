@@ -41,7 +41,7 @@ Core goals:
 | Contract implemented | The local adapter, failure boundaries, and tests are complete; the external platform lifecycle still requires credentialed acceptance |
 | Experimental | Usable, but APIs or storage structures may change before a stable release |
 | Planned | Not complete and not a release commitment |
-| Out of current scope | Not provided during Contributor Alpha |
+| Out of current scope | Not provided in v1.0.0 |
 
 ## 3. Current Product Capabilities
 
@@ -128,7 +128,7 @@ claim generation succeeded.
 - The default integration is Supabase/PostgreSQL.
 - `backend/init.sql` is the single source of truth for clean installation.
 - `public.schema_migrations` records the known baseline and later upgrades.
-- Contributor Alpha does not promise upgrade compatibility for unknown
+- v1.0.0 does not promise upgrade compatibility for unknown
   historical databases.
 
 ## 7. External Integration Boundaries
@@ -146,9 +146,9 @@ service.
 
 ## 8. Open-Source and Contribution Stage
 
-The Contributor Alpha repository gate has passed. After the GitHub remote has
-required checks and branch protection enabled, controlled pull requests are
-accepted under these conditions:
+The v1.0.0 release gate, required GitHub checks, and branch protection are
+enabled. The public repository accepts controlled pull requests under these
+conditions:
 
 - an issue defines the scope first;
 - CODEOWNERS review is required;
@@ -156,8 +156,10 @@ accepted under these conditions:
 - database and security changes include migration and rollback boundaries;
 - user-visible changes include browser acceptance evidence.
 
-Contributor Alpha is not a stable release or Community Beta. See
-`docs/roadmap/ROADMAP.en.md` for the opening sequence and remaining gates.
+v1.0.0 is the first stable open-source release. Its stability scope covers only
+the capabilities marked implemented in this document and the clean database
+installation path. See `docs/roadmap/ROADMAP.en.md` for unimplemented
+capabilities and later priorities.
 
 ## 9. Commercial and Versioning Notes
 

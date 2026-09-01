@@ -9,11 +9,14 @@ This document records only product, compatibility, and security changes that
 matter to public users and contributors. Internal task logs, stage acceptance
 records, and development history are not published.
 
-YiStack is currently in Contributor Alpha and has no stable release. After the
-first formal release, this changelog will follow
-[Semantic Versioning](https://semver.org/).
+YiStack follows [Semantic Versioning](https://semver.org/) for public releases
+starting with v1.0.0.
 
 ## [Unreleased]
+
+No public changes yet.
+
+## [1.0.0] - 2026-09-01
 
 ### Added
 
@@ -43,6 +46,10 @@ first formal release, this changelog will follow
   and are excluded from public source.
 - `runtime/`, environment files, debug archives, and generated evidence are
   excluded from the release surface.
+- CI installs Playwright Chromium in clean environments, waits for the database
+  with a real SQL query, and uses Node.js 24-compatible GitHub Actions.
+- pnpm explicitly enforces a 24-hour dependency maturity window, with its
+  lockfile as the only dependency source of truth.
 
 ### Security
 
@@ -54,11 +61,12 @@ first formal release, this changelog will follow
   returned through project files or API responses.
 - Release gates scan public files, commit metadata, and complete Git history
   for credentials and private information.
+- Mermaid is updated to 11.16.1, including upstream prototype-pollution
+  hardening.
 
-## Release Notes
+### Release Notes
 
-- The current version guarantees only clean installation through
-  `backend/init.sql`.
+- v1.0.0 guarantees only clean installation through `backend/init.sql`.
 - In-place upgrades from arbitrary historical database versions are not yet
   supported.
 - Real cloud deployment lifecycles still require separate acceptance using

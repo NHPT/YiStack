@@ -7,10 +7,14 @@
 本文档只记录对公开用户和贡献者有意义的产品、兼容性与安全变更。
 内部任务流水、阶段验收记录和开发过程不在公开仓库发布。
 
-YiStack 当前处于 Contributor Alpha，尚未发布稳定版本。正式发布后将按照
-[Semantic Versioning](https://semver.org/) 维护版本记录。
+YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
+维护公开版本记录。
 
 ## [Unreleased]
+
+暂无公开变更。
+
+## [1.0.0] - 2026-09-01
 
 ### 新增
 
@@ -30,6 +34,8 @@ YiStack 当前处于 Contributor Alpha，尚未发布稳定版本。正式发布
 - `docs/roadmap/ROADMAP.md` 成为唯一公开 roadmap。
 - 内部任务流水、阶段状态和实施记录保留在本地，不进入公开源码。
 - `runtime/`、环境文件、调试归档和生成证据从发布面排除。
+- CI 在干净环境安装 Playwright Chromium、通过真实 SQL 查询等待数据库就绪，并升级到 Node.js 24 兼容的 GitHub Actions。
+- pnpm 显式执行 24 小时依赖成熟期策略，锁文件保持为唯一依赖真源。
 
 ### 安全
 
@@ -37,9 +43,10 @@ YiStack 当前处于 Contributor Alpha，尚未发布稳定版本。正式发布
 - `JWT_SECRET` 为空或使用已知示例值时生成进程级随机密钥。
 - GitHub 和部署凭据仅在服务端加密保存，不进入项目文件或 API 响应。
 - 发布门禁扫描公开文件、提交元数据和完整 Git 历史中的凭据及隐私信息。
+- Mermaid 升级至 11.16.1，包含上游原型污染防护增强。
 
-## 发布说明
+### 发布说明
 
-- 当前仅承诺从空数据库执行 `backend/init.sql`。
+- v1.0.0 仅承诺从空数据库执行 `backend/init.sql`。
 - 尚未承诺任意历史数据库版本的原地升级。
 - 真实云端部署生命周期仍需使用外部平台凭据单独验收。

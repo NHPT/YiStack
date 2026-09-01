@@ -8,7 +8,7 @@
 
 ## Scope
 
-YiStack is pre-release. `backend/init.sql` is the single source of truth for a
+YiStack v1.0.0 uses `backend/init.sql` as the single source of truth for a
 clean Supabase database. The baseline version is
 `000000000000_contributor_alpha`.
 
