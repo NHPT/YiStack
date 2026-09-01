@@ -213,6 +213,11 @@ for (const command of [
 ]) {
   assert.ok(workflow.includes(command), `CI must run: ${command}`);
 }
+assert.match(
+  workflow,
+  /name: Set up Go for Gitleaks[\s\S]*go-version:\s+1\.24\.11[\s\S]*name: Install Gitleaks[\s\S]*go install github\.com\/zricethezav\/gitleaks\/v8@v8\.30\.1[\s\S]*name: Set up project Go[\s\S]*go-version:\s+1\.21\.6/,
+  'Gitleaks must use Go 1.24.11 before CI restores the Go 1.21.6 project baseline',
+);
 
 for (const action of [
   'actions/checkout@v6',

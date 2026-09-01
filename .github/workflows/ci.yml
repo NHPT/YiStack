@@ -40,7 +40,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Set up Go
+      - name: Set up Go for Gitleaks
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.24.11
+          cache: false
+
+      - name: Install Gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
+      - name: Set up project Go
         uses: actions/setup-go@v7
         with:
           go-version: 1.21.6
@@ -51,9 +60,6 @@ jobs:
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Gitleaks
-        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
 
       - name: Public release audit
         run: GITLEAKS_BIN="$(go env GOPATH)/bin/gitleaks" pnpm release:audit
