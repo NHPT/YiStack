@@ -10,8 +10,8 @@ import {
   ChevronLeft,
   Circle,
   Cpu,
-  FileText,
   Globe,
+  ImageIcon,
   Loader2,
   MessageSquare,
   Send,
@@ -658,12 +658,17 @@ function formatChatAttachmentSnapshotTitle(snapshot: ChatAttachmentSnapshot) {
       return '附件已移除';
     case 'picker_empty':
       return '附件选择未返回文件';
+    case 'rejected':
+      return '图片附件已拒绝';
     default:
       return '附件状态待确认';
   }
 }
 
 function getChatAttachmentSnapshotClassName(snapshot: ChatAttachmentSnapshot) {
+  if (snapshot.status === 'rejected') {
+    return 'border-destructive/30 bg-destructive/5 text-destructive';
+  }
   if (snapshot.status === 'picker_empty') {
     return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
   }
@@ -764,16 +769,30 @@ function getWorkspaceChatComposerModelEmptyStateLabel(isCompact: boolean): strin
 
 function canSendWorkspaceChatComposerPrompt({
   hasPlanSelectionPending,
-  hasPrompt,
+  hasContent,
+  visualInputBlocked,
 }: {
   hasPlanSelectionPending: boolean;
-  hasPrompt: boolean;
+  hasContent: boolean;
+  visualInputBlocked: boolean;
 }): boolean {
-  if (hasPlanSelectionPending === true) {
+  if (hasPlanSelectionPending === true || visualInputBlocked === true) {
     return false;
   }
 
-  return hasPrompt === true;
+  return hasContent === true;
+}
+
+function workspaceChatSelectedModelSupportsVision(
+  models: WorkspaceChatComposerProps['models'],
+  selectedModel: string,
+): boolean {
+  for (const model of models) {
+    if (model.id === selectedModel) {
+      return model.supportsVision === true;
+    }
+  }
+  return false;
 }
 
 function shouldRenderWorkspaceChatComposerOfflineFoundationStatus({
@@ -1049,14 +1068,16 @@ function materializeWorkspaceChatComposerModelNodes({
         onClick={() => setSelectedModel(model.id)}
         title={model.name}
         className={cn(
-          'w-full rounded-md px-3 py-2 text-left text-sm',
-          'truncate whitespace-nowrap',
+          'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm',
           transitionClassName,
           modelButtonToneClassName,
         )}
       >
         <span className="sr-only">{model.name}</span>
-        <span aria-hidden="true">{model.modelName}</span>
+        <span aria-hidden="true" className="min-w-0 flex-1 truncate whitespace-nowrap">{model.modelName}</span>
+        {model.supportsVision === true && (
+          <ImageIcon aria-label="支持图片输入" className="h-3.5 w-3.5 shrink-0" />
+        )}
       </button>,
     );
   }
@@ -1302,7 +1323,12 @@ function materializeWorkspaceChatComposerAttachmentNodes({
 
     nodes.push(
       <Badge key={file.name + index} variant="secondary" className={cn('flex items-center gap-1', attachmentBadgeClassName)}>
-        <FileText className="w-3 h-3" />
+        <span
+          role="img"
+          aria-label={`图片预览：${file.name}`}
+          className="h-7 w-7 shrink-0 rounded border bg-cover bg-center"
+          style={{ backgroundImage: `url(${file.dataUrl})` }}
+        />
         <span className={cn('truncate', attachmentNameClassName)}>{file.name}</span>
         <button
           type="button"
@@ -2448,6 +2474,7 @@ export function WorkspaceChatComposer({
   setInput,
   adjustTextareaHeight,
   handleKeyDown,
+  handleImagePaste,
   removeAttachment,
   setChatMode,
   setSelectedModel,
@@ -2474,10 +2501,14 @@ export function WorkspaceChatComposer({
   const isCompact = compact === true;
   const promptValue = input.trim();
   const hasPrompt = promptValue.length > 0;
+  const hasAttachments = attachedFiles.length > 0;
+  const selectedModelSupportsVision = workspaceChatSelectedModelSupportsVision(models, selectedModel);
+  const visualInputBlocked = hasAttachments === true && selectedModelSupportsVision === false;
   const hasPlanSelectionPending = planSelectionPending === true;
   const canSendPrompt = canSendWorkspaceChatComposerPrompt({
     hasPlanSelectionPending,
-    hasPrompt,
+    hasContent: hasPrompt || hasAttachments,
+    visualInputBlocked,
   });
   const isOnlineMode = isOnline === true;
   const isOfflineMode = isOnlineMode === false;
@@ -2578,6 +2609,7 @@ export function WorkspaceChatComposer({
   });
   const shouldRenderModelColumn = shouldRenderWorkspaceChatComposerModelColumn(modelNodes);
   const hasAttachmentPickerEmpty = chatAttachmentSnapshot.status === 'picker_empty';
+  const hasAttachmentRejected = chatAttachmentSnapshot.status === 'rejected';
   const hasModePlanning = chatModeSnapshot.status === 'planning';
   const hasModeGenerating = chatModeSnapshot.status === 'generating';
   const hasBusyModeSnapshot = hasWorkspaceChatBusyModeSnapshot(hasModePlanning, hasModeGenerating);
@@ -2612,6 +2644,7 @@ export function WorkspaceChatComposer({
     { active: hasBusyInputSnapshot, tone: 'warning' },
     { active: hasModelLoading, tone: 'warning' },
     { active: hasModelEmpty, tone: 'warning', autoOpen: true },
+    { active: hasAttachmentRejected, tone: 'danger', autoOpen: true },
     { active: hasAttachmentPickerEmpty, tone: 'warning', autoOpen: true },
     { active: hasBusyModeSnapshot, tone: 'warning' },
   ]);
@@ -2731,6 +2764,16 @@ export function WorkspaceChatComposer({
           })}
         </div>
       )}
+      {hasAttachmentRejected === true && (
+        <p role="alert" className="mb-2 text-xs text-destructive">
+          {chatAttachmentSnapshot.message}
+        </p>
+      )}
+      {visualInputBlocked === true && (
+        <p role="alert" className="mb-2 text-xs text-amber-700 dark:text-amber-300">
+          当前模型不支持图片输入。请选择标记为支持视觉的模型后再发送。
+        </p>
+      )}
       <AlertDialog open={pendingAttachmentRemovalIndex !== null} onOpenChange={closeAttachmentRemovalConfirmation}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -2769,6 +2812,7 @@ export function WorkspaceChatComposer({
             adjustTextareaHeight();
           }}
           onKeyDown={handleKeyDown}
+          onPaste={handleImagePaste}
           className={textareaClassName}
           rows={3}
         />
@@ -2812,7 +2856,7 @@ export function WorkspaceChatComposer({
 
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button data-testid="workspace-chat-model-trigger" variant="ghost" size="icon" className="h-8 w-8">
                 <Cpu className="w-4 h-4" />
               </Button>
             </PopoverTrigger>
@@ -2852,7 +2896,7 @@ export function WorkspaceChatComposer({
           </Button>
 
           <label>
-            <input type="file" multiple className="hidden" onChange={handleFileUpload} />
+            <input data-testid="workspace-chat-image-input" type="file" accept="image/png,image/jpeg" multiple className="hidden" onChange={handleFileUpload} />
             <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer" title={uploadButtonTitle} asChild>
               <span><Upload className="w-4 h-4" /></span>
             </Button>
@@ -2877,6 +2921,7 @@ export function WorkspaceChatComposer({
         )}
         {shouldRenderSendAction === true && (
           <Button
+            data-testid="workspace-chat-send"
             onClick={handleGenerate}
             disabled={canSendPrompt === false}
             size="sm"

@@ -71,6 +71,7 @@ func (s *GeneratorService) generateDiscussion(ctx context.Context, req *Generate
 			"不要开始实现，不要输出代码文件，不要假定用户已经确认方案。" + "\n\n" +
 			"候选方案上下文如下：" + "\n" + strings.TrimSpace(req.PlanContext)
 	}
+	systemPrompt = appendVisualContextPrompt(systemPrompt, req.VisualContext)
 
 	messages := []llm.Message{
 		{Role: "system", Content: systemPrompt},
@@ -102,11 +103,13 @@ func (s *GeneratorService) generateDiscussion(ctx context.Context, req *Generate
 
 	if s.chatRepo != nil && req.ProjectID != "" && strings.TrimSpace(req.Prompt) != "" {
 		_ = s.chatRepo.Create(ctx, &model.ChatMessage{
-			ProjectID: req.ProjectID,
-			UserID:    req.UserID,
-			Role:      "user",
-			Content:   req.Prompt,
-			Model:     modelName,
+			ProjectID:         req.ProjectID,
+			UserID:            req.UserID,
+			Role:              "user",
+			Content:           req.Prompt,
+			VisualAttachments: marshalVisualAttachmentsSnapshot(req.VisualAttachments),
+			VisualContext:     marshalVisualContextSnapshot(req.VisualContext),
+			Model:             modelName,
 		})
 	}
 
@@ -174,11 +177,12 @@ func (s *GeneratorService) generateDiscussion(ctx context.Context, req *Generate
 		}
 		if s.chatRepo != nil && req.ProjectID != "" {
 			_ = s.chatRepo.Create(ctx, &model.ChatMessage{
-				ProjectID: req.ProjectID,
-				UserID:    req.UserID,
-				Role:      "assistant",
-				Content:   "探讨失败: " + streamErr.Error(),
-				Model:     usedModel,
+				ProjectID:     req.ProjectID,
+				UserID:        req.UserID,
+				Role:          "assistant",
+				Content:       "探讨失败: " + streamErr.Error(),
+				VisualContext: marshalVisualContextSnapshot(req.VisualContext),
+				Model:         usedModel,
 			})
 		}
 		return handler(StreamEventError, map[string]interface{}{
@@ -190,11 +194,12 @@ func (s *GeneratorService) generateDiscussion(ctx context.Context, req *Generate
 	assistantContent := strings.TrimSpace(fullContent.String())
 	if assistantContent != "" && s.chatRepo != nil && req.ProjectID != "" {
 		_ = s.chatRepo.Create(ctx, &model.ChatMessage{
-			ProjectID: req.ProjectID,
-			UserID:    req.UserID,
-			Role:      "assistant",
-			Content:   assistantContent,
-			Model:     usedModel,
+			ProjectID:     req.ProjectID,
+			UserID:        req.UserID,
+			Role:          "assistant",
+			Content:       assistantContent,
+			VisualContext: marshalVisualContextSnapshot(req.VisualContext),
+			Model:         usedModel,
 		})
 	}
 

@@ -18,7 +18,7 @@
 
 当前阶段的最高优先级是：
 
-**先补齐生成项目质量闭环和持久任务恢复，再扩展企业治理与生态功能。**
+**沿已稳定的生成质量闭环继续建设差异化输入与协作能力。**
 
 本文件是公开仓库唯一的 roadmap 真源。内部开发仍可维护更细的任务流水，
 但公开状态与优先级必须同步回本文件。
@@ -26,9 +26,10 @@
 因此，当前主线顺序调整为：
 
 1. `LT-02R` R1-R7 已完成并通过 Production Gate：生成真实性、项目 Gate、patch/repair、持久 Job/SSE、浏览器 benchmark、平台集成与 Contributor Alpha 仓库门禁均已落地
-2. GitHub remote、required Actions checks 与 branch protection 已启用；发布 v1.0.0 后继续通过受控 pull request 接受社区贡献
-3. 恢复 `LT-08` 企业级治理真实能力主线，禁止继续以 readiness-only 目录冒充真实完成
-4. 多部署 Provider 真实云端 lifecycle 与首个存量升级 tag 的 migration runner 按既定边界集中验收
+2. `VIS-001` 已完成：截图/参考图经真实多模态模型提取 `visual_context.v1`，并贯穿方案、消息、持久 Job、SSE 恢复和代码生成
+3. 下一条差异化主线为 `COLLAB-001` 共享工作区协作，范围应建立在现有 owner/editor/viewer 权限与审计边界上
+4. GitHub remote、required Actions checks 与 branch protection 已启用；v1.0.0 后继续通过受控 pull request 接受社区贡献
+5. 多部署 Provider 真实云端 lifecycle 与首个存量升级 tag 的 migration runner 按既定边界集中验收
 
 `LT-02R` 是对 LT-02 / LT-03 / LT-06 的返修，不新增 `LT-09`，也不改变原 8 个产品阶段编号。
 
@@ -134,6 +135,8 @@ Deploy、自定义域名、协作和模板不再永久冻结，但只能在 `LT-
 范围：
 
 - Project Foundation Stage / Foundation Artifacts / Foundation Gate
+- VIS-001 visual context：图片上传/粘贴、vision capability 门禁、结构化分析与生成约束（Done）
+- COLLAB-001 shared workspace collaboration（Next）
 - Task Orchestration Layer
 - Engineering State Layer
 - Execution Transparency Layer

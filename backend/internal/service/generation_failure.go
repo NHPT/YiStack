@@ -84,6 +84,9 @@ func (e *GenerationFailureError) Unwrap() error {
 
 // GenerationFailureCode 读取结构化生成失败的稳定原因码。
 func GenerationFailureCode(err error) string {
+	if code := VisualContextErrorCode(err); code != "" {
+		return code
+	}
 	var failure *GenerationFailureError
 	if errors.As(err, &failure) {
 		return strings.TrimSpace(failure.Code)

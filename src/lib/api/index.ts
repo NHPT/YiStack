@@ -6,6 +6,7 @@ import {
   readUserAuthTokenStorage,
 } from '@/lib/auth-storage';
 import type { AIModelName, AIModelProviderConnectionTestMessage, AIModelProviderConnectionTestStatus, AIModelProvider, AIModelProviderType, ChatMessageRole, GitBranch, GitBranchCompare, GitBranchCompareFileApplyResult, GitBranchCreateFromRemoteResult, GitBranchCreateResult, GitBranchDeleteResult, GitBranchRenameResult, GitBranchSwitchReadiness, GitBranchSwitchResult, GitCommit, GitCommitFileRestoreResult, GitRemote, GitRemoteBranch, GitRemoteBranchRefreshResult, GitStash, GitStashApplyResult, GitStashCreateResult, GitTag, GitTagCreateResult, GitTagDeleteResult, GitWorktreeCommitResult, GitWorktreeFileDiscardResult, GitWorktreeStatus, ProjectBackupListResult, ProjectBackupPolicyReadiness, ProjectBackupRemoteDownloadResult, ProjectBackupRemoteInventoryResult, ProjectBackupRemoteRestoreResult, ProjectBackupRemoteStorageReadiness, ProjectBackupRemoteUploadResult, ProjectBackupRestorePreflightResult, ProjectBackupRestoreResult, ProjectBackupResult, ProjectContainerStatusPersistenceStatus, ProjectContainerStopContainerStatus, ProjectContainerStopStatus, ProjectResourceAlertEnforcementExecuteResult, ProjectResourceAlertEnforcementReadiness, ProjectResourceAlertEvaluationPreview, ProjectResourceAlertEventCreateResult, ProjectResourceAlertEventListResult, ProjectResourceAlertEventStatus, ProjectResourceAlertNotificationReadiness, ProjectResourceAlertNotificationSendResult, ProjectResourceAlertReadiness, ProjectResourceSnapshotResult, ProjectRestoreMutationStatus, ProjectRuntimeContainerStatus, ProjectRuntimeError, ProjectRuntimeLifecycleStatus, ProjectRuntimeMessage, ProjectRuntimePhase, ProjectRuntimeSpecHash, ProjectRuntimeStatusPersistenceStatus } from '@/lib/types';
+import type { VisualAttachmentInput, VisualContext } from '@/lib/visual-context';
 import type { WorkspaceBackendWorkflowStage, WorkspaceWorkflowMode } from '@/lib/workspace/workflow-contract';
 
 // 使用环境变量或服务端地址（沙箱环境使用服务端域名）
@@ -596,6 +597,8 @@ export interface ProjectMessage {
   role: ChatMessageRole;
   content: string;
   model?: AIModelName;
+  visual_attachments?: string;
+  visual_context?: string;
   created_at?: string;
 }
 
@@ -647,6 +650,7 @@ export interface Plan {
   est_files: number;
   features: PlanFeatureList;
   reasoning: string;
+  visual_context?: VisualContext;
 }
 
 export interface ChatGenerateRequest {
@@ -662,6 +666,8 @@ export interface ChatGenerateRequest {
   capability_profile?: string;
   plan_context?: string;
   idempotency_key?: string;
+  visual_attachments?: VisualAttachmentInput[];
+  visual_context?: VisualContext;
 }
 
 export interface ProjectListResponse {
@@ -1471,6 +1477,8 @@ export const projectApi = {
     provider?: AIModelProvider;
     user_feedback?: string;
     current_plans?: Plan[];
+    visual_attachments?: VisualAttachmentInput[];
+    visual_context?: VisualContext;
   }): Promise<Plan[]> => {
     return request<Plan[]>('/project/plans', {
       method: 'POST',
@@ -1487,6 +1495,8 @@ export const projectApi = {
     provider?: AIModelProvider;
     user_feedback?: string;
     current_plans?: Plan[];
+    visual_attachments?: VisualAttachmentInput[];
+    visual_context?: VisualContext;
   }, signal?: AbortSignal): Promise<Response> => {
     return requestStream('/project/plans', {
       method: 'POST',

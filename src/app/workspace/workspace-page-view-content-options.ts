@@ -1,5 +1,6 @@
 import type {
   ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   RefObject,
@@ -110,6 +111,7 @@ export type WorkspacePageViewContentUiState = {
   copyToClipboard: (text: string) => Promise<void>;
   exportProject: () => void;
   handleFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  handleImagePaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   removeAttachment: (index: number) => void;
   filteredTree: FileNode[];
   hasOriginalFileTreeData: boolean;
@@ -317,6 +319,7 @@ export function buildWorkspacePageContentOptions({
     handleKeyDown: uiState.handleKeyDown,
     removeAttachment: uiState.removeAttachment,
     handleFileUpload: uiState.handleFileUpload,
+    handleImagePaste: uiState.handleImagePaste,
     handleStopGenerate: actions.handleStopGenerate,
     handleCancelStopGenerate: actions.handleCancelStopGenerate,
     handleGenerate: async () => {

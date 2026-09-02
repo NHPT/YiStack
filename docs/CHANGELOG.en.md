@@ -14,7 +14,15 @@ starting with v1.0.0.
 
 ## [Unreleased]
 
-No public changes yet.
+### Added
+
+- VIS-001 visual context loop: chat accepts pasted or uploaded PNG/JPEG references, and only models declaring the `vision` capability may receive images.
+- The backend validates MIME type, size, dimensions, pixel count, and actual decoding before re-encoding images; multimodal analysis must return strict `visual_context.v1`.
+- Visual context is bound to messages, candidate plans, and durable Generation Jobs, survives live SSE and refresh replay, and constrains layout, components, color, typography, spacing, responsive behavior, and interactions during planning and generation.
+
+### Security
+
+- Visual context carries a server-issued HMAC integrity proof. Clients cannot forge analysis results by changing both the request and project `plan_data`, while valid context remains reusable across discussion and replanning.
 
 ## [1.0.0] - 2026-09-01
 

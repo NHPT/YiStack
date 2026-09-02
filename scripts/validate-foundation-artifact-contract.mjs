@@ -188,9 +188,9 @@ assertIncludes(
   'service.BuildFoundationDesignReadinessPromptSummary(content)',
   'Plan orchestrator should reuse the Foundation design readiness prompt summary',
 );
-assertIncludes(
+assert.match(
   planServiceSource,
-  'FoundationContext string',
+  /FoundationContext\s+string\s+`json:"foundation_context"`/,
   'Plan service request should carry Foundation context explicitly',
 );
 assertIncludes(

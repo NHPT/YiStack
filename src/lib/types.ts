@@ -70,6 +70,11 @@ export interface FileAttachment {
   name: string;
   size: number;
   type: string;
+  dataUrl?: string;
+  sha256?: string;
+  width?: number;
+  height?: number;
+  visualContextId?: string;
 }
 
 export type GitCommitBranchName = string;

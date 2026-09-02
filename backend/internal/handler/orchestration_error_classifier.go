@@ -6,6 +6,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
 	"yistack/internal/orchestration"
+	"yistack/internal/service"
 )
 
 func classifyGenerateOrchestrationError(err error) (int, map[string]interface{}, bool) {
@@ -33,6 +34,26 @@ func classifyGenerateOrchestrationError(err error) (int, map[string]interface{},
 	case errors.Is(err, orchestration.ErrGenerateOrchestrationUnavailable):
 		return consts.StatusServiceUnavailable, map[string]interface{}{
 			"error": "代码生成服务未初始化",
+		}, true
+	case service.VisualContextErrorCode(err) == service.VisualContextErrorInvalidInput:
+		return consts.StatusBadRequest, map[string]interface{}{
+			"code": service.VisualContextErrorInvalidInput, "blocking": true, "error": err.Error(),
+		}, true
+	case service.VisualContextErrorCode(err) == service.VisualContextErrorUnsupportedModel:
+		return consts.StatusUnprocessableEntity, map[string]interface{}{
+			"code": service.VisualContextErrorUnsupportedModel, "blocking": true, "error": err.Error(),
+		}, true
+	case service.VisualContextErrorCode(err) == service.VisualContextErrorProviderUnavailable:
+		return consts.StatusServiceUnavailable, map[string]interface{}{
+			"code": service.VisualContextErrorProviderUnavailable, "blocking": true, "error": err.Error(),
+		}, true
+	case service.VisualContextErrorCode(err) == service.VisualContextErrorContractInvalid:
+		return consts.StatusUnprocessableEntity, map[string]interface{}{
+			"code": service.VisualContextErrorContractInvalid, "blocking": true, "error": err.Error(),
+		}, true
+	case service.VisualContextErrorCode(err) == service.VisualContextErrorAnalysisFailed:
+		return consts.StatusBadGateway, map[string]interface{}{
+			"code": service.VisualContextErrorAnalysisFailed, "blocking": true, "error": err.Error(),
 		}, true
 	default:
 		return 0, nil, false

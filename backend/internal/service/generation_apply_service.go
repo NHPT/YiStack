@@ -727,11 +727,12 @@ func (s *GeneratorService) persistAssistantGenerationMessage(ctx context.Context
 	}
 
 	_ = s.chatRepo.Create(ctx, &model.ChatMessage{
-		ProjectID: req.ProjectID,
-		UserID:    req.UserID,
-		Role:      "assistant",
-		Content:   assistantContent,
-		Model:     modelName,
+		ProjectID:     req.ProjectID,
+		UserID:        req.UserID,
+		Role:          "assistant",
+		Content:       assistantContent,
+		VisualContext: marshalVisualContextSnapshot(req.VisualContext),
+		Model:         modelName,
 	})
 }
 
@@ -756,11 +757,12 @@ func (s *GeneratorService) persistAssistantDraftMessage(req *GenerateRequest, mo
 	defer cancel()
 
 	_ = s.chatRepo.Create(persistCtx, &model.ChatMessage{
-		ProjectID: req.ProjectID,
-		UserID:    req.UserID,
-		Role:      "assistant",
-		Content:   draftContent,
-		Model:     modelName,
+		ProjectID:     req.ProjectID,
+		UserID:        req.UserID,
+		Role:          "assistant",
+		Content:       draftContent,
+		VisualContext: marshalVisualContextSnapshot(req.VisualContext),
+		Model:         modelName,
 	})
 }
 
@@ -778,11 +780,12 @@ func (s *GeneratorService) failGeneration(ctx context.Context, req *GenerateRequ
 	}
 	if s.chatRepo != nil && req.ProjectID != "" {
 		_ = s.chatRepo.Create(ctx, &model.ChatMessage{
-			ProjectID: req.ProjectID,
-			UserID:    req.UserID,
-			Role:      "assistant",
-			Content:   "生成失败: " + err.Error(),
-			Model:     modelName,
+			ProjectID:     req.ProjectID,
+			UserID:        req.UserID,
+			Role:          "assistant",
+			Content:       "生成失败: " + err.Error(),
+			VisualContext: marshalVisualContextSnapshot(req.VisualContext),
+			Model:         modelName,
 		})
 	}
 	_ = handler(StreamEventError, map[string]interface{}{"error": err.Error()})

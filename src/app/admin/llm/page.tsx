@@ -9,6 +9,7 @@ import {
   type AdminLLMProviderConnectionTestResponse,
   type LLMProvider,
   type LLMProviderCreate,
+  type LLMProviderModel,
   type LLMProviderModelDiscoveryResult,
 } from '@/lib/admin/api';
 import { formatAdminOperationFailure } from '@/lib/admin/admin-operation-errors';
@@ -61,6 +62,7 @@ type AdminLLMProviderConnectionTestView = {
 
 type AdminLLMProviderForm = LLMProviderCreate & {
   models_text: string;
+  vision_model_ids: string[];
 };
 
 function getAdminLLMProviderDisplayLabel(value: string | null | undefined, fallback: string): string {
@@ -82,27 +84,130 @@ function getAdminLLMProviderModelsText(provider: LLMProvider): string {
   return values.join('\n');
 }
 
-function materializeAdminLLMProviderModelPayload(modelsText: string): NonNullable<LLMProviderCreate['models']> {
-  const rawLines = modelsText.split(/\r?\n/);
-  const models: NonNullable<LLMProviderCreate['models']> = [];
+function getAdminLLMProviderModelIds(modelsText: string): string[] {
+  const modelIds: string[] = [];
   const seen = new Set<string>();
-  for (const rawLine of rawLines) {
+  for (const rawLine of modelsText.split(/\r?\n/)) {
     const modelId = rawLine.trim();
-    if (modelId.length === 0 || seen.has(modelId)) {
-      continue;
-    }
+    if (modelId.length === 0 || seen.has(modelId)) continue;
     seen.add(modelId);
+    modelIds.push(modelId);
+  }
+  return modelIds;
+}
+
+function hasAdminLLMProviderVisionCapability(capabilityTags: string | undefined): boolean {
+  for (const rawTag of capabilityTags?.split(',') ?? []) {
+    if (rawTag.trim().toLowerCase() === 'vision') return true;
+  }
+  return false;
+}
+
+function getAdminLLMProviderVisionModelIds(models: LLMProvider['models']): string[] {
+  if (Array.isArray(models) === false) return [];
+  const modelIds: string[] = [];
+  for (const model of models) {
+    if (hasAdminLLMProviderVisionCapability(model.capability_tags)) modelIds.push(model.model_id);
+  }
+  return modelIds;
+}
+
+function getAdminLLMProviderModelCapabilityTags(
+  modelId: string,
+  visionModelIds: ReadonlySet<string>,
+  existingModels: LLMProvider['models'],
+): string {
+  const tags = new Set<string>();
+  if (Array.isArray(existingModels) === true) {
+    let existingModel: LLMProviderModel | undefined;
+    for (const model of existingModels) {
+      if (model.model_id === modelId) {
+        existingModel = model;
+        break;
+      }
+    }
+    for (const rawTag of existingModel?.capability_tags?.split(',') ?? []) {
+      const tag = rawTag.trim().toLowerCase();
+      if (tag.length > 0) tags.add(tag);
+    }
+  }
+  if (tags.size === 0) {
+    tags.add('chat');
+    tags.add('reasoning');
+    tags.add('coding');
+  }
+  if (visionModelIds.has(modelId)) {
+    tags.add('vision');
+  } else {
+    tags.delete('vision');
+  }
+  return Array.from(tags).join(',');
+}
+
+function materializeAdminLLMProviderModelPayload(
+  modelsText: string,
+  visionModelIds: readonly string[] = [],
+  existingModels?: LLMProvider['models'],
+): NonNullable<LLMProviderCreate['models']> {
+  const modelIds = getAdminLLMProviderModelIds(modelsText);
+  const visionModels = new Set(visionModelIds);
+  const models: NonNullable<LLMProviderCreate['models']> = [];
+  for (const modelId of modelIds) {
     models.push({
       model_id: modelId,
       display_name: modelId,
       enabled: true,
       is_default: models.length === 0,
-      capability_tags: 'chat,reasoning,coding',
+      capability_tags: getAdminLLMProviderModelCapabilityTags(modelId, visionModels, existingModels),
       default_for: 'chat,foundation,plan,implement,repair',
       sort_order: models.length + 1,
     });
   }
   return models;
+}
+
+function updateAdminLLMProviderVisionModelIds(
+  modelIds: readonly string[],
+  modelId: string,
+  enabled: boolean,
+): string[] {
+  const nextModelIds: string[] = [];
+  let hasTargetModel = false;
+  for (const currentModelId of modelIds) {
+    if (currentModelId === modelId) {
+      hasTargetModel = true;
+      if (enabled === false) continue;
+    }
+    nextModelIds.push(currentModelId);
+  }
+  if (enabled === true && hasTargetModel === false) nextModelIds.push(modelId);
+  return nextModelIds;
+}
+
+function materializeAdminLLMProviderVisionCapabilityNodes({
+  modelIds,
+  visionModelIds,
+  onChange,
+}: {
+  modelIds: readonly string[];
+  visionModelIds: readonly string[];
+  onChange: (modelId: string, enabled: boolean) => void;
+}): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  for (const modelId of modelIds) {
+    nodes.push(
+      <label key={modelId} className="flex min-w-0 cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <input
+          type="checkbox"
+          checked={visionModelIds.includes(modelId)}
+          onChange={(event) => onChange(modelId, event.target.checked)}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+        <span className="truncate font-mono" title={modelId}>{modelId}</span>
+      </label>,
+    );
+  }
+  return nodes;
 }
 
 function getAdminLLMProviderDefaultModelFromText(modelsText: string, fallback: string): string {
@@ -644,6 +749,7 @@ export default function LLMManagementPage() {
     base_url: '',
     model: '',
     models_text: '',
+    vision_model_ids: [],
     enabled: false,
     is_default: false,
     priority: 0,
@@ -693,6 +799,7 @@ export default function LLMManagementPage() {
       base_url: '',
       model: '',
       models_text: '',
+      vision_model_ids: [],
       enabled: false,
       is_default: false,
       priority: 0,
@@ -718,6 +825,7 @@ export default function LLMManagementPage() {
       base_url: provider.base_url,
       model: provider.model,
       models_text: getAdminLLMProviderModelsText(provider),
+      vision_model_ids: getAdminLLMProviderVisionModelIds(provider.models),
       enabled: provider.enabled,
       is_default: provider.is_default,
       priority: provider.priority,
@@ -790,6 +898,19 @@ export default function LLMManagementPage() {
   const saveActionLabel = getAdminLLMProviderSaveActionLabel(saving);
   const runtimeMutationActionLabel = getAdminLLMProviderRuntimeMutationActionLabel(isMutatingProvider);
   const deleteActionLabel = getAdminLLMProviderDeleteActionLabel(isDeletingProvider);
+  const visionCapabilityNodes = materializeAdminLLMProviderVisionCapabilityNodes({
+    modelIds: getAdminLLMProviderModelIds(form.models_text),
+    visionModelIds: form.vision_model_ids,
+    onChange: (modelId, enabled) => setForm((currentForm) => ({
+      ...currentForm,
+      vision_model_ids: updateAdminLLMProviderVisionModelIds(
+        currentForm.vision_model_ids,
+        modelId,
+        enabled,
+      ),
+    })),
+  });
+  const shouldRenderVisionCapabilityNodes = visionCapabilityNodes.length > 0;
 
   const handleReloadProviders = useCallback(async () => {
     setReloading(true);
@@ -816,13 +937,18 @@ export default function LLMManagementPage() {
     setError('');
     setSaveConfirmationError('');
     try {
-      const modelPayload = materializeAdminLLMProviderModelPayload(form.models_text);
+      const modelPayload = materializeAdminLLMProviderModelPayload(
+        form.models_text,
+        form.vision_model_ids,
+        editingProvider?.models,
+      );
       const savePayload: LLMProviderCreate = {
         ...form,
         model: getAdminLLMProviderDefaultModelFromText(form.models_text, ''),
         models: modelPayload,
       };
       delete (savePayload as Partial<AdminLLMProviderForm>).models_text;
+      delete (savePayload as Partial<AdminLLMProviderForm>).vision_model_ids;
       if (editingProvider !== null) {
         await adminLLMApi.updateProvider(editingProvider.id, savePayload);
       } else {
@@ -853,6 +979,7 @@ export default function LLMManagementPage() {
         ...form,
         model: discoveredDefaultModel,
         models_text: discoveredModels,
+        vision_model_ids: getAdminLLMProviderVisionModelIds(result.models),
       });
       setProviders((previousProviders) => materializeAdminLLMProviderListAfterModelDiscovery(
         previousProviders,
@@ -1192,6 +1319,14 @@ export default function LLMManagementPage() {
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Provider 保存连接信息；这里配置该 Provider 下可选模型。第一行作为默认模型，可在 Workspace 下拉中分别选择。
                   </p>
+                  {shouldRenderVisionCapabilityNodes === true && (
+                    <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                      <div className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">图片输入能力</div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {visionCapabilityNodes}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-6">

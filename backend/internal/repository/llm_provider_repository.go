@@ -139,15 +139,16 @@ func (r *LLMProviderRepository) ListDBProviders(ctx context.Context) ([]llm.DBPr
 				displayName = modelID
 			}
 			result = append(result, llm.DBProviderRecord{
-				Name:         p.Name + "::" + modelID,
-				ProviderID:   p.ID,
-				ProviderName: p.Name,
-				DisplayName:  strings.TrimSpace(p.DisplayName) + " / " + displayName,
-				APIKey:       p.APIKey,
-				BaseURL:      p.BaseURL,
-				Model:        modelID,
-				IsDefault:    p.IsDefault && item.IsDefault,
-				Type:         p.Type,
+				Name:           p.Name + "::" + modelID,
+				ProviderID:     p.ID,
+				ProviderName:   p.Name,
+				DisplayName:    strings.TrimSpace(p.DisplayName) + " / " + displayName,
+				APIKey:         p.APIKey,
+				BaseURL:        p.BaseURL,
+				Model:          modelID,
+				IsDefault:      p.IsDefault && item.IsDefault,
+				Type:           p.Type,
+				CapabilityTags: item.CapabilityTags,
 			})
 		}
 	}

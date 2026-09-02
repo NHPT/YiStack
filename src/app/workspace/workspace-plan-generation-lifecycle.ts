@@ -368,6 +368,8 @@ export function preparePlanGenerationRequest(
     selectedModel,
     requestDescription: projectInfo.description,
     userFeedback,
+    visualAttachments: options?.visualAttachments,
+    visualContext: options?.visualContext,
   };
 }
 

@@ -1,5 +1,6 @@
 import type {
   ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
   RefObject,
@@ -22,11 +23,17 @@ import type {
   WorkspaceEditorNavigationTarget,
 } from './workspace-types';
 
-export type WorkspaceChatAttachment = { name: string; size: number };
+export type WorkspaceChatAttachment = {
+  name: string;
+  size: number;
+  type: 'image/png' | 'image/jpeg';
+  dataUrl: string;
+};
 export type WorkspaceChatModelOption = { id: string; name: string } & {
   providerId: string;
   providerName: string;
   modelName: string;
+  supportsVision: boolean;
 };
 export type WorkspaceChatMessageList = WorkspaceChatMessage[];
 export type WorkspacePlanCountdownValue = number;
@@ -38,6 +45,7 @@ export type WorkspaceChatMessagesEndRef = RefObject<HTMLDivElement | null>;
 export type WorkspaceChatAutoScrollStateUpdateAction = (element: HTMLDivElement) => void;
 export type WorkspaceChatAdjustTextareaHeightAction = () => void;
 export type WorkspaceChatKeyDownAction = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
+export type WorkspaceChatImagePasteAction = (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
 export type WorkspaceChatRemoveAttachmentAction = (index: number) => void;
 export type WorkspaceChatFileUploadAction = (event: ChangeEvent<HTMLInputElement>) => void;
 export type WorkspaceChatStopGenerateAction = () => void;
@@ -95,6 +103,7 @@ export type WorkspaceChatComposerProps = {
   setInput: (value: string) => void;
   adjustTextareaHeight: WorkspaceChatAdjustTextareaHeightAction;
   handleKeyDown: WorkspaceChatKeyDownAction;
+  handleImagePaste: WorkspaceChatImagePasteAction;
   removeAttachment: WorkspaceChatRemoveAttachmentAction;
   setChatMode: (mode: ChatMode) => void;
   setSelectedModel: (modelId: string) => void;

@@ -25,6 +25,12 @@ func (o *GenerateOrchestrator) StartGenerationJob(ctx context.Context, command G
 	if err := ensureOwnedProjectAccess(ctx, o.projectService, command.UserID, command.ProjectID); err != nil {
 		return nil, err
 	}
+	if err := prepareGenerateCommandVisualAttachments(&command); err != nil {
+		return nil, err
+	}
+	if err := prepareGenerateCommandVisualContext(ctx, o.generatorService, &command); err != nil {
+		return nil, err
+	}
 	requestPayload, err := json.Marshal(command)
 	if err != nil {
 		return nil, err

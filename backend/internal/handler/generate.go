@@ -35,6 +35,8 @@ type GenerateRequest struct {
 	AppType           string                                  `json:"app_type"`
 	ProjectName       string                                  `json:"project_name"`
 	Mode              string                                  `json:"mode"`
+	VisualAttachments []model.VisualAttachmentInput           `json:"visual_attachments"`
+	VisualContext     *model.VisualContext                    `json:"visual_context,omitempty"`
 	Online            bool                                    `json:"online"`
 	CapabilityProfile string                                  `json:"capability_profile"`
 	Provider          string                                  `json:"provider"`

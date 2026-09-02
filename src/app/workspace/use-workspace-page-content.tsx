@@ -18,6 +18,7 @@ import type {
   WorkspaceChatAskQuestionAction,
   WorkspaceChatCancelStopGenerateAction,
   WorkspaceChatFileUploadAction,
+  WorkspaceChatImagePasteAction,
   WorkspaceChatKeyDownAction,
   WorkspaceChatMessageList,
   WorkspaceChatMessagesContainerRef,
@@ -182,6 +183,7 @@ export type UseWorkspacePageContentOptions = {
   handleKeyDown: WorkspaceChatKeyDownAction;
   removeAttachment: WorkspaceChatRemoveAttachmentAction;
   handleFileUpload: WorkspaceChatFileUploadAction;
+  handleImagePaste: WorkspaceChatImagePasteAction;
   handleStopGenerate: WorkspaceChatStopGenerateAction;
   handleCancelStopGenerate: WorkspaceChatCancelStopGenerateAction;
   handleGenerate: () => Promise<void>;
@@ -326,6 +328,7 @@ export function useWorkspacePageContent({
   handleKeyDown,
   removeAttachment,
   handleFileUpload,
+  handleImagePaste,
   handleStopGenerate,
   handleCancelStopGenerate,
   handleGenerate,
@@ -506,6 +509,7 @@ export function useWorkspacePageContent({
       handleKeyDown,
       removeAttachment,
       handleFileUpload,
+      handleImagePaste,
       handleStopGenerate,
       handleCancelStopGenerate,
       handleGenerate,
@@ -561,6 +565,7 @@ export function useWorkspacePageContent({
         handleKeyDown,
         removeAttachment,
         handleFileUpload,
+        handleImagePaste,
         handleStopGenerate,
         handleCancelStopGenerate,
         handleGenerate,

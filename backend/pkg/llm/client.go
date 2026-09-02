@@ -23,15 +23,16 @@ const (
 
 // DBProviderRecord 数据库中的 LLM 提供商记录（避免循环依赖 internal/model）
 type DBProviderRecord struct {
-	Name         string
-	ProviderID   int64
-	ProviderName string
-	DisplayName  string
-	APIKey       string
-	BaseURL      string
-	Model        string
-	IsDefault    bool
-	Type         string // cloud 或 local
+	Name           string
+	ProviderID     int64
+	ProviderName   string
+	DisplayName    string
+	APIKey         string
+	BaseURL        string
+	Model          string
+	IsDefault      bool
+	Type           string // cloud 或 local
+	CapabilityTags string
 }
 
 // DBProviderRepo 数据库提供商仓储接口（避免循环依赖）
@@ -41,18 +42,77 @@ type DBProviderRepo interface {
 
 // ProviderInfo 提供商详细信息（用于 API 返回）
 type ProviderInfo struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-	Type        string `json:"type"`
-	Model       string `json:"model"`
-	IsDefault   bool   `json:"is_default"`
-	Enabled     bool   `json:"enabled"`
+	Name           string `json:"name"`
+	DisplayName    string `json:"display_name"`
+	Type           string `json:"type"`
+	Model          string `json:"model"`
+	CapabilityTags string `json:"capability_tags,omitempty"`
+	IsDefault      bool   `json:"is_default"`
+	Enabled        bool   `json:"enabled"`
+}
+
+// MessageImageURL describes an OpenAI-compatible image input.
+type MessageImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// MessageContentPart is one text or image segment in a multimodal message.
+type MessageContentPart struct {
+	Type     string           `json:"type"`
+	Text     string           `json:"text,omitempty"`
+	ImageURL *MessageImageURL `json:"image_url,omitempty"`
 }
 
 // Message 聊天消息
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string               `json:"role"`
+	Content string               `json:"-"`
+	Parts   []MessageContentPart `json:"-"`
+}
+
+func (m Message) MarshalJSON() ([]byte, error) {
+	content := any(m.Content)
+	if len(m.Parts) > 0 {
+		content = m.Parts
+	}
+	return json.Marshal(struct {
+		Role    string `json:"role"`
+		Content any    `json:"content"`
+	}{
+		Role:    m.Role,
+		Content: content,
+	})
+}
+
+func (m *Message) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	m.Role = wire.Role
+	m.Content = ""
+	m.Parts = nil
+	if len(wire.Content) == 0 || string(wire.Content) == "null" {
+		return nil
+	}
+	if err := json.Unmarshal(wire.Content, &m.Content); err == nil {
+		return nil
+	}
+	if err := json.Unmarshal(wire.Content, &m.Parts); err != nil {
+		return err
+	}
+	var text strings.Builder
+	for _, part := range m.Parts {
+		if part.Type == "text" {
+			text.WriteString(part.Text)
+		}
+	}
+	m.Content = text.String()
+	return nil
 }
 
 // ChatRequest 聊天请求
@@ -469,16 +529,17 @@ type ProviderManager struct {
 
 // ProviderConfig 提供商配置
 type ProviderConfig struct {
-	ProviderID   int64
-	BaseURL      string
-	APIKey       string
-	Model        string
-	DisplayName  string
-	ProviderName string
-	Type         string // cloud 或 local
-	Temperature  float64
-	MaxTokens    int
-	Timeout      int
+	ProviderID     int64
+	BaseURL        string
+	APIKey         string
+	Model          string
+	DisplayName    string
+	ProviderName   string
+	Type           string // cloud 或 local
+	CapabilityTags string
+	Temperature    float64
+	MaxTokens      int
+	Timeout        int
 }
 
 // NewProviderManager 创建提供商管理器
@@ -571,12 +632,13 @@ func (m *ProviderManager) ListProvidersDetailed() []ProviderInfo {
 	infos := make([]ProviderInfo, 0, len(m.providers))
 	for name, cfg := range m.configs {
 		infos = append(infos, ProviderInfo{
-			Name:        name,
-			DisplayName: cfg.DisplayName,
-			Type:        cfg.Type,
-			Model:       cfg.Model,
-			IsDefault:   m.current == name,
-			Enabled:     true,
+			Name:           name,
+			DisplayName:    cfg.DisplayName,
+			Type:           cfg.Type,
+			Model:          cfg.Model,
+			CapabilityTags: cfg.CapabilityTags,
+			IsDefault:      m.current == name,
+			Enabled:        true,
 		})
 	}
 	return infos
@@ -586,7 +648,31 @@ func (m *ProviderManager) ListProvidersDetailed() []ProviderInfo {
 func (m *ProviderManager) GetConfig(name string) *ProviderConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.configs[name]
+
+	config := m.configs[name]
+	if config == nil {
+		return nil
+	}
+	copied := *config
+	return &copied
+}
+
+// SupportsCapability 判断指定运行时模型是否声明了目标能力。
+func (m *ProviderManager) SupportsCapability(name, capability string) bool {
+	config := m.GetConfig(strings.TrimSpace(name))
+	if config == nil {
+		return false
+	}
+	target := strings.ToLower(strings.TrimSpace(capability))
+	if target == "" {
+		return false
+	}
+	for _, tag := range strings.Split(config.CapabilityTags, ",") {
+		if strings.ToLower(strings.TrimSpace(tag)) == target {
+			return true
+		}
+	}
+	return false
 }
 
 // UnregisterProvider 移除提供商
@@ -767,15 +853,16 @@ func (m *ProviderManager) ReloadFromDB(ctx context.Context, repo DBProviderRepo)
 	var defaultName string
 	for _, p := range providers {
 		config := &ProviderConfig{
-			ProviderID:   p.ProviderID,
-			APIKey:       p.APIKey,
-			BaseURL:      p.BaseURL,
-			Model:        p.Model,
-			DisplayName:  p.DisplayName,
-			ProviderName: p.ProviderName,
-			Type:         p.Type,
-			MaxTokens:    4096,
-			Temperature:  0.7,
+			ProviderID:     p.ProviderID,
+			APIKey:         p.APIKey,
+			BaseURL:        p.BaseURL,
+			Model:          p.Model,
+			DisplayName:    p.DisplayName,
+			ProviderName:   p.ProviderName,
+			Type:           p.Type,
+			CapabilityTags: p.CapabilityTags,
+			MaxTokens:      4096,
+			Temperature:    0.7,
 		}
 
 		provider := &DefaultProvider{

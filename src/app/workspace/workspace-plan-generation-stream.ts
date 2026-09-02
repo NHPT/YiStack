@@ -9,6 +9,7 @@ import {
   handlePlanEvent,
   handlePlanProgressEvent,
   handlePlanStepEvent,
+  handlePlanVisualContextEvent,
 } from './workspace-plan-generation-stream-events';
 import type {
   PlanGenerationStreamResult,
@@ -56,6 +57,9 @@ export async function consumePlanGenerationStream(
           patchPlanMessage,
         }, analysisContent, lastStatusMessage);
         lastStatusMessage = result.nextLastStatusMessage;
+      },
+      visual_context: (data) => {
+        handlePlanVisualContextEvent(data, { patchPlanMessage });
       },
       step: (data) => {
         const result = handlePlanStepEvent(data, {

@@ -1,3 +1,4 @@
+import { isVisualContext } from '@/lib/visual-context';
 import {
   normalizeWorkspaceEngineeringState,
   normalizeWorkspaceGateResult,
@@ -79,6 +80,18 @@ export async function handleImplementationStepEvent(
   );
 
   return { handled: true, nextStatusContent };
+}
+
+export function handleImplementationVisualContextEvent(
+  data: WorkspaceStreamEventData,
+  context: Pick<ImplementationProgressEventContext, 'updateStreamingMessage'>,
+) {
+  const visualContext = data.visual_context;
+  if (isVisualContext(visualContext) === false) {
+    return { handled: false };
+  }
+  context.updateStreamingMessage({ visualContext });
+  return { handled: true };
 }
 
 export function handleImplementationProgressEvent(

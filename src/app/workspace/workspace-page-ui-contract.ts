@@ -1,5 +1,6 @@
 import type {
   ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
 } from 'react';
@@ -18,6 +19,7 @@ export type WorkspacePageUiModel = {
   providerId: string;
   providerName: string;
   modelName: string;
+  supportsVision: boolean;
 };
 
 export type WorkspacePageUiPreviewDeviceStyle = {
@@ -43,6 +45,7 @@ export type WorkspacePageUiContract = {
   quoteToChat: (path: string) => void;
   clearChat: () => void;
   handleFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  handleImagePaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   removeAttachment: (index: number) => void;
   filteredTree: FileNode[];
   hasOriginalFileTreeData: boolean;

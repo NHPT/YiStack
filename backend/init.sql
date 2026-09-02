@@ -143,10 +143,15 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
     user_id uuid REFERENCES public.users(id) ON DELETE SET NULL,
     role character varying(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
     content text,
+	visual_attachments text DEFAULT '',
+	visual_context text DEFAULT '',
     model character varying(100),
     tokens integer DEFAULT 0,
     created_at timestamp with time zone DEFAULT now()
 );
+
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS visual_attachments text DEFAULT '';
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS visual_context text DEFAULT '';
 
 -- 6.1 项目 Git 提交快照记录
 CREATE TABLE IF NOT EXISTS public.commits (
@@ -384,6 +389,46 @@ BEGIN
 END;
 $$;
 
+
+CREATE OR REPLACE FUNCTION public.bind_generation_job_visual_context(
+    p_job_id uuid,
+    p_worker_id text,
+    p_attempt_id uuid,
+    p_request_payload jsonb,
+    p_updated_at timestamp with time zone
+)
+RETURNS TABLE(applied boolean)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    UPDATE public.generation_jobs
+    SET request_payload = p_request_payload,
+        updated_at = p_updated_at
+    WHERE id = p_job_id
+      AND worker_id = p_worker_id
+      AND status IN ('queued', 'running', 'repairing', 'validating', 'previewing');
+
+    IF NOT FOUND THEN
+        RETURN QUERY SELECT false;
+        RETURN;
+    END IF;
+
+    UPDATE public.generation_attempts
+    SET input_snapshot = p_request_payload,
+        updated_at = p_updated_at
+    WHERE id = p_attempt_id
+      AND job_id = p_job_id
+      AND status = 'running';
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'active generation attempt % not found for job %', p_attempt_id, p_job_id USING ERRCODE = 'P0002';
+    END IF;
+
+    RETURN QUERY SELECT true;
+END;
+$$;
 CREATE OR REPLACE FUNCTION public.heartbeat_generation_job_lease(
     p_job_id uuid,
     p_worker_id text,
@@ -484,6 +529,8 @@ $$;
 
 REVOKE ALL ON FUNCTION public.create_generation_attempt(uuid, uuid, integer, text, text, text, text, jsonb, jsonb, timestamp with time zone, timestamp with time zone, timestamp with time zone) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.create_generation_attempt(uuid, uuid, integer, text, text, text, text, jsonb, jsonb, timestamp with time zone, timestamp with time zone, timestamp with time zone) TO service_role;
+REVOKE ALL ON FUNCTION public.bind_generation_job_visual_context(uuid, text, uuid, jsonb, timestamp with time zone) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.bind_generation_job_visual_context(uuid, text, uuid, jsonb, timestamp with time zone) TO service_role;
 CREATE OR REPLACE FUNCTION public.interrupt_stale_generation_job(
     p_job_id uuid,
     p_expected_lease_version bigint,
@@ -1323,7 +1370,10 @@ SELECT
     provider.model,
     true,
     true,
-    'chat,reasoning,coding',
+    CASE
+        WHEN provider.name = 'openai' AND provider.model = 'gpt-4o' THEN 'chat,reasoning,coding,vision'
+        ELSE 'chat,reasoning,coding'
+    END,
     'chat,foundation,plan,implement,repair',
     provider.priority,
     provider.sort_order,

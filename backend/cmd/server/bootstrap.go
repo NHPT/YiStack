@@ -289,6 +289,7 @@ func initServices(cfg *config.Config, repositories repositorySet, supabaseClient
 			LLMClient:               services.llmClient,
 			ProviderMgr:             services.providerMgrService,
 			LLMCfg:                  &cfg.LLM,
+			VisualContextSigningKey: cfg.JWT.Secret,
 			SystemConfigSvc:         services.systemConfigService,
 			ContainerMgr:            containerMgr,
 			FileService:             projectFileSvc,
@@ -305,6 +306,7 @@ func initServices(cfg *config.Config, repositories repositorySet, supabaseClient
 			services.providerMgrService,
 			&cfg.LLM,
 			services.systemConfigService,
+			cfg.JWT.Secret,
 		)
 	}
 

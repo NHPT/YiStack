@@ -3,7 +3,7 @@ import type {
   WorkflowStepMeta,
 } from '@/components/workspace/chat-message-content';
 import type { ProjectMessage } from '@/lib/api';
-import type { FileNode, FileNodeType } from '@/lib/types';
+import type { FileAttachment, FileNode, FileNodeType } from '@/lib/types';
 import {
   normalizeWorkspaceEngineeringState,
   type WorkspaceBootstrapState,
@@ -21,6 +21,11 @@ import {
   type WorkspacePendingNavigationLocalFailure,
 } from '@/lib/workspace/workspace-pending-navigation-local-errors';
 import type { PreviewUrlBuildReasonSource } from '@/lib/workspace/preview-url-build-errors';
+import {
+  parseVisualAttachmentInputsJSON,
+  parseVisualContextJSON,
+  type VisualAttachmentInput,
+} from '@/lib/visual-context';
 
 import type {
   GuidanceAction,
@@ -1342,7 +1347,28 @@ function materializeNormalizedWorkflowSteps(rawSteps: WorkspaceRestoredMessagePa
   return normalizedSteps;
 }
 
+function materializeRestoredVisualAttachments(
+  attachments: VisualAttachmentInput[],
+): FileAttachment[] {
+  const restoredAttachments: FileAttachment[] = [];
+  for (const attachment of attachments) {
+    restoredAttachments.push({
+      name: attachment.name,
+      size: attachment.size,
+      type: attachment.content_type,
+      dataUrl: attachment.data_url,
+    });
+  }
+  return restoredAttachments;
+}
+
 export function deserializeWorkspaceMessage(message: ProjectMessage): WorkspaceChatMessage {
+  const attachments = materializeRestoredVisualAttachments(
+    parseVisualAttachmentInputsJSON(message.visual_attachments),
+  );
+  const restoredAttachments = attachments.length > 0 ? attachments : undefined;
+  const visualContext = parseVisualContextJSON(message.visual_context);
+
   try {
     const parsed = JSON.parse(message.content) as WorkspaceRestoredMessagePayload;
     const hasParsedPayload = parsed !== null && typeof parsed === 'object';
@@ -1356,6 +1382,8 @@ export function deserializeWorkspaceMessage(message: ProjectMessage): WorkspaceC
         reasoningContent: typeof parsed.reasoningContent === 'string' ? parsed.reasoningContent : undefined,
         statusContent: typeof parsed.statusContent === 'string' ? parsed.statusContent : undefined,
         timestamp: message.created_at ?? new Date().toISOString(),
+        attachments: restoredAttachments,
+        visualContext,
         plans: getRestoredWorkspacePlanList(parsed.plans),
         recommendedPlanId: parsed.recommendedPlanId ?? undefined,
         selectedPlanId: parsed.selectedPlanId ?? undefined,
@@ -1377,6 +1405,8 @@ export function deserializeWorkspaceMessage(message: ProjectMessage): WorkspaceC
         kind: 'workflow',
         content: parsed.content,
         timestamp: message.created_at ?? new Date().toISOString(),
+        attachments: restoredAttachments,
+        visualContext,
         reasoningContent: typeof parsed.reasoningContent === 'string' ? parsed.reasoningContent : undefined,
         statusContent: typeof parsed.statusContent === 'string' ? parsed.statusContent : undefined,
         workflowSteps: normalizeWorkflowSteps(parsed.workflowSteps),
@@ -1395,6 +1425,8 @@ export function deserializeWorkspaceMessage(message: ProjectMessage): WorkspaceC
     role: message.role,
     content: message.content,
     timestamp: message.created_at ?? new Date().toISOString(),
+    attachments: restoredAttachments,
+    visualContext,
   };
 }
 
@@ -1484,6 +1516,14 @@ function mergeRestoredWorkspaceMessage(
     statusContent: getMergedRestoredWorkspaceMessageValue(
       restoredMessage.statusContent,
       sessionMessage.statusContent,
+    ),
+    attachments: getMergedRestoredWorkspaceMessageValue(
+      restoredMessage.attachments,
+      sessionMessage.attachments,
+    ),
+    visualContext: getMergedRestoredWorkspaceMessageValue(
+      restoredMessage.visualContext,
+      sessionMessage.visualContext,
     ),
     suggestedQuestions: getMergedRestoredWorkspaceMessageValue(
       restoredMessage.suggestedQuestions,

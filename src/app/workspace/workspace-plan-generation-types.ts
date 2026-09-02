@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react';
 
 import type { Plan } from '@/lib/api';
+import type { VisualAttachmentInput, VisualContext } from '@/lib/visual-context';
 
 import type { WorkspaceChatMessage, WorkspaceProjectInfo } from './workspace-types';
 
@@ -9,6 +10,9 @@ export type PlanRequestOptions = {
   retry?: boolean;
   userFeedback?: string;
   baseMessages?: WorkspaceChatMessage[];
+  visualAttachments?: VisualAttachmentInput[];
+  visualContext?: VisualContext;
+  onTerminal?: (succeeded: boolean) => void;
 };
 
 export type PlanRequestTerminalMessageKind = 'aborted' | 'error';
@@ -25,6 +29,8 @@ export type PreparedPlanGenerationRequest = {
   selectedModel: string;
   requestDescription: string;
   userFeedback: string;
+  visualAttachments?: VisualAttachmentInput[];
+  visualContext?: VisualContext;
 };
 
 export type PlanGenerationAvailablePlans = Plan[];

@@ -76,6 +76,7 @@ export async function replayWorkspaceGenerationJob(
         callbacks.onEvent?.('step', data);
         if (data.status === 'running') callbacks.onStage(generationReplayStage(data));
       },
+      visual_context: (data) => callbacks.onEvent?.('visual_context', data),
       chunk: (data) => callbacks.onEvent?.('chunk', data),
       guidance: (data) => callbacks.onEvent?.('guidance', data),
       done: (data) => {

@@ -572,16 +572,17 @@ func (ProjectResourceAlertEvent) TableName() string {
 
 // Plan 方案模型 - AI 根据用户需求生成的技术方案
 type Plan struct {
-	ID           string          `json:"id"`           // 方案唯一标识
-	ProjectID    string          `json:"project_id"`   // 关联项目
-	Name         string          `json:"name"`         // 方案名称
-	Description  string          `json:"description"`  // 方案描述
-	TechStack    json.RawMessage `json:"tech_stack"`   // 结构化技术栈
-	Architecture string          `json:"architecture"` // 架构说明
-	Complexity   string          `json:"complexity"`   // 复杂度: simple, medium, complex
-	EstFiles     int             `json:"est_files"`    // 预估文件数量
-	Features     []string        `json:"features"`     // 包含的功能列表
-	Reasoning    string          `json:"reasoning"`    // AI 推荐理由
+	ID            string          `json:"id"`           // 方案唯一标识
+	ProjectID     string          `json:"project_id"`   // 关联项目
+	Name          string          `json:"name"`         // 方案名称
+	Description   string          `json:"description"`  // 方案描述
+	TechStack     json.RawMessage `json:"tech_stack"`   // 结构化技术栈
+	Architecture  string          `json:"architecture"` // 架构说明
+	Complexity    string          `json:"complexity"`   // 复杂度: simple, medium, complex
+	EstFiles      int             `json:"est_files"`    // 预估文件数量
+	Features      []string        `json:"features"`     // 包含的功能列表
+	Reasoning     string          `json:"reasoning"`    // AI 推荐理由
+	VisualContext *VisualContext  `json:"visual_context,omitempty"`
 }
 
 // ============================================
@@ -590,14 +591,16 @@ type Plan struct {
 
 // ChatMessage 聊天消息模型
 type ChatMessage struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	ProjectID string    `gorm:"index;size:64" json:"project_id"` // 关联项目
-	UserID    string    `gorm:"index;type:uuid" json:"user_id"`  // 关联用户 (UUID)
-	Role      string    `gorm:"size:20" json:"role"`             // system, user, assistant
-	Content   string    `gorm:"type:text" json:"content"`        // 消息内容
-	Model     string    `gorm:"size:64" json:"model"`            // 使用的模型
-	Tokens    int       `gorm:"default:0" json:"tokens"`         // 消耗的 token 数
-	CreatedAt time.Time `json:"created_at"`
+	ID                int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	ProjectID         string    `gorm:"index;size:64" json:"project_id"` // 关联项目
+	UserID            string    `gorm:"index;type:uuid" json:"user_id"`  // 关联用户 (UUID)
+	Role              string    `gorm:"size:20" json:"role"`             // system, user, assistant
+	Content           string    `gorm:"type:text" json:"content"`        // 消息内容
+	VisualAttachments string    `gorm:"column:visual_attachments;type:text" json:"visual_attachments,omitempty"`
+	VisualContext     string    `gorm:"column:visual_context;type:text" json:"visual_context,omitempty"`
+	Model             string    `gorm:"size:64" json:"model"`    // 使用的模型
+	Tokens            int       `gorm:"default:0" json:"tokens"` // 消耗的 token 数
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 func (ChatMessage) TableName() string {

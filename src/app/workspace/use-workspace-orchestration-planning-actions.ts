@@ -59,6 +59,7 @@ export function useWorkspaceOrchestrationPlanningActions({
   const requestPlansForProject = useCallback(async (options?: PlanRequestOptions) => {
     const hasProjectInfo = hasWorkspaceOrchestrationPlanningProjectInfo(projectInfo);
     if (hasProjectInfo === false) {
+      options?.onTerminal?.(false);
       return;
     }
     await runWorkspacePlanGeneration({

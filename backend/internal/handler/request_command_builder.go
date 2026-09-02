@@ -18,6 +18,8 @@ func (r *GenerateRequest) toGenerateCommand(userID string) orchestration.Generat
 		AppType:           r.AppType,
 		ProjectName:       r.ProjectName,
 		ConversationStage: r.ConversationStage,
+		VisualAttachments: r.VisualAttachments,
+		VisualContext:     r.VisualContext,
 		PlanContext:       r.PlanContext,
 		Mode:              r.Mode,
 		Online:            r.Online,
@@ -33,15 +35,17 @@ func (r *GeneratePlansRequest) toGeneratePlansCommand(userID string) orchestrati
 		return orchestration.GeneratePlansCommand{UserID: userID}
 	}
 	return orchestration.GeneratePlansCommand{
-		Context:      buildGeneratePlansOrchestrationContext(r),
-		UserID:       userID,
-		ProjectID:    r.ProjectID,
-		Description:  r.Description,
-		AppType:      r.AppType,
-		Language:     r.Language,
-		Provider:     r.Provider,
-		UserFeedback: r.UserFeedback,
-		CurrentPlans: r.CurrentPlans,
+		Context:           buildGeneratePlansOrchestrationContext(r),
+		UserID:            userID,
+		ProjectID:         r.ProjectID,
+		Description:       r.Description,
+		AppType:           r.AppType,
+		Language:          r.Language,
+		Provider:          r.Provider,
+		UserFeedback:      r.UserFeedback,
+		CurrentPlans:      r.CurrentPlans,
+		VisualAttachments: r.VisualAttachments,
+		VisualContext:     r.VisualContext,
 	}
 }
 

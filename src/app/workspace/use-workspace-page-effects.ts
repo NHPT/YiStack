@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
 import { projectApi } from '@/lib/api';
+import { isVisualContext } from '@/lib/visual-context';
 import { formatStopGenerationSyncFailure } from '@/lib/workspace/workspace-generation-control-errors';
 import {
   buildWorkspaceGenerationStateInvalidShapeFailure,
@@ -305,6 +306,13 @@ export function useWorkspacePageEffects({
       data: Record<string, unknown>,
     ) => {
       const readText = (value: unknown) => typeof value === 'string' ? value : '';
+      if (event === 'visual_context') {
+        const visualContext = data.visual_context;
+        if (isVisualContext(visualContext) === true) {
+          updateGenerationReplayMessage(assistantMessageId, { visualContext });
+        }
+        return;
+      }
       if (event === 'chunk') {
         replayContent += readText(data.content);
         updateGenerationReplayMessage(assistantMessageId, {

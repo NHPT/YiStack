@@ -10,6 +10,7 @@ import type {
 import { appendGenerationStatePersistenceFailureMessage } from './workspace-generation-state-persistence';
 import type { WorkspaceEngineeringStateSnapshot } from '@/lib/workspace/engineering-state';
 import type { WorkspaceBackendWorkflowStage } from '@/lib/workspace/workflow-contract';
+import type { VisualAttachmentInput, VisualContext } from '@/lib/visual-context';
 import type {
   ImplementationStreamContext,
   ImplementationStreamContextInput,
@@ -30,6 +31,9 @@ export type GenerateOptions = {
   planContext?: string;
   assistantMessageId?: string;
   initialReasoningContent?: string;
+  visualAttachments?: VisualAttachmentInput[];
+  visualContext?: VisualContext;
+  onTerminal?: (succeeded: boolean) => void;
 };
 
 export type PreparedImplementationGenerationRequest = {
@@ -41,6 +45,8 @@ export type PreparedImplementationGenerationRequest = {
   conversationStage?: WorkspaceBackendWorkflowStage;
   capabilityProfile?: string;
   planContext?: string;
+  visualAttachments?: VisualAttachmentInput[];
+  visualContext?: VisualContext;
   statusContent: string;
   hasExistingAssistantMessage: boolean;
 };
@@ -269,6 +275,8 @@ export function prepareImplementationGenerationRequest(
     conversationStage: options?.conversationStage,
     capabilityProfile: options?.capabilityProfile,
     planContext: options?.planContext,
+    visualAttachments: options?.visualAttachments,
+    visualContext: options?.visualContext,
     statusContent: getImplementationGenerationInitialReasoningContent(options),
     hasExistingAssistantMessage: hasImplementationGenerationAssistantMessageId(options),
   };
@@ -319,6 +327,8 @@ export function buildImplementationGeneratePayload(
     conversation_stage: request.conversationStage,
     capability_profile: request.capabilityProfile,
     plan_context: request.planContext,
+    visual_attachments: request.visualAttachments,
+    visual_context: request.visualContext,
     idempotency_key: request.assistantMessageId,
   };
 }

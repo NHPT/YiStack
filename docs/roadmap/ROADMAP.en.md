@@ -16,8 +16,8 @@
 
 The highest priority is:
 
-**Complete the generated-project quality loop and durable task recovery before
-expanding enterprise governance and ecosystem features.**
+**Build differentiated input and collaboration capabilities on top of the stable
+generation-quality loop.**
 
 This file is the only public roadmap source. Internal development may maintain
 more detailed task records, but public status and priorities must be reflected
@@ -28,12 +28,14 @@ The main sequence is:
 1. `LT-02R` R1-R7 are complete and have passed the Production Gate: truthful
    generation, project gates, patch/repair, durable Job/SSE, browser benchmark,
    platform integrations, and the Contributor Alpha repository gate.
-2. The GitHub remote, required Actions checks, and branch protection are
-   enabled. After v1.0.0, continue accepting community contributions through
-   controlled pull requests.
-3. Resume real `LT-08` enterprise governance work. Readiness-only directories
-   must not be presented as completed functionality.
-4. Validate real cloud lifecycles for multiple deployment providers and the
+2. `VIS-001` is complete: screenshots and reference images are analyzed by a
+   real multimodal model into `visual_context.v1`, then bound to plans, messages,
+   durable Jobs, SSE recovery, and code generation.
+3. The next differentiation track is `COLLAB-001` shared-workspace collaboration,
+   built on the existing owner/editor/viewer permissions and audit boundary.
+4. The GitHub remote, required Actions checks, and branch protection are enabled.
+   Continue accepting community contributions through controlled pull requests.
+5. Validate real cloud lifecycles for multiple deployment providers and the
    migration runner for the first upgrade-capable tag within their established
    boundaries.
 
@@ -149,6 +151,8 @@ Goals:
 Scope:
 
 - Project Foundation Stage, artifacts, and gate;
+- VIS-001 visual context: image upload/paste, vision-capability enforcement, structured analysis, and generation constraints (Done);
+- COLLAB-001 shared-workspace collaboration (Next);
 - Task Orchestration Layer;
 - Engineering State Layer;
 - Execution Transparency Layer;

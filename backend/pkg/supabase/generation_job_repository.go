@@ -120,6 +120,24 @@ func (r *GenerationJobRepository) UpdateJobPhase(_ context.Context, jobID, worke
 	return generationUpdateApplied(result), err
 }
 
+func (r *GenerationJobRepository) BindVisualContextSnapshot(
+	_ context.Context,
+	jobID string,
+	workerID string,
+	attemptID string,
+	requestPayload string,
+	now time.Time,
+) (bool, error) {
+	result, err := r.supabase.AdminTable("rpc/bind_generation_job_visual_context").Insert(map[string]interface{}{
+		"p_job_id": jobID, "p_worker_id": workerID, "p_attempt_id": attemptID,
+		"p_request_payload": generationJSONObject(requestPayload), "p_updated_at": now,
+	})
+	if err != nil {
+		return false, err
+	}
+	record, ok := firstDataMap(result.Data)
+	return ok && generationBool(record["applied"]), nil
+}
 func (r *GenerationJobRepository) CompleteJob(ctx context.Context, jobID, workerID string, completion model.GenerationJobCompletion) (bool, error) {
 	return r.transitionJobTerminal(ctx, jobID, workerID, completion)
 }

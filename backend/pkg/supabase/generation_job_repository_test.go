@@ -67,6 +67,43 @@ func TestSupabaseGenerationJobAppendEventUsesAtomicRPC(t *testing.T) {
 	}
 }
 
+func TestSupabaseGenerationJobBindVisualContextUsesAtomicRPC(t *testing.T) {
+	now := time.Date(2026, 9, 2, 4, 30, 0, 0, time.UTC)
+	repo := newGenerationJobRepositoryTestClient(t, func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/rest/v1/rpc/bind_generation_job_visual_context" {
+			t.Fatalf("request path = %q", req.URL.Path)
+		}
+		var payload map[string]interface{}
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode RPC payload: %v", err)
+		}
+		if payload["p_worker_id"] != "worker-1" || payload["p_attempt_id"] != "22222222-2222-2222-2222-222222222222" {
+			t.Fatalf("unexpected visual binding RPC payload: %#v", payload)
+		}
+		requestPayload, ok := payload["p_request_payload"].(map[string]interface{})
+		if !ok || requestPayload["visual_context"] == nil {
+			t.Fatalf("visual context snapshot is not structured JSON: %#v", payload["p_request_payload"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"applied":true}]`))
+	})
+
+	applied, err := repo.BindVisualContextSnapshot(
+		context.Background(),
+		"11111111-1111-1111-1111-111111111111",
+		"worker-1",
+		"22222222-2222-2222-2222-222222222222",
+		`{"visual_context":{"id":"visual-context-1"}}`,
+		now,
+	)
+	if err != nil {
+		t.Fatalf("bind generation visual context snapshot: %v", err)
+	}
+	if !applied {
+		t.Fatal("visual context snapshot binding was not applied")
+	}
+}
+
 func TestSupabaseGenerationJobCompleteUsesAtomicTerminalRPC(t *testing.T) {
 	now := time.Date(2026, 8, 19, 15, 5, 0, 0, time.UTC)
 	repo := newGenerationJobRepositoryTestClient(t, func(w http.ResponseWriter, req *http.Request) {

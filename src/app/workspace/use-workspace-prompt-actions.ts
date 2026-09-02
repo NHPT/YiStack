@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
 import type { Plan } from '@/lib/api';
+import { resolveVisualContextForPlans } from '@/lib/visual-context';
+import { toWorkspaceVisualAttachmentInputs } from './workspace-visual-attachments';
+import { buildInitialChatAttachmentSnapshot, buildRejectedChatAttachmentSnapshot } from './workspace-chat-composer-snapshot';
 import {
   hasCompletedWorkspaceFoundation,
   resolveLatestWorkspaceBootstrapState,
@@ -24,12 +27,15 @@ import type {
   UpdatePlanFlowState,
 } from './workspace-orchestration-flow-types';
 import type { GenerateOptions } from './workspace-orchestration-hook-types';
+import type { WorkspaceAttachment } from './workspace-page-local-state-contract';
+import type { WorkspacePageUiModel } from './workspace-page-ui-contract';
 import type { PlanRequestOptions } from './workspace-plan-generation';
 import type {
   WorkspaceFoundationDecisionConfirmation,
   WorkspacePromptActionsContract,
 } from './workspace-prompt-actions-contract';
 import type {
+  ChatAttachmentSnapshot,
   ChatMode,
   GuidanceAction,
   WorkspaceEditorNavigationTarget,
@@ -331,13 +337,13 @@ function hasWorkspacePromptBusyGeneration({
 }
 
 function shouldBlockWorkspacePromptSubmit({
-  hasPrompt,
+  hasContent,
   hasBusyGeneration,
 }: {
-  hasPrompt: boolean;
+  hasContent: boolean;
   hasBusyGeneration: boolean;
 }): boolean {
-  if (hasPrompt === false) {
+  if (hasContent === false) {
     return true;
   }
 
@@ -477,11 +483,16 @@ type UseWorkspacePromptActionsOptions = {
   availablePlans: Plan[];
   recommendedPlanId: string | null;
   selectedPlanId: string | null;
+  selectedModel: string;
+  availableModels: WorkspacePageUiModel[];
+  attachedFiles: WorkspaceAttachment[];
   projectInfo: WorkspaceProjectInfo | null;
   messagesRef: MutableRefObject<WorkspaceChatMessage[]>;
   focusedPlanIdRef: MutableRefObject<string | null>;
   autoPlanTriggeredRef: MutableRefObject<boolean>;
   setInput: Dispatch<SetStateAction<string>>;
+  setAttachedFiles: Dispatch<SetStateAction<WorkspaceAttachment[]>>;
+  setChatAttachmentSnapshot: Dispatch<SetStateAction<ChatAttachmentSnapshot>>;
   applyPromptInteractionMessages: Dispatch<SetStateAction<WorkspaceChatMessage[]>>;
   updatePlanFlowState: UpdatePlanFlowState;
   buildPlanDiscussionPrompt: (prompt: string) => string;
@@ -509,11 +520,16 @@ export function useWorkspacePromptActions({
   availablePlans,
   recommendedPlanId,
   selectedPlanId,
+  selectedModel,
+  availableModels,
+  attachedFiles,
   projectInfo,
   messagesRef,
   focusedPlanIdRef,
   autoPlanTriggeredRef,
   setInput,
+  setAttachedFiles,
+  setChatAttachmentSnapshot,
   applyPromptInteractionMessages,
   updatePlanFlowState,
   buildPlanDiscussionPrompt,
@@ -544,17 +560,38 @@ export function useWorkspacePromptActions({
   });
 
   const submitPrompt = useCallback(async (rawPrompt: string) => {
-    const prompt = rawPrompt.trim();
-    const hasPrompt = prompt.length > 0;
+    const visualAttachments = toWorkspaceVisualAttachmentInputs(attachedFiles);
+    const hasVisualAttachments = visualAttachments.length > 0;
+    const requestVisualAttachments = hasVisualAttachments === true ? visualAttachments : undefined;
+    const reusableVisualContext = resolveVisualContextForPlans(
+      availablePlans,
+      selectedPlanId,
+      recommendedPlanId,
+    );
+    const requestVisualContext = hasVisualAttachments === true ? undefined : reusableVisualContext;
+    const prompt = rawPrompt.trim() || visualPromptFallback(attachedFiles);
+    const hasContent = prompt.length > 0 || hasVisualAttachments;
     const hasBusyGeneration = hasWorkspacePromptBusyGeneration({
       isGenerating,
       isPlanning,
     });
     const shouldBlockSubmit = shouldBlockWorkspacePromptSubmit({
-      hasPrompt,
+      hasContent,
       hasBusyGeneration,
     });
     if (shouldBlockSubmit === true) return;
+    if (
+      hasVisualAttachments === true
+      && selectedWorkspaceModelSupportsVision(availableModels, selectedModel) === false
+    ) {
+      setChatAttachmentSnapshot(buildRejectedChatAttachmentSnapshot({
+        attachmentCount: attachedFiles.length,
+        totalSize: getWorkspacePromptAttachmentTotalSize(attachedFiles),
+        message: '当前模型不支持图片输入。请选择标记为支持视觉的模型后再发送。',
+        source: 'user_action',
+      }));
+      return;
+    }
 
     const latestMessages = messagesRef.current;
     const foundationCompleted = hasCompletedWorkspaceFoundation(latestMessages);
@@ -579,9 +616,19 @@ export function useWorkspacePromptActions({
       role: 'user',
       content: prompt,
       timestamp: new Date(),
+      attachments: hasVisualAttachments === true
+        ? materializeWorkspacePromptMessageAttachments(attachedFiles)
+        : undefined,
     };
 
     setInput('');
+    const completeVisualSubmission = (succeeded: boolean) => {
+      if (hasVisualAttachments === false || succeeded === false) {
+        return;
+      }
+      setAttachedFiles([]);
+      setChatAttachmentSnapshot(buildInitialChatAttachmentSnapshot());
+    };
 
     if (needsFoundationFirst === true) {
       const nextMessages = [...latestMessages, userMessage];
@@ -600,6 +647,9 @@ export function useWorkspacePromptActions({
         force: true,
         userFeedback: prompt,
         baseMessages: nextMessages,
+        visualAttachments: requestVisualAttachments,
+        visualContext: requestVisualContext,
+        onTerminal: completeVisualSubmission,
       });
       return;
     }
@@ -612,6 +662,19 @@ export function useWorkspacePromptActions({
         planAutoConfirmDeadlineAt: null,
       });
       applyPromptInteractionMessages(nextMessages);
+
+      if (hasVisualAttachments === true) {
+        await requestPlansForProject({
+          force: true,
+          userFeedback: prompt,
+          baseMessages: nextMessages,
+          visualAttachments: requestVisualAttachments,
+          visualContext: requestVisualContext,
+          onTerminal: completeVisualSubmission,
+        });
+        focusedPlanIdRef.current = null;
+        return;
+      }
 
       const referencedPlanForContext = resolveReferencedPlan(prompt, availablePlans);
       const hasReferencedPlanForContext = hasWorkspacePromptReferencedPlanForContext(referencedPlanForContext);
@@ -637,6 +700,7 @@ export function useWorkspacePromptActions({
           online: isOnline,
           conversationStage: 'plan-selection',
           planContext: buildPlanDiscussionPrompt(prompt),
+          visualContext: requestVisualContext,
         });
         return;
       }
@@ -658,6 +722,9 @@ export function useWorkspacePromptActions({
         force: true,
         userFeedback: prompt,
         baseMessages: nextMessages,
+        visualAttachments: requestVisualAttachments,
+        visualContext: requestVisualContext,
+        onTerminal: completeVisualSubmission,
       });
       focusedPlanIdRef.current = null;
       return;
@@ -670,14 +737,25 @@ export function useWorkspacePromptActions({
         force: true,
         userFeedback: prompt,
         baseMessages: nextMessages,
+        visualAttachments: requestVisualAttachments,
+        visualContext: requestVisualContext,
+        onTerminal: completeVisualSubmission,
       });
       return;
     }
 
     applyPromptInteractionMessages((prev) => [...prev, userMessage]);
-    await handleLLMGenerate(prompt, undefined, { mode: chatMode, online: isOnline });
+    await handleLLMGenerate(prompt, undefined, {
+      mode: chatMode,
+      online: isOnline,
+      visualAttachments: requestVisualAttachments,
+      visualContext: requestVisualContext,
+      onTerminal: completeVisualSubmission,
+    });
   }, [
+    attachedFiles,
     autoPlanTriggeredRef,
+    availableModels,
     availablePlans,
     buildPlanDiscussionPrompt,
     chatMode,
@@ -688,11 +766,13 @@ export function useWorkspacePromptActions({
     isOnline,
     isPlanning,
     messagesRef,
-    projectInfo?.planData,
-    projectInfo?.planId,
+    projectInfo,
     recommendedPlanId,
     requestPlansForProject,
+    selectedModel,
     selectedPlanId,
+    setAttachedFiles,
+    setChatAttachmentSnapshot,
     setInput,
     applyPromptInteractionMessages,
     updatePlanFlowState,
@@ -919,4 +999,45 @@ export function useWorkspacePromptActions({
     foundationActionLabel: foundationAction.label,
     foundationStatusLabel: foundationAction.statusLabel,
   };
+}
+
+function getWorkspacePromptAttachmentTotalSize(attachments: WorkspaceAttachment[]): number {
+  let totalSize = 0;
+  for (const attachment of attachments) totalSize += attachment.size;
+  return totalSize;
+}
+
+function materializeWorkspacePromptMessageAttachments(
+  attachments: WorkspaceAttachment[],
+): WorkspaceChatMessage['attachments'] {
+  const messageAttachments: NonNullable<WorkspaceChatMessage['attachments']> = [];
+  for (const attachment of attachments) {
+    messageAttachments.push({
+      name: attachment.name,
+      size: attachment.size,
+      type: attachment.type,
+      dataUrl: attachment.dataUrl,
+    });
+  }
+  return messageAttachments;
+}
+
+function selectedWorkspaceModelSupportsVision(
+  models: WorkspacePageUiModel[],
+  selectedModel: string,
+): boolean {
+  for (const model of models) {
+    if (model.id === selectedModel) {
+      return model.supportsVision === true;
+    }
+  }
+  return false;
+}
+
+
+function visualPromptFallback(attachments: WorkspaceAttachment[]): string {
+  if (attachments.length > 0) {
+    return '请根据附带的视觉参考继续当前任务。';
+  }
+  return '';
 }
