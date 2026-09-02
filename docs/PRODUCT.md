@@ -41,6 +41,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | 任务持久化 | 已实现 | Generation Job、attempt、lease、SSE replay、取消和中断恢复 |
 | 浏览器验收 | 已实现 | 预览启动后执行 deterministic acceptance，阻断浏览器错误 |
 | 工作台 | 已实现 | Monaco、文件树、终端、Git、预览和生成状态 |
+| 视觉上下文 | 已实现 | PNG/JPEG 上传与粘贴、真实多模态分析、`visual_context.v1`、消息/方案/Job 绑定和视觉模型门禁 |
 | 容器运行 | 已实现 | 每项目 rootless Podman 运行边界和资源策略 |
 | Supabase 应用预设 | 已实现 | Auth、CRUD RLS、私有 Storage、类型、migration 和 rollback |
 | GitHub 集成 | 已实现 | OAuth PKCE、token 加密、import、pull/push 冲突防护、webhook |
@@ -66,7 +67,8 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 ## 5. 核心工作流
 
 ```text
-需求输入
+需求输入（可附加截图/参考图）
+  -> 视觉模型分析与 visual_context.v1
   -> Foundation 决策
   -> 技术方案确认
   -> 持久 Generation Job

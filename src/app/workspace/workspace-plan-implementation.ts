@@ -343,6 +343,7 @@ export async function executePlanImplementation(
     online: context.isOnline,
     conversationStage: WORKSPACE_PLAN_APPROVED_STAGE,
     planContext: buildImplementationPlanContext(plan, targetProject),
+    visualContext: plan.visual_context,
     assistantMessageId: implementationMessageId,
   });
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type {
   ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
   Dispatch,
   KeyboardEvent as ReactKeyboardEvent,
   RefObject,
@@ -10,6 +11,7 @@ import { Eye, FolderOpen, GitBranch, Terminal } from 'lucide-react';
 
 import { llmApi, type LLMProvider } from '@/lib/api';
 import type { FileNode } from '@/lib/types';
+import { hasVisionCapability } from '@/lib/visual-context';
 import { formatWorkspaceModelListLoadFailure } from '@/lib/workspace/workspace-model-list-errors';
 import { formatWorkspaceClipboardError } from '@/lib/workspace/workspace-clipboard-local-errors';
 
@@ -20,6 +22,7 @@ import {
   buildLoadingChatModelRegistrySnapshot,
   buildLoadFailedChatModelRegistrySnapshot,
   buildPickerEmptyChatAttachmentSnapshot,
+  buildRejectedChatAttachmentSnapshot,
   buildRemovedChatAttachmentSnapshot,
   buildSelectedChatAttachmentSnapshot,
 } from './workspace-chat-composer-snapshot';
@@ -41,13 +44,11 @@ import type {
   WorkspacePageUiPreviewDeviceStyleMap,
   WorkspacePageUiTab,
 } from './workspace-page-ui-contract';
+import type { WorkspaceAttachment } from './workspace-page-local-state-contract';
+import { materializeWorkspaceVisualAttachments } from './workspace-visual-attachments';
 
 type AvailableModel = WorkspacePageUiModel;
-
-type AttachedFile = {
-  name: string;
-  size: number;
-};
+type AttachedFile = WorkspaceAttachment;
 
 const workspaceSelectedModelStorageKey = 'yistack_workspace_selected_model';
 
@@ -209,24 +210,6 @@ function materializeWorkspacePageUiFilteredTree(nodes: FileNode[], query: string
   return filteredNodes;
 }
 
-function materializeWorkspacePageUiUploadedFiles(uploads: FileList): WorkspacePageUiAttachedFileList {
-  const selectedFiles: WorkspacePageUiAttachedFileList = [];
-
-  for (let index = 0; index < uploads.length; index += 1) {
-    const file = uploads.item(index);
-    if (file === null) {
-      continue;
-    }
-
-    selectedFiles.push({
-      name: file.name,
-      size: file.size,
-    });
-  }
-
-  return selectedFiles;
-}
-
 function materializeWorkspacePageUiAttachedFiles(
   currentFiles: WorkspacePageUiAttachedFileList,
   selectedFiles: WorkspacePageUiAttachedFileList,
@@ -325,6 +308,7 @@ function materializeWorkspacePageUiModelList(providers: LLMProvider[]): Workspac
           providerId: provider.name,
           providerName,
           modelName,
+          supportsVision: hasVisionCapability(model.capability_tags),
         });
       }
       continue;
@@ -337,6 +321,7 @@ function materializeWorkspacePageUiModelList(providers: LLMProvider[]): Workspac
       providerId: provider.name,
       providerName,
       modelName: providerName,
+      supportsVision: false,
     });
   }
 
@@ -552,26 +537,58 @@ export function useWorkspacePageUi({
     setPendingCloseFile(null);
   }, [applyPageUiMessages, setActiveFile, setEditorBufferStatuses, setFiles, setMobilePreviewUrlStatus, setOpenFiles, setPendingCloseFile, setPreviewUrlStatus, setSavedFiles]);
 
+  const appendVisualUploads = useCallback(async (
+    uploads: File[],
+    source: 'file_picker' | 'clipboard',
+  ) => {
+    try {
+      const selectedFiles = await materializeWorkspaceVisualAttachments(uploads, attachedFiles);
+      if (selectedFiles.length === 0) {
+        setChatAttachmentSnapshot(buildPickerEmptyChatAttachmentSnapshot());
+        return;
+      }
+      const next = materializeWorkspacePageUiAttachedFiles(attachedFiles, selectedFiles);
+      const totalSize = getWorkspacePageUiAttachedFileTotalSize(next);
+      const lastFileName = getWorkspacePageUiLastAttachedFileName(selectedFiles);
+      setAttachedFiles(next);
+      setChatAttachmentSnapshot(buildSelectedChatAttachmentSnapshot({
+        selectedCount: selectedFiles.length,
+        attachmentCount: next.length,
+        totalSize,
+        lastFileName,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '图片读取失败';
+      setChatAttachmentSnapshot(buildRejectedChatAttachmentSnapshot({
+        attachmentCount: attachedFiles.length,
+        totalSize: getWorkspacePageUiAttachedFileTotalSize(attachedFiles),
+        message,
+        source,
+      }));
+    }
+  }, [attachedFiles, setAttachedFiles, setChatAttachmentSnapshot]);
+
   const handleFileUpload = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const uploads = event.target.files;
-    if (!uploads || uploads.length === 0) {
+    const uploads = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (uploads.length === 0) {
       setChatAttachmentSnapshot(buildPickerEmptyChatAttachmentSnapshot());
       return;
     }
+    void appendVisualUploads(uploads, 'file_picker');
+  }, [appendVisualUploads, setChatAttachmentSnapshot]);
 
-    const selectedFiles = materializeWorkspacePageUiUploadedFiles(uploads);
-    const next = materializeWorkspacePageUiAttachedFiles(attachedFiles, selectedFiles);
-    const totalSize = getWorkspacePageUiAttachedFileTotalSize(next);
-    const lastFileName = getWorkspacePageUiLastAttachedFileName(selectedFiles);
-    setAttachedFiles(next);
-    setChatAttachmentSnapshot(buildSelectedChatAttachmentSnapshot({
-      selectedCount: selectedFiles.length,
-      attachmentCount: next.length,
-      totalSize,
-      lastFileName,
-    }));
-    event.target.value = '';
-  }, [attachedFiles, setAttachedFiles, setChatAttachmentSnapshot]);
+  const handleImagePaste = useCallback((event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const uploads: File[] = [];
+    for (const item of event.clipboardData.items) {
+      if (item.kind !== 'file' || item.type.startsWith('image/') === false) continue;
+      const file = item.getAsFile();
+      if (file !== null) uploads.push(file);
+    }
+    if (uploads.length === 0) return;
+    event.preventDefault();
+    void appendVisualUploads(uploads, 'clipboard');
+  }, [appendVisualUploads]);
 
   const removeAttachment = useCallback((index: number) => {
     const removed = getWorkspacePageUiAttachedFileAt(attachedFiles, index);
@@ -725,6 +742,7 @@ export function useWorkspacePageUi({
     quoteToChat,
     clearChat,
     handleFileUpload,
+    handleImagePaste,
     removeAttachment,
     filteredTree,
     hasOriginalFileTreeData,

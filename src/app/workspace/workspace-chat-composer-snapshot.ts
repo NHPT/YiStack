@@ -268,9 +268,11 @@ export function buildChatInputSnapshot({
 }: ChatInputSnapshotOptions): ChatInputSnapshot {
   const promptLength = input.trim().length;
   const hasPrompt = promptLength > 0;
+  const hasAttachments = attachmentCount > 0;
+  const hasContent = hasPrompt === true || hasAttachments === true;
   const hasSelectedModel = selectedModel.length > 0;
   const canSendBase = planSelectionPending === false
-    && hasPrompt === true
+    && hasContent === true
     && isBusyGenerating === false;
   const base = {
     canSend: canSendBase,
@@ -333,7 +335,7 @@ export function buildChatInputSnapshot({
       recovery: '请先选择一个技术方案，或通过方案消息里的提问入口补充问题。',
     };
   }
-  if (hasPrompt === false) {
+  if (hasContent === false) {
     const status: ChatInputSnapshotStatus = 'empty_prompt';
     const source: ChatInputSnapshotSource = 'input_buffer';
 
@@ -342,10 +344,8 @@ export function buildChatInputSnapshot({
       status,
       source,
       canSend: false,
-      message: attachmentCount > 0
-        ? '已添加附件，但还没有输入文字需求。'
-        : '输入区当前没有可发送的文字内容。',
-      recovery: '补充需求、修改意见或下一步指令后即可发送。',
+      message: '输入区当前没有可发送的文字或图片内容。',
+      recovery: '输入需求或添加参考图后即可发送。',
     };
   }
   if (modelCount === 0) {
@@ -476,5 +476,28 @@ export function buildChatModeSnapshot({
     source,
     message: `当前为实现模式，项目基础设定状态为“${foundationStatusLabel}”。`,
     recovery: '发送后会按实现路径推进；如仍需讨论方案，可先切换到探讨模式。',
+  };
+}
+
+export function buildRejectedChatAttachmentSnapshot({
+  attachmentCount,
+  totalSize,
+  message,
+  source,
+}: {
+  attachmentCount: number;
+  totalSize: number;
+  message: string;
+  source: 'file_picker' | 'clipboard' | 'user_action';
+}): ChatAttachmentSnapshot {
+  return {
+    status: 'rejected',
+    source,
+    attachmentCount,
+    totalSize,
+    lastFileName: null,
+    message,
+    recovery: '请选择最多 4 张、单张不超过 5 MiB、总计不超过 12 MiB 的 PNG 或 JPEG 图片。',
+    updatedAt: new Date().toISOString(),
   };
 }

@@ -53,6 +53,7 @@ Core goals:
 | Durable jobs | Implemented | Generation Jobs, attempts, leases, SSE replay, cancellation, and interruption recovery |
 | Browser acceptance | Implemented | Deterministic acceptance runs after preview startup and blocks browser errors |
 | Workspace | Implemented | Monaco, file tree, terminal, Git, preview, and generation state |
+| Visual context | Implemented | PNG/JPEG upload and paste, real multimodal analysis, `visual_context.v1`, message/plan/Job binding, and vision-model enforcement |
 | Container runtime | Implemented | Per-project rootless Podman boundaries and resource policies |
 | Supabase application preset | Implemented | Auth, CRUD RLS, private Storage, types, migrations, and rollback |
 | GitHub integration | Implemented | OAuth PKCE, encrypted tokens, import, guarded pull/push, and webhooks |
@@ -80,7 +81,8 @@ security review, and release gates are complete.
 ## 5. Core Workflow
 
 ```text
-Requirement input
+Requirement input (optionally with screenshots or reference images)
+  -> Vision-model analysis and visual_context.v1
   -> Foundation decisions
   -> Technical solution approval
   -> Durable Generation Job

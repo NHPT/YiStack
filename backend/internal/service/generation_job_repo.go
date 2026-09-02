@@ -26,6 +26,7 @@ type GenerationJobRepo interface {
 	AcquireJobLease(ctx context.Context, jobID, workerID string, leaseUntil, now time.Time) (bool, error)
 	HeartbeatJobLease(ctx context.Context, jobID, workerID string, leaseUntil, now time.Time) (bool, error)
 	UpdateJobPhase(ctx context.Context, jobID, workerID, status string, now time.Time) (bool, error)
+	BindVisualContextSnapshot(ctx context.Context, jobID, workerID, attemptID, requestPayload string, now time.Time) (bool, error)
 	CompleteJob(ctx context.Context, jobID, workerID string, completion GenerationJobCompletion) (bool, error)
 	CancelActiveJob(ctx context.Context, jobID, reason string, now time.Time) (bool, error)
 	InterruptStaleJobs(ctx context.Context, workerID string, now time.Time) (int64, error)

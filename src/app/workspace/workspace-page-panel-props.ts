@@ -20,6 +20,7 @@ import type {
   WorkspaceChatComposerProps,
   WorkspaceChatExampleClickAction,
   WorkspaceChatFileUploadAction,
+  WorkspaceChatImagePasteAction,
   WorkspaceChatKeyDownAction,
   WorkspaceChatMessageList,
   WorkspaceChatMessagesProps,
@@ -139,6 +140,7 @@ type BuildChatPanelPropsOptions = {
   enableAutoScroll: () => void;
   adjustTextareaHeight: WorkspaceChatAdjustTextareaHeightAction;
   handleKeyDown: WorkspaceChatKeyDownAction;
+  handleImagePaste: WorkspaceChatImagePasteAction;
   removeAttachment: WorkspaceChatRemoveAttachmentAction;
   handleFileUpload: WorkspaceChatFileUploadAction;
   handleStopGenerate: WorkspaceChatStopGenerateAction;
@@ -190,6 +192,7 @@ export function buildChatPanelProps({
   enableAutoScroll,
   adjustTextareaHeight,
   handleKeyDown,
+  handleImagePaste,
   removeAttachment,
   handleFileUpload,
   handleStopGenerate,
@@ -249,6 +252,7 @@ export function buildChatPanelProps({
       setInput,
       adjustTextareaHeight,
       handleKeyDown,
+      handleImagePaste,
       removeAttachment,
       setChatMode,
       setSelectedModel,

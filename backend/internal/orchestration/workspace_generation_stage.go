@@ -86,19 +86,22 @@ func wrapGenerationWorkflowStepRecorder(
 
 func buildServiceGenerateRequest(command GenerateCommand) *service.GenerateRequest {
 	return &service.GenerateRequest{
-		UserID:            command.UserID,
-		ProjectID:         command.ProjectID,
-		Prompt:            command.Prompt,
-		ConversationStage: command.Context.WorkflowStage,
-		PlanContext:       command.PlanContext,
-		AppType:           command.AppType,
-		ProjectName:       command.ProjectName,
-		Mode:              command.Context.WorkflowMode,
-		Online:            command.Online,
-		Model:             command.Model,
-		Provider:          command.Provider,
-		Temperature:       command.Temperature,
-		BrowserAcceptance: buildServiceBrowserAcceptanceSpec(command.BrowserAcceptance),
+		UserID:                    command.UserID,
+		ProjectID:                 command.ProjectID,
+		Prompt:                    command.Prompt,
+		ConversationStage:         command.Context.WorkflowStage,
+		PlanContext:               command.PlanContext,
+		AppType:                   command.AppType,
+		ProjectName:               command.ProjectName,
+		VisualAttachments:         command.VisualAttachments,
+		VisualContext:             command.VisualContext,
+		VisualAttachmentsPrepared: command.VisualAttachmentsPrepared,
+		Mode:                      command.Context.WorkflowMode,
+		Online:                    command.Online,
+		Model:                     command.Model,
+		Provider:                  command.Provider,
+		Temperature:               command.Temperature,
+		BrowserAcceptance:         buildServiceBrowserAcceptanceSpec(command.BrowserAcceptance),
 	}
 }
 

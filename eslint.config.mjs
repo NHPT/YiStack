@@ -27,6 +27,7 @@ const eslintConfig = defineConfig([
     '.next-dev/**',
     '.next-dev-poll/**',
     '.next-dev-test/**',
+    '.next-vis/**',
     'out/**',
     'build/**',
     'next-env.d.ts',

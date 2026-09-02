@@ -242,6 +242,7 @@ func (s *GenerationJobService) run(job *model.GenerationJob, runner GenerationJo
 	repairAttempts := map[string]string{}
 	var persistMu sync.Mutex
 	var pendingChunk *generationJobChunkBuffer
+	visualContextBound := false
 	flushPendingChunk := func() error {
 		if pendingChunk == nil {
 			return nil
@@ -317,6 +318,29 @@ func (s *GenerationJobService) run(job *model.GenerationJob, runner GenerationJo
 		encoded, err := json.Marshal(payload)
 		if err != nil {
 			return fmt.Errorf("encode generation event: %w", err)
+		}
+		if eventName == StreamEventVisualContext && visualContextBound == false {
+			snapshot, mergeErr := mergeGenerationJobVisualContextSnapshot(job.RequestPayload, encoded)
+			if mergeErr != nil {
+				return mergeErr
+			}
+			applied, bindErr := s.repo.BindVisualContextSnapshot(
+				context.Background(),
+				job.ID,
+				s.workerID,
+				attempt.ID,
+				snapshot,
+				s.now(),
+			)
+			if bindErr != nil {
+				return fmt.Errorf("persist generation visual context snapshot: %w", bindErr)
+			}
+			if applied == false {
+				return context.Canceled
+			}
+			job.RequestPayload = snapshot
+			attempt.InputSnapshot = snapshot
+			visualContextBound = true
 		}
 		if eventName == StreamEventDone || eventName == StreamEventError {
 			if eventName == StreamEventError || terminalEventType == "" {
@@ -444,6 +468,26 @@ func (s *GenerationJobService) run(job *model.GenerationJob, runner GenerationJo
 	}
 }
 
+func mergeGenerationJobVisualContextSnapshot(requestPayload string, eventPayload []byte) (string, error) {
+	var request map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(normalizeGenerationJobJSON(requestPayload)), &request); err != nil {
+		return "", fmt.Errorf("decode generation request snapshot: %w", err)
+	}
+	var event map[string]json.RawMessage
+	if err := json.Unmarshal(eventPayload, &event); err != nil {
+		return "", fmt.Errorf("decode visual context event: %w", err)
+	}
+	visualContext, ok := event["visual_context"]
+	if !ok || len(visualContext) == 0 || string(visualContext) == "null" {
+		return "", errors.New("visual context event is missing visual_context")
+	}
+	request["visual_context"] = visualContext
+	merged, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("encode generation visual context snapshot: %w", err)
+	}
+	return normalizeGenerationJobJSON(string(merged)), nil
+}
 func (s *GenerationJobService) failBeforeRun(job *model.GenerationJob, _ *model.GenerationAttempt, code string, err error) {
 	now := s.now()
 	message := err.Error()

@@ -102,6 +102,10 @@ node "$ROOT_DIR/scripts/validate-lt07-professional-efficiency-contract.mjs"
 echo "[YES] Checking LT-08 enterprise governance contract..."
 node "$ROOT_DIR/scripts/validate-lt08-enterprise-governance-contract.mjs"
 
+echo "[YES] Checking VIS-001 visual context model..."
+cd "$ROOT_DIR"
+pnpm exec tsx "$ROOT_DIR/scripts/validate-vis001-visual-context-model.ts"
+
 echo "[YES] Checking config env sync..."
 node "$ROOT_DIR/scripts/validate-config-env-sync.mjs"
 

@@ -44,6 +44,8 @@ import type { WorkspacePageUiModel } from './workspace-page-ui-contract';
 export type WorkspaceAttachment = {
   name: string;
   size: number;
+  type: 'image/png' | 'image/jpeg';
+  dataUrl: string;
 };
 
 export type WorkspaceAvailableModel = WorkspacePageUiModel;

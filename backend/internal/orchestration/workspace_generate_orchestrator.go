@@ -56,6 +56,9 @@ func NewGenerateOrchestratorWithOptions(generatorService *service.GeneratorServi
 
 func (o *GenerateOrchestrator) Generate(ctx context.Context, command GenerateCommand, handler service.StreamEventHandler) error {
 	command = command.normalized()
+	if err := prepareGenerateCommandVisualAttachments(&command); err != nil {
+		return err
+	}
 	if isBootstrapWorkflowStage(command.Context.WorkflowStage) {
 		return o.executeBootstrapWorkflowStage(ctx, command, handler)
 	}
@@ -108,6 +111,9 @@ func (o *GenerateOrchestrator) Generate(ctx context.Context, command GenerateCom
 		return ErrPromptRequired
 	}
 	if err := ensureOwnedProjectAccess(ctx, projectService, command.UserID, command.ProjectID); err != nil {
+		return err
+	}
+	if err := prepareGenerateCommandVisualContext(ctx, generatorService, &command); err != nil {
 		return err
 	}
 	if _, err := executeFoundationGate(ctx, command, generatorService, state, handler); err != nil {

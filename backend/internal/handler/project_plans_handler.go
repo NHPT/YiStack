@@ -11,13 +11,15 @@ import (
 
 // GeneratePlansRequest 生成方案请求。
 type GeneratePlansRequest struct {
-	Description  string       `json:"description"`
-	AppType      string       `json:"app_type"`
-	Language     string       `json:"language"`
-	ProjectID    string       `json:"project_id"`
-	Provider     string       `json:"provider"`
-	UserFeedback string       `json:"user_feedback"`
-	CurrentPlans []model.Plan `json:"current_plans"`
+	Description       string                        `json:"description"`
+	AppType           string                        `json:"app_type"`
+	Language          string                        `json:"language"`
+	ProjectID         string                        `json:"project_id"`
+	Provider          string                        `json:"provider"`
+	UserFeedback      string                        `json:"user_feedback"`
+	CurrentPlans      []model.Plan                  `json:"current_plans"`
+	VisualAttachments []model.VisualAttachmentInput `json:"visual_attachments"`
+	VisualContext     *model.VisualContext          `json:"visual_context,omitempty"`
 }
 
 // GeneratePlans POST /api/project/plans 生成技术方案。

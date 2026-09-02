@@ -11,6 +11,7 @@ import type {
   GitWorktreeCleanlinessStatus as ApiGitWorktreeCleanlinessStatus,
 } from '@/lib/types';
 import type { Plan } from '@/lib/api';
+import type { VisualContext } from '@/lib/visual-context';
 import type { WorkflowStep } from '@/components/workspace/chat-message-content';
 import type {
   WorkspaceEngineeringStateSnapshot,
@@ -2988,9 +2989,9 @@ export type ChatModelRegistrySnapshot = {
   updatedAt: string;
 };
 
-export type ChatAttachmentSnapshotStatus = 'empty' | 'selected' | 'removed' | 'picker_empty';
+export type ChatAttachmentSnapshotStatus = 'empty' | 'selected' | 'removed' | 'picker_empty' | 'rejected';
 
-export type ChatAttachmentSnapshotSource = 'attachment_state' | 'file_picker' | 'user_action';
+export type ChatAttachmentSnapshotSource = 'attachment_state' | 'file_picker' | 'clipboard' | 'user_action';
 
 export type ChatAttachmentSnapshot = {
   status: ChatAttachmentSnapshotStatus;
@@ -3121,6 +3122,7 @@ export type WorkspaceRestoredMessagePayload = {
   workflowSteps?: WorkspaceWorkflowStepEventData[];
   engineeringState?: WorkspaceStreamEventData;
   streaming?: boolean;
+  visualContext?: VisualContext;
 };
 
 export type WorkspaceChatMessage = {
@@ -3131,6 +3133,7 @@ export type WorkspaceChatMessage = {
   attachments?: FileAttachment[];
   kind?: WorkspaceChatMessageKind;
   reasoningContent?: string;
+  visualContext?: VisualContext;
   statusContent?: string;
   activeFileOperation?: string;
   relatedCommit?: GitCommit;

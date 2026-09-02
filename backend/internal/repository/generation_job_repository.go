@@ -124,6 +124,45 @@ func (r *GenerationJobRepository) UpdateJobPhase(ctx context.Context, jobID, wor
 	return result.RowsAffected == 1, result.Error
 }
 
+func (r *GenerationJobRepository) BindVisualContextSnapshot(
+	ctx context.Context,
+	jobID string,
+	workerID string,
+	attemptID string,
+	requestPayload string,
+	now time.Time,
+) (bool, error) {
+	applied := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		jobUpdate := tx.Model(&model.GenerationJob{}).
+			Where("id = ? AND worker_id = ? AND status IN ?", jobID, workerID, generationActiveJobStatuses()).
+			Updates(map[string]any{
+				"request_payload": normalizedJSONObject(requestPayload),
+				"updated_at":      now,
+			})
+		if jobUpdate.Error != nil {
+			return jobUpdate.Error
+		}
+		if jobUpdate.RowsAffected != 1 {
+			return nil
+		}
+		attemptUpdate := tx.Model(&model.GenerationAttempt{}).
+			Where("id = ? AND job_id = ? AND status = ?", attemptID, jobID, model.GenerationJobStatusRunning).
+			Updates(map[string]any{
+				"input_snapshot": normalizedJSONObject(requestPayload),
+				"updated_at":     now,
+			})
+		if attemptUpdate.Error != nil {
+			return attemptUpdate.Error
+		}
+		if attemptUpdate.RowsAffected != 1 {
+			return fmt.Errorf("generation attempt %s is not active", attemptID)
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
+}
 func (r *GenerationJobRepository) CompleteJob(ctx context.Context, jobID, workerID string, completion model.GenerationJobCompletion) (bool, error) {
 	return r.transitionJobTerminal(ctx, jobID, workerID, completion, nil, nil)
 }

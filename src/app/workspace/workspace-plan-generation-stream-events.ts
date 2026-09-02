@@ -1,4 +1,5 @@
 import type { Plan } from '@/lib/api';
+import { isVisualContext } from '@/lib/visual-context';
 import {
   buildPlanFoundationGateBlockedStreamError,
   buildPlanStreamError,
@@ -13,6 +14,7 @@ import type {
   PlanDoneEventContext,
   PlanErrorEventContext,
   PlanEventContext,
+  PlanMessagePatchContext,
   PlanMessagePatcherContext,
   PlanProgressEventContext,
   PlanStepEventContext,
@@ -139,6 +141,18 @@ export function createPlanMessagePatcher(
       return hasNextPatch === true ? { kind: 'plan-options', ...nextPatch } : null;
     });
   };
+}
+
+export function handlePlanVisualContextEvent(
+  data: WorkspaceStreamEventData,
+  context: PlanMessagePatchContext,
+) {
+  const visualContext = data.visual_context;
+  if (isVisualContext(visualContext) === false) {
+    return { handled: false };
+  }
+  context.patchPlanMessage({ visualContext });
+  return { handled: true };
 }
 
 export function handlePlanProgressEvent(

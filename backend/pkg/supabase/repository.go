@@ -591,15 +591,16 @@ func (r *LLMProviderRepository) ListDBProviders(ctx context.Context) ([]llm.DBPr
 				displayName = modelID
 			}
 			records = append(records, llm.DBProviderRecord{
-				Name:         p.Name + "::" + modelID,
-				ProviderID:   p.ID,
-				ProviderName: p.Name,
-				DisplayName:  strings.TrimSpace(p.DisplayName) + " / " + displayName,
-				APIKey:       p.APIKey,
-				BaseURL:      p.BaseURL,
-				Model:        modelID,
-				IsDefault:    p.IsDefault && item.IsDefault,
-				Type:         p.Type,
+				Name:           p.Name + "::" + modelID,
+				ProviderID:     p.ID,
+				ProviderName:   p.Name,
+				DisplayName:    strings.TrimSpace(p.DisplayName) + " / " + displayName,
+				APIKey:         p.APIKey,
+				BaseURL:        p.BaseURL,
+				Model:          modelID,
+				IsDefault:      p.IsDefault && item.IsDefault,
+				Type:           p.Type,
+				CapabilityTags: item.CapabilityTags,
 			})
 		}
 	}
@@ -1582,12 +1583,14 @@ func (r *ProjectResourceAlertEventRepository) DeleteByProjectID(ctx context.Cont
 
 func (r *ChatMessageRepository) Create(ctx context.Context, msg *model.ChatMessage) error {
 	data := map[string]interface{}{
-		"project_id": msg.ProjectID,
-		"user_id":    msg.UserID, // UUID string
-		"role":       msg.Role,
-		"content":    msg.Content,
-		"model":      msg.Model,
-		"tokens":     msg.Tokens,
+		"project_id":         msg.ProjectID,
+		"user_id":            msg.UserID, // UUID string
+		"role":               msg.Role,
+		"content":            msg.Content,
+		"visual_attachments": msg.VisualAttachments,
+		"visual_context":     msg.VisualContext,
+		"model":              msg.Model,
+		"tokens":             msg.Tokens,
 	}
 
 	result, err := r.supabase.AdminTable("chat_messages").Insert(data)
@@ -1797,6 +1800,12 @@ func (r *ChatMessageRepository) mapToChatMessage(m map[string]interface{}) *mode
 	}
 	if content, ok := m["content"].(string); ok {
 		msg.Content = content
+	}
+	if visualAttachments, ok := m["visual_attachments"].(string); ok {
+		msg.VisualAttachments = visualAttachments
+	}
+	if visualContext, ok := m["visual_context"].(string); ok {
+		msg.VisualContext = visualContext
 	}
 	if model, ok := m["model"].(string); ok {
 		msg.Model = model

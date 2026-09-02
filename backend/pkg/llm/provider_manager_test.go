@@ -246,3 +246,42 @@ func TestDeterministicProviderReturnsVersionedRepairOperation(t *testing.T) {
 		t.Fatalf("unexpected deterministic repair result: %#v", result)
 	}
 }
+
+func TestProviderManagerSupportsCapabilityUsesExactCaseInsensitiveTags(t *testing.T) {
+	manager := NewProviderManager()
+	manager.RegisterProvider("vision", providerManagerNoopProvider{}, &ProviderConfig{
+		Model:          "vision-model",
+		CapabilityTags: "chat, Vision ,coding",
+	})
+	manager.RegisterProvider("text", providerManagerNoopProvider{}, &ProviderConfig{
+		Model:          "text-model",
+		CapabilityTags: "chat,computer-vision-preview",
+	})
+
+	if !manager.SupportsCapability("vision", "vision") {
+		t.Fatal("expected exact vision capability to be supported")
+	}
+	if manager.SupportsCapability("text", "vision") {
+		t.Fatal("substring capability must not be accepted as vision")
+	}
+	if manager.SupportsCapability("missing", "vision") {
+		t.Fatal("missing provider must not report capabilities")
+	}
+}
+
+func TestProviderManagerGetConfigReturnsCopy(t *testing.T) {
+	manager := NewProviderManager()
+	manager.RegisterProvider("vision", providerManagerNoopProvider{}, &ProviderConfig{
+		Model:          "vision-model",
+		CapabilityTags: "vision",
+	})
+
+	config := manager.GetConfig("vision")
+	if config == nil {
+		t.Fatal("expected provider config")
+	}
+	config.CapabilityTags = "chat"
+	if !manager.SupportsCapability("vision", "vision") {
+		t.Fatal("mutating a config snapshot must not mutate manager state")
+	}
+}

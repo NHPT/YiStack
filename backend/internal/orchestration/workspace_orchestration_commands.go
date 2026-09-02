@@ -80,15 +80,18 @@ func (c OrchestrationContext) withDefaults(defaultStage, defaultMode string) Orc
 
 // GeneratePlansCommand 描述方案链路的最小编排输入。
 type GeneratePlansCommand struct {
-	Context      OrchestrationContext
-	UserID       string
-	ProjectID    string
-	Description  string
-	AppType      string
-	Language     string
-	Provider     string
-	UserFeedback string
-	CurrentPlans []model.Plan
+	Context                   OrchestrationContext
+	UserID                    string
+	ProjectID                 string
+	Description               string
+	AppType                   string
+	Language                  string
+	Provider                  string
+	UserFeedback              string
+	CurrentPlans              []model.Plan
+	VisualAttachments         []model.VisualAttachmentInput `json:"visual_attachments,omitempty"`
+	VisualContext             *model.VisualContext          `json:"visual_context,omitempty"`
+	VisualAttachmentsPrepared bool                          `json:"-"`
 }
 
 type BrowserAcceptanceAction struct {
@@ -105,20 +108,23 @@ type BrowserAcceptanceContract struct {
 
 // GenerateCommand 描述生成链路的最小编排输入。
 type GenerateCommand struct {
-	Context           OrchestrationContext
-	UserID            string
-	ProjectID         string
-	Prompt            string
-	ConversationStage string
-	PlanContext       string
-	AppType           string
-	ProjectName       string
-	Mode              string
-	Online            bool
-	Model             string
-	Provider          string
-	Temperature       float64
-	BrowserAcceptance BrowserAcceptanceContract
+	Context                   OrchestrationContext
+	UserID                    string
+	ProjectID                 string
+	Prompt                    string
+	ConversationStage         string
+	PlanContext               string
+	AppType                   string
+	ProjectName               string
+	Mode                      string
+	Online                    bool
+	Model                     string
+	Provider                  string
+	Temperature               float64
+	BrowserAcceptance         BrowserAcceptanceContract
+	VisualAttachments         []model.VisualAttachmentInput `json:"visual_attachments,omitempty"`
+	VisualContext             *model.VisualContext          `json:"visual_context,omitempty"`
+	VisualAttachmentsPrepared bool                          `json:"-"`
 }
 
 func (c GeneratePlansCommand) normalized() GeneratePlansCommand {

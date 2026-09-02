@@ -172,6 +172,12 @@ export async function runWorkspaceImplementationGeneration({
     let generationJobId = '';
     let generationEventCursor = 0;
     let terminalReached = false;
+    let completionReported = false;
+    const reportCompletion = (succeeded: boolean) => {
+      if (completionReported === true) return;
+      completionReported = true;
+      options?.onTerminal?.(succeeded);
+    };
     const consumeGenerationResponse = async (response: Response) => {
       const responseJobId = response.headers.get('X-Generation-Job-ID')?.trim();
       if (responseJobId) generationJobId = responseJobId;
@@ -182,8 +188,9 @@ export async function runWorkspaceImplementationGeneration({
             generationEventCursor = parsed;
           }
         },
-        onTerminal: () => {
+        onTerminal: (status) => {
           terminalReached = true;
+          reportCompletion(status === 'succeeded');
         },
       });
     };
@@ -249,6 +256,7 @@ export async function runWorkspaceImplementationGeneration({
         reasoningContent: streamState.reasoningContent,
         statusContent: streamState.statusContent,
       });
+      reportCompletion(false);
     }
   } finally {
     cleanupImplementationGeneration({

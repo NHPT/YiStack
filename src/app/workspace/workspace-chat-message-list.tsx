@@ -295,6 +295,31 @@ function getWorkspaceChatMessageListMessageBubblePaddingClassName(compact: boole
   return 'p-3';
 }
 
+function materializeWorkspaceChatMessageAttachmentNodes(message: WorkspaceChatMessage): ReactNode[] {
+  const attachments = message.attachments ?? [];
+  const nodes: ReactNode[] = [];
+  for (let index = 0; index < attachments.length; index += 1) {
+    const attachment = attachments[index];
+    if (attachment === undefined || typeof attachment.dataUrl !== 'string' || attachment.dataUrl.length === 0) {
+      continue;
+    }
+    nodes.push(
+      <figure key={`${attachment.name}-${index}`} className="min-w-0">
+        <span
+          role="img"
+          aria-label={`视觉参考图：${attachment.name}`}
+          className="block aspect-[4/3] w-full rounded-md border border-white/20 bg-cover bg-center"
+          style={{ backgroundImage: `url(${attachment.dataUrl})` }}
+        />
+        <figcaption className="mt-1 truncate text-[11px] opacity-75" title={attachment.name}>
+          {attachment.name}
+        </figcaption>
+      </figure>,
+    );
+  }
+  return nodes;
+}
+
 function getWorkspaceChatMessageListTimestampClassName(compact: boolean): string {
   if (compact === true) {
     return 'mt-0.5';
@@ -342,9 +367,19 @@ function materializeWorkspaceChatMessageListMessageNodes({
       continue;
     }
 
+    const attachmentNodes = materializeWorkspaceChatMessageAttachmentNodes(message);
+    const hasAttachments = attachmentNodes.length > 0;
     nodes.push(
       <div key={message.id} className={cn('flex', getWorkspaceChatMessageListMessageRowClassName(message))}>
         <div className={cn('max-w-[85%] rounded-lg', getWorkspaceChatMessageListMessageBubbleToneClassName(message), messageBubblePaddingClassName)}>
+          {hasAttachments === true && (
+            <div
+              data-testid="workspace-chat-message-attachments"
+              className="mb-3 grid max-w-sm grid-cols-2 gap-2"
+            >
+              {attachmentNodes}
+            </div>
+          )}
           {shouldRenderWorkspaceChatMessageListPlanSelection(message) === true ? (
             <PlanSelectionMessage
               message={message}

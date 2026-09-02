@@ -18,12 +18,13 @@ const planJSONMarker = "<<PLANS_JSON>>"
 
 // PlanService 方案服务
 type PlanService struct {
-	projectRepo     ProjectRepo
-	chatRepo        ChatMessageRepo
-	llmClient       *llm.ProviderManager
-	providerMgr     *ProviderManagerService
-	llmCfg          *config.LLMConfig
-	systemConfigSvc *SystemConfigService
+	projectRepo             ProjectRepo
+	chatRepo                ChatMessageRepo
+	llmClient               *llm.ProviderManager
+	providerMgr             *ProviderManagerService
+	llmCfg                  *config.LLMConfig
+	visualContextSigningKey string
+	systemConfigSvc         *SystemConfigService
 }
 
 // NewPlanService 创建方案服务
@@ -34,28 +35,33 @@ func NewPlanService(
 	providerMgr *ProviderManagerService,
 	llmCfg *config.LLMConfig,
 	systemConfigSvc *SystemConfigService,
+	visualContextSigningKey string,
 ) *PlanService {
 	return &PlanService{
-		projectRepo:     projectRepo,
-		chatRepo:        chatRepo,
-		llmClient:       llmClient,
-		providerMgr:     providerMgr,
-		llmCfg:          llmCfg,
-		systemConfigSvc: systemConfigSvc,
+		projectRepo:             projectRepo,
+		chatRepo:                chatRepo,
+		llmClient:               llmClient,
+		providerMgr:             providerMgr,
+		llmCfg:                  llmCfg,
+		visualContextSigningKey: visualContextSigningKey,
+		systemConfigSvc:         systemConfigSvc,
 	}
 }
 
 // GeneratePlansRequest 生成方案请求
 type GeneratePlansRequest struct {
-	UserID            string       `json:"user_id"`
-	ProjectID         string       `json:"project_id"`
-	Description       string       `json:"description"`
-	AppType           string       `json:"app_type"`
-	Language          string       `json:"language"`
-	Provider          string       `json:"provider"`
-	UserFeedback      string       `json:"user_feedback"`
-	FoundationContext string       `json:"foundation_context"`
-	CurrentPlans      []model.Plan `json:"current_plans"`
+	UserID                    string                        `json:"user_id"`
+	ProjectID                 string                        `json:"project_id"`
+	Description               string                        `json:"description"`
+	AppType                   string                        `json:"app_type"`
+	Language                  string                        `json:"language"`
+	Provider                  string                        `json:"provider"`
+	UserFeedback              string                        `json:"user_feedback"`
+	FoundationContext         string                        `json:"foundation_context"`
+	CurrentPlans              []model.Plan                  `json:"current_plans"`
+	VisualAttachments         []model.VisualAttachmentInput `json:"visual_attachments"`
+	VisualContext             *model.VisualContext          `json:"visual_context,omitempty"`
+	VisualAttachmentsPrepared bool                          `json:"-"`
 }
 
 // GeneratePlansResponse 生成方案响应
@@ -82,6 +88,10 @@ func (s *PlanService) generatePlansInternal(ctx context.Context, req *GeneratePl
 	if err := s.ensureProviderRuntimeReady(ctx); err != nil {
 		return nil, "", fmt.Errorf("LLM provider not ready: %w", err)
 	}
+	if err := s.prepareRequestVisualContext(ctx, req, handler); err != nil {
+		return nil, "", err
+	}
+	req.FoundationContext = appendVisualContextPrompt(req.FoundationContext, req.VisualContext)
 
 	systemPromptOverride := s.lookupPlanSystemPrompt(ctx)
 	currentPlanSummary := summarizePlanCandidates(req.CurrentPlans)
@@ -206,6 +216,11 @@ func (s *PlanService) generatePlansInternal(ctx context.Context, req *GeneratePl
 			return nil, analysis, err
 		}
 	}
+	if req.VisualContext != nil {
+		for index := range plans {
+			plans[index].VisualContext = req.VisualContext
+		}
+	}
 
 	guidance := buildDynamicGuidance(
 		ctx,
@@ -277,10 +292,12 @@ func (s *PlanService) persistPlanConversation(ctx context.Context, req *Generate
 	}
 
 	_ = s.chatRepo.Create(ctx, &model.ChatMessage{
-		ProjectID: req.ProjectID,
-		UserID:    req.UserID,
-		Role:      "user",
-		Content:   visiblePlanRequestContent(req, userPrompt),
+		ProjectID:         req.ProjectID,
+		UserID:            req.UserID,
+		Role:              "user",
+		Content:           visiblePlanRequestContent(req, userPrompt),
+		VisualAttachments: marshalVisualAttachmentsSnapshot(req.VisualAttachments),
+		VisualContext:     marshalVisualContextSnapshot(req.VisualContext),
 	})
 
 	recommendedPlanID := ""
@@ -303,10 +320,11 @@ func (s *PlanService) persistPlanConversation(ctx context.Context, req *Generate
 	}
 
 	_ = s.chatRepo.Create(ctx, &model.ChatMessage{
-		ProjectID: req.ProjectID,
-		UserID:    req.UserID,
-		Role:      "assistant",
-		Content:   string(payload),
+		ProjectID:     req.ProjectID,
+		UserID:        req.UserID,
+		Role:          "assistant",
+		Content:       string(payload),
+		VisualContext: marshalVisualContextSnapshot(req.VisualContext),
 	})
 }
 

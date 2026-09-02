@@ -116,6 +116,10 @@ jobs:
         if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm build
 
+      - name: VIS-001 browser acceptance
+        if: needs.change_scope.outputs.docs_only != 'true'
+        run: pnpm test:vis001-browser
+
       - name: YES engineering gate
         if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm yes:validate

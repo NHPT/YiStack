@@ -44,20 +44,27 @@ func (o *PlanOrchestrator) GeneratePlansStream(ctx context.Context, command Gene
 	if _, err := executeFoundationGateBeforePlan(ctx, command, o.artifactLoader, state, handler); err != nil {
 		return nil, "", err
 	}
+	if err := prepareGeneratePlansCommandVisualAttachments(&command); err != nil {
+		finishFailedPlanAnalysisWorkflowStage(command, state, err, handler)
+		return nil, "", err
+	}
 	foundationContext := buildPlanFoundationContext(ctx, command, o.artifactLoader)
 
 	emitPlanAnalysisRunningStep(command, state, handler)
 
 	req := &service.GeneratePlansRequest{
-		UserID:            command.UserID,
-		ProjectID:         command.ProjectID,
-		Description:       command.Description,
-		AppType:           command.AppType,
-		Language:          command.Language,
-		Provider:          command.Provider,
-		UserFeedback:      command.UserFeedback,
-		FoundationContext: foundationContext,
-		CurrentPlans:      command.CurrentPlans,
+		UserID:                    command.UserID,
+		ProjectID:                 command.ProjectID,
+		Description:               command.Description,
+		AppType:                   command.AppType,
+		Language:                  command.Language,
+		Provider:                  command.Provider,
+		UserFeedback:              command.UserFeedback,
+		FoundationContext:         foundationContext,
+		VisualAttachments:         command.VisualAttachments,
+		VisualContext:             command.VisualContext,
+		VisualAttachmentsPrepared: command.VisualAttachmentsPrepared,
+		CurrentPlans:              command.CurrentPlans,
 	}
 	response, analysis, err := o.planService.GeneratePlansStream(ctx, req, handler)
 	if err != nil {

@@ -143,6 +143,8 @@ export async function executePlanGenerationRequest(
     provider: request.selectedModel || undefined,
     user_feedback: hasUserFeedback === true ? request.userFeedback : undefined,
     current_plans: hasCurrentPlansForReplan === true ? request.currentPlansForReplan : undefined,
+    visual_attachments: request.visualAttachments,
+    visual_context: request.visualContext,
   }, state.abortController.signal);
 
   const patchPlanStreamMessage = (

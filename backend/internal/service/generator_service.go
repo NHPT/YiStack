@@ -29,6 +29,7 @@ type GeneratorService struct {
 	llmClient               *llm.ProviderManager
 	providerMgr             *ProviderManagerService
 	llmCfg                  *config.LLMConfig
+	visualContextSigningKey string
 	systemConfigSvc         *SystemConfigService
 	containerMgr            *container.Manager
 	commandExecutor         generationCommandExecutor
@@ -52,6 +53,7 @@ type GeneratorServiceOptions struct {
 	LLMClient               *llm.ProviderManager
 	ProviderMgr             *ProviderManagerService
 	LLMCfg                  *config.LLMConfig
+	VisualContextSigningKey string
 	SystemConfigSvc         *SystemConfigService
 	ContainerMgr            *container.Manager
 	FileService             *file.Service
@@ -72,6 +74,7 @@ func NewGeneratorService(options GeneratorServiceOptions) *GeneratorService {
 		llmClient:               options.LLMClient,
 		providerMgr:             options.ProviderMgr,
 		llmCfg:                  options.LLMCfg,
+		visualContextSigningKey: options.VisualContextSigningKey,
 		systemConfigSvc:         options.SystemConfigSvc,
 		containerMgr:            options.ContainerMgr,
 		fileSvc:                 options.FileService,
@@ -89,19 +92,22 @@ func NewGeneratorService(options GeneratorServiceOptions) *GeneratorService {
 
 // GenerateRequest 生成请求
 type GenerateRequest struct {
-	UserID            string                `json:"user_id"`
-	ProjectID         string                `json:"project_id"`
-	Prompt            string                `json:"prompt"`
-	ConversationStage string                `json:"conversation_stage"`
-	PlanContext       string                `json:"plan_context"`
-	AppType           string                `json:"app_type"`
-	ProjectName       string                `json:"project_name"`
-	Mode              string                `json:"mode"`
-	Online            bool                  `json:"online"`
-	Model             string                `json:"model"`
-	Provider          string                `json:"provider"`
-	Temperature       float64               `json:"temperature"`
-	BrowserAcceptance BrowserAcceptanceSpec `json:"browser_acceptance"`
+	UserID                    string                        `json:"user_id"`
+	ProjectID                 string                        `json:"project_id"`
+	Prompt                    string                        `json:"prompt"`
+	ConversationStage         string                        `json:"conversation_stage"`
+	PlanContext               string                        `json:"plan_context"`
+	AppType                   string                        `json:"app_type"`
+	ProjectName               string                        `json:"project_name"`
+	VisualAttachments         []model.VisualAttachmentInput `json:"visual_attachments"`
+	VisualContext             *model.VisualContext          `json:"visual_context,omitempty"`
+	VisualAttachmentsPrepared bool                          `json:"-"`
+	Mode                      string                        `json:"mode"`
+	Online                    bool                          `json:"online"`
+	Model                     string                        `json:"model"`
+	Provider                  string                        `json:"provider"`
+	Temperature               float64                       `json:"temperature"`
+	BrowserAcceptance         BrowserAcceptanceSpec         `json:"browser_acceptance"`
 }
 
 // FileToGenerate 待生成的文件
@@ -119,6 +125,9 @@ func (s *GeneratorService) Generate(ctx context.Context, req *GenerateRequest, h
 	}
 	if err := s.ensureProviderRuntimeReady(ctx); err != nil {
 		return fmt.Errorf("LLM provider not ready: %w", err)
+	}
+	if err := s.prepareRequestVisualContext(ctx, req, handler); err != nil {
+		return err
 	}
 
 	generateCtx := ctx
@@ -146,11 +155,13 @@ func (s *GeneratorService) Generate(ctx context.Context, req *GenerateRequest, h
 
 	if s.chatRepo != nil && req.ProjectID != "" && strings.TrimSpace(req.Prompt) != "" {
 		_ = s.chatRepo.Create(generateCtx, &model.ChatMessage{
-			ProjectID: req.ProjectID,
-			UserID:    req.UserID,
-			Role:      "user",
-			Content:   req.Prompt,
-			Model:     modelName,
+			ProjectID:         req.ProjectID,
+			UserID:            req.UserID,
+			Role:              "user",
+			Content:           req.Prompt,
+			VisualAttachments: marshalVisualAttachmentsSnapshot(req.VisualAttachments),
+			VisualContext:     marshalVisualContextSnapshot(req.VisualContext),
+			Model:             modelName,
 		})
 	}
 

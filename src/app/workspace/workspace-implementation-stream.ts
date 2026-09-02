@@ -6,6 +6,7 @@ import {
   handleImplementationProgressEvent,
   handleImplementationStartEvent,
   handleImplementationStepEvent,
+  handleImplementationVisualContextEvent,
 } from './workspace-implementation-stream-events';
 import { finalizeImplementationDoneEvent } from './workspace-implementation-stream-finalization';
 import type {
@@ -51,6 +52,9 @@ export async function consumeImplementationStream(
         const result = handleImplementationProgressEvent(data, context, state.statusContent);
         state.statusContent = result.nextStatusContent;
       },
+      visual_context: (data) => {
+        handleImplementationVisualContextEvent(data, context);
+      },
       chunk: (data) => {
         const result = handleImplementationChunkEvent(
           data,
@@ -62,16 +66,16 @@ export async function consumeImplementationStream(
         state.reasoningContent = result.nextReasoningContent;
       },
       done: async (data) => {
-        options.onTerminal?.("succeeded");
         await finalizeImplementationDoneEvent(data, context, state);
+        options.onTerminal?.('succeeded');
       },
       guidance: (data) => {
         handleImplementationGuidanceEvent(data, context);
       },
       error: (data) => {
-        options.onTerminal?.("failed");
         const result = buildImplementationStreamError(data, context, state.statusContent);
         state.statusContent = result.nextStatusContent;
+        options.onTerminal?.('failed');
         throw result.error;
       },
     },

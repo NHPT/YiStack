@@ -211,6 +211,27 @@ func (r *memoryGenerationJobRepo) UpdateJobPhase(_ context.Context, jobID, worke
 	return true, nil
 }
 
+func (r *memoryGenerationJobRepo) BindVisualContextSnapshot(
+	_ context.Context,
+	jobID string,
+	workerID string,
+	attemptID string,
+	requestPayload string,
+	now time.Time,
+) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	job := r.jobs[jobID]
+	attempt := r.attempts[attemptID]
+	if job == nil || attempt == nil || job.WorkerID != workerID || !IsGenerationJobActiveStatus(job.Status) || attempt.Status != model.GenerationJobStatusRunning {
+		return false, nil
+	}
+	job.RequestPayload = normalizeGenerationJobJSON(requestPayload)
+	job.UpdatedAt = now
+	attempt.InputSnapshot = normalizeGenerationJobJSON(requestPayload)
+	attempt.UpdatedAt = now
+	return true, nil
+}
 func (r *memoryGenerationJobRepo) CompleteJob(_ context.Context, jobID, workerID string, completion GenerationJobCompletion) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -424,6 +445,43 @@ func generationJobTestSpec(projectID, key string) GenerationJobSpec {
 		IdempotencyKey: key, WorkflowStage: "implementation", WorkflowMode: "implement",
 		Provider: "test", Model: "test-model", RequestPayload: `{"prompt":"build"}`,
 	}
+}
+
+func TestGenerationJobBindsVisualContextIntoJobAndAttemptSnapshots(t *testing.T) {
+	repo := newMemoryGenerationJobRepo()
+	jobs := NewGenerationJobService(repo)
+	spec := generationJobTestSpec("project-visual-context", "visual-context")
+	spec.RequestPayload = `{"prompt":"build","visual_attachments":[{"name":"reference.png","data_url":"data:image/png;base64,AAAA"}]}`
+	visualContext := map[string]any{
+		"schema_version": "visual_context.v1",
+		"id":             "visual-context-1",
+		"server_proof":   strings.Repeat("a", 64),
+	}
+	started, err := jobs.Start(context.Background(), spec, func(_ context.Context, handler StreamEventHandler) error {
+		if err := handler(StreamEventVisualContext, map[string]any{"visual_context": visualContext}); err != nil {
+			return err
+		}
+		return handler(StreamEventDone, map[string]any{"message": "done"})
+	})
+	if err != nil {
+		t.Fatalf("start visual generation job: %v", err)
+	}
+	job := waitGenerationJobStatus(t, repo, started.Job.ID, model.GenerationJobStatusSucceeded)
+	if !strings.Contains(job.RequestPayload, `"visual_attachments"`) || !strings.Contains(job.RequestPayload, `"visual_context"`) {
+		t.Fatalf("job snapshot must bind image and visual context: %s", job.RequestPayload)
+	}
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	for _, attempt := range repo.attempts {
+		if attempt.JobID != job.ID || attempt.Kind != model.GenerationAttemptKindInitial {
+			continue
+		}
+		if !strings.Contains(attempt.InputSnapshot, `"visual_attachments"`) || !strings.Contains(attempt.InputSnapshot, `"visual_context"`) {
+			t.Fatalf("attempt snapshot must bind image and visual context: %s", attempt.InputSnapshot)
+		}
+		return
+	}
+	t.Fatal("initial generation attempt not found")
 }
 
 func TestGenerationJobContinuesAfterRequestContextCancellation(t *testing.T) {

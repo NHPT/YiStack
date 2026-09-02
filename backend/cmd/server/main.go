@@ -63,6 +63,7 @@ func main() {
 
 	h := server.New(
 		server.WithHostPorts(net.JoinHostPort(host, port)),
+		server.WithMaxRequestBodySize(service.MaxVisualRequestBodyBytes),
 	)
 
 	// 全局中间件
@@ -697,9 +698,10 @@ func initLLMClient(cfg *config.Config, repo service.LLMProviderRepo) *llm.Provid
 	if cfg.LLM.OpenAIAPIKey != "" {
 		provider := llm.NewDefaultProvider(cfg.LLM.OpenAIBaseURL, cfg.LLM.OpenAIAPIKey, 120*time.Second)
 		manager.RegisterProvider("openai", provider, &llm.ProviderConfig{
-			BaseURL: cfg.LLM.OpenAIBaseURL,
-			APIKey:  cfg.LLM.OpenAIAPIKey,
-			Model:   "gpt-4o",
+			BaseURL:        cfg.LLM.OpenAIBaseURL,
+			APIKey:         cfg.LLM.OpenAIAPIKey,
+			Model:          "gpt-4o",
+			CapabilityTags: "chat,reasoning,coding,vision",
 		})
 		if manager.GetCurrentName() == "" {
 			manager.SetCurrent("openai")

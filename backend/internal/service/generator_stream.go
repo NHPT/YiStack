@@ -7,14 +7,15 @@ type StreamEventPayload = any
 type StreamEventHandler func(StreamEventName, StreamEventPayload) error
 
 const (
-	StreamEventStart    StreamEventName = "start"
-	StreamEventChunk    StreamEventName = "chunk"
-	StreamEventPlan     StreamEventName = "plan"
-	StreamEventProgress StreamEventName = "progress"
-	StreamEventStep     StreamEventName = "step"
-	StreamEventGuidance StreamEventName = "guidance"
-	StreamEventDone     StreamEventName = "done"
-	StreamEventError    StreamEventName = "error"
+	StreamEventStart         StreamEventName = "start"
+	StreamEventChunk         StreamEventName = "chunk"
+	StreamEventPlan          StreamEventName = "plan"
+	StreamEventProgress      StreamEventName = "progress"
+	StreamEventVisualContext StreamEventName = "visual_context"
+	StreamEventStep          StreamEventName = "step"
+	StreamEventGuidance      StreamEventName = "guidance"
+	StreamEventDone          StreamEventName = "done"
+	StreamEventError         StreamEventName = "error"
 )
 
 // emitStreamEvent 统一包装流式事件发送，便于不同生成链路共享同一套事件协议。

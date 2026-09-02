@@ -443,6 +443,7 @@ export async function runWorkspacePlanGeneration({
       setMessageStreamingState,
       applyPlanGenerationMessages,
     });
+    options?.onTerminal?.(true);
   } catch (error) {
     const result = appendPlanGenerationFailureMessage({
       planMessageId,
@@ -454,6 +455,7 @@ export async function runWorkspacePlanGeneration({
       error,
       projectId: request.projectId,
     });
+    options?.onTerminal?.(false);
     const hasAborted = hasWorkspacePlanGenerationFailureAborted(result);
     if (hasAborted === true) {
       return;
