@@ -38,7 +38,7 @@ Core goals:
 | Status | Meaning |
 | --- | --- |
 | Implemented | A real implementation and automated gates exist in the repository |
-| Contract implemented | The local adapter, failure boundaries, and tests are complete; the external platform lifecycle still requires credentialed acceptance |
+| Implemented; live acceptance pending | The adapter, failure boundaries, and automated tests are complete; the external platform lifecycle still requires credentialed acceptance |
 | Experimental | Usable, but APIs or storage structures may change before a stable release |
 | Planned | Not complete and not a release commitment |
 | Out of current scope | Not provided in v1.0.0 |
@@ -58,7 +58,7 @@ Core goals:
 | Container runtime | Implemented | Per-project rootless Podman boundaries and resource policies |
 | Supabase application preset | Implemented | Auth, CRUD RLS, private Storage, types, migrations, and rollback |
 | GitHub integration | Implemented | OAuth PKCE, encrypted tokens, import, guarded pull/push, and webhooks |
-| Vercel adapter | Contract implemented | Publish, redacted logs, rollback, and domain contracts are tested; live cloud acceptance is deferred to the unified multi-provider phase |
+| Vercel adapter | Implemented; live acceptance pending | Publish, redacted-log, rollback, and domain behavior has automated coverage; credentialed lifecycle acceptance is deferred to the unified multi-provider phase |
 | Project collaboration | Implemented | Owner/editor/viewer roles, durable presence, SSE replay, backend-owned resource auditing, remote file synchronization, and SHA-256 conflict protection |
 | Official templates | Experimental | One initial template with immutable versions, checksums, publishing, and CAS rollback |
 | Contributor workflow | Implemented | Apache-2.0, governance files, CODEOWNERS, CI, and clean-checkout gates |

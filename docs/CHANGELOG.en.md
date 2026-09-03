@@ -24,6 +24,11 @@ starting with v1.0.0.
 - COLLAB-001 shared-workspace loop: owner/editor/viewer sessions expose durable presence, resource changes synchronize through replayable SSE, and leave/expiry transitions retain append-only audit evidence.
 - Remote saves refresh clean buffers automatically. Dirty buffers preserve local content and show a conflict, while SHA-256 revisions and HTTP 409 prevent silent overwrites.
 
+### Changed
+
+- The README now presents one-prompt complete application generation, the YES Engineering System, high-performance isolated execution, durable recovery, visual context, and live collaboration as core advantages.
+- An English YES Engineering System document was added, and the product-gap and open-source-readiness report now reflects VIS-001, COLLAB-001, and the remaining verified gaps.
+
 ### Security
 
 - Visual context carries a server-issued HMAC integrity proof. Clients cannot forge analysis results by changing both the request and project `plan_data`, while valid context remains reusable across discussion and replanning.

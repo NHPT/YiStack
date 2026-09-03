@@ -26,7 +26,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | 状态 | 含义 |
 | --- | --- |
 | 已实现 | 仓库中存在真实实现和自动化门禁 |
-| 合同已实现 | 本地 adapter、失败边界和测试完成，外部平台 lifecycle 仍需凭据验收 |
+| 已实现，待云端验收 | adapter、失败边界和自动化测试已完成，外部平台真实 lifecycle 仍需凭据验收 |
 | 试验性 | 可使用，但 API 或存储结构可能在稳定版前变化 |
 | 规划中 | 尚未完成，不构成版本承诺 |
 | 不在当前范围 | v1.0.0 不提供 |
@@ -46,7 +46,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | 容器运行 | 已实现 | 每项目 rootless Podman 运行边界和资源策略 |
 | Supabase 应用预设 | 已实现 | Auth、CRUD RLS、私有 Storage、类型、migration 和 rollback |
 | GitHub 集成 | 已实现 | OAuth PKCE、token 加密、import、pull/push 冲突防护、webhook |
-| Vercel adapter | 合同已实现 | 发布、日志脱敏、回滚和域名合同已测试；真实云端验收待统一多 Provider 阶段 |
+| Vercel adapter | 已实现，待云端验收 | 发布、日志脱敏、回滚和域名逻辑已有自动化测试；真实 lifecycle 待统一多 Provider 阶段使用外部凭据验收 |
 | 项目协作 | 已实现 | owner/editor/viewer，持久 presence、SSE 重放、后端资源事件审计、远端文件同步和 SHA-256 冲突保护 |
 | 官方模板 | 试验性 | 一个初始模板，支持不可变版本、checksum、发布和 CAS rollback |
 | Contributor workflow | 已实现 | Apache-2.0、治理文件、CODEOWNERS、CI 和 clean-checkout 门禁 |
