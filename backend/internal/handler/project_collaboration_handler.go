@@ -3,7 +3,9 @@ package handler
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -30,6 +32,12 @@ type memberMutationPayload struct {
 type removeMemberPayload struct {
 	UserID  string `json:"user_id"`
 	Confirm bool   `json:"confirm"`
+}
+type collaborationPresencePayload struct {
+	ClientID      string `json:"client_id"`
+	Activity      string `json:"activity"`
+	CurrentFile   string `json:"current_file"`
+	AfterSequence int64  `json:"after_sequence"`
 }
 type createFromTemplatePayload struct {
 	Slug        string `json:"slug"`
@@ -102,6 +110,90 @@ func (h *ProjectCollaborationHandler) ListAudits(c context.Context, ctx *app.Req
 	}
 	result, err := h.collaboration.ListAudits(c, userID, ctx.Param("id"))
 	h.respond(ctx, result, err)
+}
+func (h *ProjectCollaborationHandler) GetCollaborationState(c context.Context, ctx *app.RequestContext) {
+	userID, ok := collaborationUserID(ctx)
+	if !ok {
+		return
+	}
+	result, err := h.collaboration.Snapshot(c, userID, ctx.Param("id"), strings.TrimSpace(ctx.Query("session_id")), generationEventCursor(ctx))
+	h.respond(ctx, result, err)
+}
+func (h *ProjectCollaborationHandler) TouchCollaborationPresence(c context.Context, ctx *app.RequestContext) {
+	userID, ok := collaborationUserID(ctx)
+	if !ok {
+		return
+	}
+	var payload collaborationPresencePayload
+	if err := ctx.Bind(&payload); err != nil {
+		ctx.JSON(consts.StatusBadRequest, map[string]interface{}{"error": "Invalid request"})
+		return
+	}
+	result, err := h.collaboration.TouchPresence(c, userID, ctx.Param("id"), service.ProjectCollaborationPresenceRequest{
+		ClientID: payload.ClientID, Activity: payload.Activity, CurrentFile: payload.CurrentFile, AfterSequence: payload.AfterSequence,
+	})
+	h.respond(ctx, result, err)
+}
+func (h *ProjectCollaborationHandler) LeaveCollaborationPresence(c context.Context, ctx *app.RequestContext) {
+	userID, ok := collaborationUserID(ctx)
+	if !ok {
+		return
+	}
+	var payload collaborationPresencePayload
+	if err := ctx.Bind(&payload); err != nil {
+		ctx.JSON(consts.StatusBadRequest, map[string]interface{}{"error": "Invalid request"})
+		return
+	}
+	err := h.collaboration.LeavePresence(c, userID, ctx.Param("id"), payload.ClientID)
+	h.respond(ctx, map[string]interface{}{"left": err == nil}, err)
+}
+func (h *ProjectCollaborationHandler) StreamCollaborationEvents(c context.Context, ctx *app.RequestContext) {
+	userID, ok := collaborationUserID(ctx)
+	if !ok {
+		return
+	}
+	projectID := strings.TrimSpace(ctx.Param("id"))
+	if _, _, ok := h.requireReadable(c, ctx); !ok {
+		return
+	}
+	cursor := generationEventCursor(ctx)
+	writer := prepareSSEWriter(ctx)
+	defer writer.Close()
+	keepAliveAt := time.Now()
+	for {
+		events, err := h.collaboration.Events(c, userID, projectID, cursor)
+		if err != nil {
+			_ = writer.WriteEvent(strconv.FormatInt(cursor, 10), "collaboration_error", []byte(toJSON(map[string]interface{}{
+				"code": "collaboration_event_replay_failed", "message": err.Error(),
+			})))
+			return
+		}
+		for _, event := range events {
+			if event.Sequence <= cursor {
+				continue
+			}
+			if err := writer.WriteEvent(strconv.FormatInt(event.Sequence, 10), event.EventType, []byte(toJSON(event))); err != nil {
+				return
+			}
+			cursor = event.Sequence
+			keepAliveAt = time.Now()
+		}
+		if time.Since(keepAliveAt) >= 15*time.Second {
+			if err := writer.WriteEvent(strconv.FormatInt(cursor, 10), "collaboration_heartbeat", []byte(toJSON(map[string]interface{}{
+				"schema_version": service.ProjectCollaborationSchemaVersion,
+				"project_id":     projectID,
+				"cursor":         cursor,
+			}))); err != nil {
+				return
+			}
+			keepAliveAt = time.Now()
+		}
+		select {
+		case <-c.Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
 }
 func (h *ProjectCollaborationHandler) ListTemplates(c context.Context, ctx *app.RequestContext) {
 	result, err := h.collaboration.ListOfficialTemplates(c)

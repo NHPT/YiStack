@@ -16,6 +16,7 @@ import {
   WorkspacePageScaffold,
 } from './workspace-page-components';
 import { buildWorkspaceProjectBootstrapSnapshot } from './workspace-project-bootstrap-snapshot';
+import { WorkspaceCollaborationPresence } from './workspace-collaboration-presence';
 
 // 动态导入 Monaco Editor 以避免 SSR 问题
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { 
@@ -38,6 +39,7 @@ function WorkspacePage() {
     isRestoringWorkspace,
     messageRestoreStatus,
     openFiles,
+    activeFile,
     files,
     savedFiles,
     pendingCloseFile,
@@ -98,6 +100,12 @@ function WorkspacePage() {
       header={{
         isMobile,
         projectName: projectInfo?.projectName,
+        collaborationPresence: projectInfo?.isPersisted === true ? (
+          <WorkspaceCollaborationPresence
+            projectId={projectInfo.projectId}
+            activeFile={activeFile}
+          />
+        ) : undefined,
         goBack,
         clearChat,
       }}

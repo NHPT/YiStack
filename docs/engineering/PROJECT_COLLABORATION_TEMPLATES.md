@@ -1,10 +1,31 @@
 # Project Collaboration and Official Templates
 
-Status: Done (R6.4)
+Status: Done (R6.4 + COLLAB-001)
 
 ## Scope
 
-R6.4 implements a controlled minimum collaboration loop and a versioned official project-template catalog. It does not claim real-time co-editing, email invitations, community templates, plugins, or a marketplace.
+R6.4 implements the permission, membership-audit, and official-template baseline.
+COLLAB-001 adds shared-workspace presence and durable resource synchronization.
+It does not claim character-level CRDT/OT co-editing, email invitations,
+community templates, plugins, or a marketplace.
+
+## Shared workspace
+
+- Active browser sessions persist role, activity, current file, heartbeat,
+  expiry, and client identity with a 45-second presence TTL.
+- `presence_joined`, `presence_updated`, `presence_left`, and
+  `presence_expired` are append-only events. Expiry transition and audit event
+  are atomic and idempotent.
+- `file_saved` and `tree_changed` events are emitted only by authenticated
+  backend mutations. The public API cannot forge resource audit events.
+- SSE uses the durable event sequence as its cursor and accepts
+  `Last-Event-ID`; reconnecting clients replay missed events.
+- Clean editor buffers reload a remote file revision automatically. Dirty
+  buffers are never overwritten and expose an explicit conflict state.
+- File writes send the SHA-256 revision of the saved snapshot. A stale editor
+  receives HTTP 409 instead of silently replacing a collaborator's work.
+- Owner and editor may write or generate. Viewer presence is restricted to
+  read-only activity.
 
 ## Project roles
 
@@ -45,6 +66,10 @@ GET    /api/project/:id/members
 POST   /api/project/:id/members
 DELETE /api/project/:id/members
 GET    /api/project/:id/collaboration-audits
+GET    /api/project/:id/collaboration/state
+POST   /api/project/:id/collaboration/presence
+DELETE /api/project/:id/collaboration/presence
+GET    /api/project/:id/collaboration/events
 GET    /api/project/templates
 GET    /api/project/templates/:template_id/versions
 POST   /api/project/templates/create
@@ -66,6 +91,8 @@ Authoritative schema remains `backend/init.sql`.
 ```text
 project_members
 project_collaboration_audits
+project_collaboration_sessions
+project_collaboration_events
 official_project_templates
 official_project_template_versions
 official_project_template_audits
@@ -75,16 +102,23 @@ Atomic service-role-only RPCs:
 
 ```text
 mutate_project_member
+touch_project_collaboration_session
+leave_project_collaboration_session
+expire_project_collaboration_sessions
 publish_official_project_template_version
 rollback_official_project_template_version
 ```
 
-All five tables have RLS enabled and expose no direct authenticated-user policy. The Go backend applies project ownership and role authorization before using the service role.
+All collaboration and template tables have RLS enabled and expose no direct
+authenticated-user policy. The Go backend applies project ownership and role
+authorization before using the service role.
 
 ## Validation
 
 ```bash
-node scripts/validate-platform001-collaboration-templates.mjs
+pnpm exec tsx scripts/validate-collab001-shared-workspace-model.ts
+pnpm test:collab001-browser
+pnpm db:verify
 pnpm yes:validate
 pnpm build
 cd backend && go test ./... && go vet ./...

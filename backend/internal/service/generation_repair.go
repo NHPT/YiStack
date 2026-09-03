@@ -396,6 +396,14 @@ func (s *GeneratorService) repairGeneratedProject(
 		attemptOperations := append([]GenerationFileOperation(nil), operations...)
 		result.Operations = append(result.Operations, operations...)
 		result.Files = mergeGenerationResultFiles(result.Files, operations, filesWritten)
+		if eventErr := s.recordGenerationCollaborationEvents(ctx, req, project, operations); eventErr != nil {
+			_ = handler(StreamEventProgress, map[string]interface{}{
+				"progress":       87,
+				"message":        "修复文件已写入，但共享工作区事件同步失败；协作者需手动刷新。",
+				"warning":        eventErr.Error(),
+				"repair_attempt": attempt,
+			})
+		}
 		for _, operation := range operations {
 			ownedPaths[operation.Path] = struct{}{}
 		}
@@ -436,6 +444,15 @@ func (s *GeneratorService) repairGeneratedProject(
 			attemptOperations = append(attemptOperations, followupOperations...)
 			result.Operations = append(result.Operations, followupOperations...)
 			result.Files = mergeGenerationResultFiles(result.Files, followupOperations, followupFilesWritten)
+			if eventErr := s.recordGenerationCollaborationEvents(ctx, req, project, followupOperations); eventErr != nil {
+				_ = handler(StreamEventProgress, map[string]interface{}{
+					"progress":                87,
+					"message":                 "后续修复文件已写入，但共享工作区事件同步失败；协作者需手动刷新。",
+					"warning":                 eventErr.Error(),
+					"repair_attempt":          attempt,
+					"repair_followup_attempt": followup,
+				})
+			}
 			for _, operation := range followupOperations {
 				ownedPaths[operation.Path] = struct{}{}
 			}

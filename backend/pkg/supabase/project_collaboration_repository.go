@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -81,6 +82,122 @@ func (r *ProjectCollaborationRepository) ListCollaborationAudits(_ context.Conte
 	}
 	return items, nil
 }
+func (r *ProjectCollaborationRepository) FindCollaborationSession(_ context.Context, projectID, userID, clientID string) (*model.ProjectCollaborationSession, error) {
+	result, err := r.supabase.AdminTable("project_collaboration_sessions").
+		Eq("project_id", projectID).
+		Eq("user_id", userID).
+		Eq("client_id", clientID).
+		First()
+	if err != nil {
+		return nil, err
+	}
+	item, ok := firstDataMap(result.Data)
+	if !ok {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return mapProjectCollaborationSession(item), nil
+}
+
+func (r *ProjectCollaborationRepository) UpsertCollaborationSessionWithEvent(_ context.Context, session *model.ProjectCollaborationSession, event *model.ProjectCollaborationEvent) error {
+	payload := map[string]interface{}{
+		"p_session_id":   session.ID,
+		"p_project_id":   session.ProjectID,
+		"p_user_id":      session.UserID,
+		"p_client_id":    session.ClientID,
+		"p_role":         session.Role,
+		"p_activity":     session.Activity,
+		"p_current_file": session.CurrentFile,
+		"p_joined_at":    session.JoinedAt,
+		"p_last_seen_at": session.LastSeenAt,
+		"p_expires_at":   session.ExpiresAt,
+		"p_emit_event":   event != nil,
+	}
+	if event != nil {
+		payload["p_event_id"] = event.ID
+		payload["p_event_type"] = event.EventType
+		payload["p_event_payload"] = jsonObjectValue(event.PayloadJSON)
+	} else {
+		payload["p_event_id"] = nil
+		payload["p_event_type"] = ""
+		payload["p_event_payload"] = map[string]interface{}{}
+	}
+	_, err := r.supabase.AdminTable("rpc/touch_project_collaboration_session").Insert(payload)
+	return err
+}
+
+func (r *ProjectCollaborationRepository) LeaveCollaborationSessionWithEvent(_ context.Context, projectID, userID, clientID string, leftAt time.Time, event *model.ProjectCollaborationEvent) error {
+	_, err := r.supabase.AdminTable("rpc/leave_project_collaboration_session").Insert(map[string]interface{}{
+		"p_project_id":    projectID,
+		"p_user_id":       userID,
+		"p_client_id":     clientID,
+		"p_left_at":       leftAt,
+		"p_event_id":      event.ID,
+		"p_event_type":    event.EventType,
+		"p_event_payload": jsonObjectValue(event.PayloadJSON),
+	})
+	return err
+}
+
+func (r *ProjectCollaborationRepository) ExpireCollaborationSessions(_ context.Context, projectID string, expiredAt time.Time) error {
+	_, err := r.supabase.AdminTable("rpc/expire_project_collaboration_sessions").Insert(map[string]interface{}{
+		"p_project_id": projectID,
+		"p_expired_at": expiredAt,
+	})
+	return err
+}
+
+func (r *ProjectCollaborationRepository) ListActiveCollaborationSessions(_ context.Context, projectID string, activeAfter time.Time) ([]model.ProjectCollaborationSession, error) {
+	result, err := r.supabase.AdminTable("project_collaboration_sessions").
+		Eq("project_id", projectID).
+		Eq("status", "active").
+		Gt("expires_at", activeAfter.UTC().Format(time.RFC3339Nano)).
+		Order("last_seen_at", false).
+		SelectQuery()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.ProjectCollaborationSession, 0, len(result.Data))
+	for _, raw := range result.Data {
+		if item, ok := raw.(map[string]interface{}); ok {
+			items = append(items, *mapProjectCollaborationSession(item))
+		}
+	}
+	return items, nil
+}
+
+func (r *ProjectCollaborationRepository) AppendCollaborationEvent(_ context.Context, event *model.ProjectCollaborationEvent) error {
+	result, err := r.supabase.AdminTable("project_collaboration_events").Insert(collaborationEventData(event))
+	if err != nil {
+		return err
+	}
+	if item, ok := firstDataMap(result.Data); ok {
+		event.Sequence = getSupabaseInt64(item["sequence"])
+	}
+	return nil
+}
+
+func (r *ProjectCollaborationRepository) ListCollaborationEvents(_ context.Context, projectID string, afterSequence int64, limit int) ([]model.ProjectCollaborationEvent, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	result, err := r.supabase.AdminTable("project_collaboration_events").
+		Eq("project_id", projectID).
+		Gt("sequence", afterSequence).
+		Order("sequence", true).
+		Limit(limit).
+		SelectQuery()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.ProjectCollaborationEvent, 0, len(result.Data))
+	for _, raw := range result.Data {
+		if item, ok := raw.(map[string]interface{}); ok {
+			items = append(items, *mapProjectCollaborationEvent(item))
+		}
+	}
+	return items, nil
+}
+
 func (r *ProjectCollaborationRepository) UpsertOfficialTemplate(ctx context.Context, template *model.OfficialProjectTemplate) error {
 	existing, err := r.FindOfficialTemplateBySlug(ctx, template.Slug)
 	if err == nil {
@@ -181,6 +298,18 @@ func mapProjectMember(m map[string]interface{}) *model.ProjectMember {
 func mapProjectCollaborationAudit(m map[string]interface{}) *model.ProjectCollaborationAudit {
 	return &model.ProjectCollaborationAudit{ID: stringValue(m["id"]), ProjectID: stringValue(m["project_id"]), ActorUserID: stringValue(m["actor_user_id"]), TargetUserID: stringValue(m["target_user_id"]), Action: stringValue(m["action"]), PreviousRole: stringValue(m["previous_role"]), NextRole: stringValue(m["next_role"]), MetadataJSON: jsonStringValue(m["metadata_json"]), CreatedAt: timeValue(m["created_at"])}
 }
+func mapProjectCollaborationSession(m map[string]interface{}) *model.ProjectCollaborationSession {
+	return &model.ProjectCollaborationSession{ID: stringValue(m["id"]), ProjectID: stringValue(m["project_id"]), UserID: stringValue(m["user_id"]), ClientID: stringValue(m["client_id"]), Role: stringValue(m["role"]), Activity: stringValue(m["activity"]), CurrentFile: stringValue(m["current_file"]), Status: stringValue(m["status"]), JoinedAt: timeValue(m["joined_at"]), LastSeenAt: timeValue(m["last_seen_at"]), ExpiresAt: timeValue(m["expires_at"]), UpdatedAt: timeValue(m["updated_at"])}
+}
+
+func mapProjectCollaborationEvent(m map[string]interface{}) *model.ProjectCollaborationEvent {
+	return &model.ProjectCollaborationEvent{Sequence: getSupabaseInt64(m["sequence"]), ID: stringValue(m["id"]), ProjectID: stringValue(m["project_id"]), ActorUserID: stringValue(m["actor_user_id"]), SessionID: stringValue(m["session_id"]), EventType: stringValue(m["event_type"]), ResourcePath: stringValue(m["resource_path"]), ResourceRevision: stringValue(m["resource_revision"]), PayloadJSON: jsonStringValue(m["payload_json"]), CreatedAt: timeValue(m["created_at"])}
+}
+
+func collaborationEventData(event *model.ProjectCollaborationEvent) map[string]interface{} {
+	return map[string]interface{}{"id": event.ID, "project_id": event.ProjectID, "actor_user_id": event.ActorUserID, "session_id": nullableUUID(event.SessionID), "event_type": event.EventType, "resource_path": event.ResourcePath, "resource_revision": event.ResourceRevision, "payload_json": jsonObjectValue(event.PayloadJSON), "created_at": event.CreatedAt}
+}
+
 func officialTemplateData(t *model.OfficialProjectTemplate) map[string]interface{} {
 	return map[string]interface{}{"id": t.ID, "slug": t.Slug, "name": t.Name, "description": t.Description, "app_type": t.AppType, "status": t.Status, "current_version_id": t.CurrentVersionID, "created_at": t.CreatedAt, "updated_at": t.UpdatedAt}
 }

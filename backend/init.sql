@@ -1581,6 +1581,35 @@ CREATE TABLE IF NOT EXISTS public.project_collaboration_audits (
     created_at timestamp with time zone NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.project_collaboration_sessions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id character varying(64) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    client_id character varying(128) NOT NULL,
+    role character varying(32) NOT NULL CHECK (role IN ('owner', 'editor', 'viewer')),
+    activity character varying(32) NOT NULL CHECK (activity IN ('idle', 'viewing', 'editing', 'generating')),
+    current_file character varying(1024) DEFAULT '',
+    status character varying(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'left', 'expired')),
+    joined_at timestamp with time zone NOT NULL DEFAULT now(),
+    last_seen_at timestamp with time zone NOT NULL DEFAULT now(),
+    expires_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT project_collaboration_sessions_project_user_client_unique UNIQUE (project_id, user_id, client_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.project_collaboration_events (
+    sequence bigserial PRIMARY KEY,
+    id uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    project_id character varying(64) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
+    actor_user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
+    session_id uuid,
+    event_type character varying(64) NOT NULL CHECK (event_type IN ('presence_joined', 'presence_updated', 'presence_left', 'presence_expired', 'file_saved', 'tree_changed')),
+    resource_path character varying(1024) DEFAULT '',
+    resource_revision character varying(64) DEFAULT '',
+    payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS public.official_project_templates (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     slug character varying(100) NOT NULL UNIQUE,
@@ -1627,11 +1656,26 @@ CREATE TABLE IF NOT EXISTS public.official_project_template_audits (
 CREATE INDEX IF NOT EXISTS idx_project_members_user_id ON public.project_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_project_members_project_id ON public.project_members(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_collaboration_audits_project_id ON public.project_collaboration_audits(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_collaboration_sessions_active ON public.project_collaboration_sessions(project_id, status, expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_collaboration_events_project_sequence ON public.project_collaboration_events(project_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_official_project_template_versions_template_id ON public.official_project_template_versions(template_id);
 CREATE INDEX IF NOT EXISTS idx_official_project_template_audits_template_id ON public.official_project_template_audits(template_id);
 
+ALTER TABLE public.project_collaboration_sessions
+    DROP CONSTRAINT IF EXISTS project_collaboration_sessions_status_check;
+ALTER TABLE public.project_collaboration_sessions
+    ADD CONSTRAINT project_collaboration_sessions_status_check
+    CHECK (status IN ('active', 'left', 'expired'));
+ALTER TABLE public.project_collaboration_events
+    DROP CONSTRAINT IF EXISTS project_collaboration_events_event_type_check;
+ALTER TABLE public.project_collaboration_events
+    ADD CONSTRAINT project_collaboration_events_event_type_check
+    CHECK (event_type IN ('presence_joined', 'presence_updated', 'presence_left', 'presence_expired', 'file_saved', 'tree_changed'));
+
 ALTER TABLE public.project_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_collaboration_audits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_collaboration_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_collaboration_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.official_project_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.official_project_template_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.official_project_template_audits ENABLE ROW LEVEL SECURITY;
@@ -1640,6 +1684,10 @@ DROP POLICY IF EXISTS "Service role full access on project_members" ON public.pr
 CREATE POLICY "Service role full access on project_members" ON public.project_members FOR ALL USING (auth.role() = 'service_role');
 DROP POLICY IF EXISTS "Service role full access on project_collaboration_audits" ON public.project_collaboration_audits;
 CREATE POLICY "Service role full access on project_collaboration_audits" ON public.project_collaboration_audits FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on project_collaboration_sessions" ON public.project_collaboration_sessions;
+CREATE POLICY "Service role full access on project_collaboration_sessions" ON public.project_collaboration_sessions FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on project_collaboration_events" ON public.project_collaboration_events;
+CREATE POLICY "Service role full access on project_collaboration_events" ON public.project_collaboration_events FOR ALL USING (auth.role() = 'service_role');
 DROP POLICY IF EXISTS "Service role full access on official_project_templates" ON public.official_project_templates;
 CREATE POLICY "Service role full access on official_project_templates" ON public.official_project_templates FOR ALL USING (auth.role() = 'service_role');
 DROP POLICY IF EXISTS "Service role full access on official_project_template_versions" ON public.official_project_template_versions;
@@ -1665,6 +1713,116 @@ BEGIN
     END IF;
     INSERT INTO public.project_collaboration_audits (id, project_id, actor_user_id, target_user_id, action, previous_role, next_role, metadata_json, created_at)
     VALUES (p_audit_id, p_project_id, p_actor_user_id, p_target_user_id, p_action, COALESCE(p_previous_role, ''), COALESCE(p_role, ''), '{}'::jsonb, p_now);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.touch_project_collaboration_session(
+    p_session_id uuid, p_project_id text, p_user_id uuid, p_client_id text,
+    p_role text, p_activity text, p_current_file text,
+    p_joined_at timestamp with time zone, p_last_seen_at timestamp with time zone,
+    p_expires_at timestamp with time zone, p_emit_event boolean,
+    p_event_id uuid, p_event_type text, p_event_payload jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_session_id uuid;
+BEGIN
+    IF p_role NOT IN ('owner', 'editor', 'viewer') THEN
+        RAISE EXCEPTION 'invalid collaboration role';
+    END IF;
+    IF p_activity NOT IN ('idle', 'viewing', 'editing', 'generating') THEN
+        RAISE EXCEPTION 'invalid collaboration activity';
+    END IF;
+    IF p_expires_at <= p_last_seen_at THEN
+        RAISE EXCEPTION 'collaboration session expiry must follow heartbeat';
+    END IF;
+
+    INSERT INTO public.project_collaboration_sessions (
+        id, project_id, user_id, client_id, role, activity, current_file,
+        status, joined_at, last_seen_at, expires_at, updated_at
+    ) VALUES (
+        p_session_id, p_project_id, p_user_id, p_client_id, p_role, p_activity,
+        COALESCE(p_current_file, ''), 'active', p_joined_at, p_last_seen_at,
+        p_expires_at, p_last_seen_at
+    )
+    ON CONFLICT (project_id, user_id, client_id) DO UPDATE SET
+        role = EXCLUDED.role,
+        activity = EXCLUDED.activity,
+        current_file = EXCLUDED.current_file,
+        status = 'active',
+        joined_at = EXCLUDED.joined_at,
+        last_seen_at = EXCLUDED.last_seen_at,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = EXCLUDED.updated_at
+    RETURNING id INTO v_session_id;
+
+    IF p_emit_event THEN
+        IF p_event_type NOT IN ('presence_joined', 'presence_updated') OR p_event_id IS NULL THEN
+            RAISE EXCEPTION 'invalid collaboration presence event';
+        END IF;
+        INSERT INTO public.project_collaboration_events (
+            id, project_id, actor_user_id, session_id, event_type, resource_path,
+            resource_revision, payload_json, created_at
+        ) VALUES (
+            p_event_id, p_project_id, p_user_id, v_session_id, p_event_type,
+            COALESCE(p_current_file, ''), '', COALESCE(p_event_payload, '{}'::jsonb),
+            p_last_seen_at
+        );
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.leave_project_collaboration_session(
+    p_project_id text, p_user_id uuid, p_client_id text,
+    p_left_at timestamp with time zone, p_event_id uuid,
+    p_event_type text, p_event_payload jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_session_id uuid; v_current_file text;
+BEGIN
+    UPDATE public.project_collaboration_sessions
+    SET status = 'left', expires_at = p_left_at, updated_at = p_left_at
+    WHERE project_id = p_project_id
+      AND user_id = p_user_id
+      AND client_id = p_client_id
+      AND status = 'active'
+    RETURNING id, current_file INTO v_session_id, v_current_file;
+
+    IF v_session_id IS NULL THEN
+        RETURN;
+    END IF;
+    IF p_event_type <> 'presence_left' OR p_event_id IS NULL THEN
+        RAISE EXCEPTION 'invalid collaboration leave event';
+    END IF;
+    INSERT INTO public.project_collaboration_events (
+        id, project_id, actor_user_id, session_id, event_type, resource_path,
+        resource_revision, payload_json, created_at
+    ) VALUES (
+        p_event_id, p_project_id, p_user_id, v_session_id, p_event_type,
+        COALESCE(v_current_file, ''), '', COALESCE(p_event_payload, '{}'::jsonb),
+        p_left_at
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.expire_project_collaboration_sessions(
+    p_project_id text, p_expired_at timestamp with time zone
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+    WITH expired_sessions AS (
+        UPDATE public.project_collaboration_sessions
+        SET status = 'expired', updated_at = p_expired_at
+        WHERE project_id = p_project_id
+          AND status = 'active'
+          AND expires_at <= p_expired_at
+        RETURNING id, user_id, current_file, role, activity
+    )
+    INSERT INTO public.project_collaboration_events (
+        id, project_id, actor_user_id, session_id, event_type, resource_path,
+        resource_revision, payload_json, created_at
+    )
+    SELECT
+        gen_random_uuid(), p_project_id, user_id, id, 'presence_expired',
+        COALESCE(current_file, ''), '',
+        jsonb_build_object('activity', activity, 'role', role), p_expired_at
+    FROM expired_sessions;
 END;
 $$;
 
@@ -1708,6 +1866,12 @@ $$;
 
 REVOKE ALL ON FUNCTION public.mutate_project_member(text, uuid, uuid, text, uuid, uuid, text, text, timestamp with time zone) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.mutate_project_member(text, uuid, uuid, text, uuid, uuid, text, text, timestamp with time zone) TO service_role;
+REVOKE ALL ON FUNCTION public.touch_project_collaboration_session(uuid, text, uuid, text, text, text, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, boolean, uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.touch_project_collaboration_session(uuid, text, uuid, text, text, text, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, boolean, uuid, text, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.leave_project_collaboration_session(text, uuid, text, timestamp with time zone, uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.leave_project_collaboration_session(text, uuid, text, timestamp with time zone, uuid, text, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.expire_project_collaboration_sessions(text, timestamp with time zone) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.expire_project_collaboration_sessions(text, timestamp with time zone) TO service_role;
 REVOKE ALL ON FUNCTION public.publish_official_project_template_version(uuid, text, text, text, text, uuid, integer, jsonb, jsonb, text, uuid, text, uuid, timestamp with time zone) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.publish_official_project_template_version(uuid, text, text, text, text, uuid, integer, jsonb, jsonb, text, uuid, text, uuid, timestamp with time zone) TO service_role;
 REVOKE ALL ON FUNCTION public.rollback_official_project_template_version(uuid, uuid, uuid, text, uuid, timestamp with time zone) FROM PUBLIC, anon, authenticated;

@@ -1628,6 +1628,7 @@ export function WorkspacePageOverlays({
 export function WorkspacePageHeader({
   isMobile,
   projectName,
+  collaborationPresence,
   goBack,
   clearChat,
 }: WorkspacePageHeaderProps) {
@@ -1712,9 +1713,12 @@ export function WorkspacePageHeader({
               </span>
             </Link>
           </div>
-          <Button variant="ghost" size="icon" onClick={requestClearChat} title="清空对话" className="h-8 w-8">
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            {collaborationPresence}
+            <Button variant="ghost" size="icon" onClick={requestClearChat} title="清空对话" className="h-8 w-8">
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
         </header>
         <WorkspacePageHeaderSnapshotStrip snapshot={headerSnapshot} />
         {clearChatConfirmationDialog}
@@ -1739,6 +1743,7 @@ export function WorkspacePageHeader({
           <span className="font-medium">{getWorkspacePageHeaderProjectName(projectName)}</span>
         </div>
         <div className="flex items-center gap-2">
+          {collaborationPresence}
           <Button variant="ghost" size="icon" onClick={requestClearChat} title="清空对话">
             <Trash2 className="w-4 h-4" />
           </Button>

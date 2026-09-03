@@ -14,13 +14,18 @@ import (
 type r64CollaborationRepo struct {
 	members        map[string]model.ProjectMember
 	audits         []model.ProjectCollaborationAudit
+	sessions       map[string]model.ProjectCollaborationSession
+	events         []model.ProjectCollaborationEvent
 	templates      map[string]model.OfficialProjectTemplate
 	versions       map[string]model.OfficialProjectTemplateVersion
 	templateAudits []model.OfficialProjectTemplateAudit
 }
 
 func newR64CollaborationRepo() *r64CollaborationRepo {
-	return &r64CollaborationRepo{members: map[string]model.ProjectMember{}, templates: map[string]model.OfficialProjectTemplate{}, versions: map[string]model.OfficialProjectTemplateVersion{}}
+	return &r64CollaborationRepo{
+		members: map[string]model.ProjectMember{}, sessions: map[string]model.ProjectCollaborationSession{},
+		templates: map[string]model.OfficialProjectTemplate{}, versions: map[string]model.OfficialProjectTemplateVersion{},
+	}
 }
 func r64MemberKey(projectID, userID string) string { return projectID + ":" + userID }
 func (r *r64CollaborationRepo) FindMember(_ context.Context, p, u string) (*model.ProjectMember, error) {
@@ -63,6 +68,86 @@ func (r *r64CollaborationRepo) ListCollaborationAudits(_ context.Context, p stri
 	for _, v := range r.audits {
 		if v.ProjectID == p {
 			items = append(items, v)
+		}
+	}
+	return items, nil
+}
+func (r *r64CollaborationRepo) FindCollaborationSession(_ context.Context, projectID, userID, clientID string) (*model.ProjectCollaborationSession, error) {
+	session, ok := r.sessions[projectID+":"+userID+":"+clientID]
+	if !ok {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &session, nil
+}
+func (r *r64CollaborationRepo) UpsertCollaborationSessionWithEvent(_ context.Context, session *model.ProjectCollaborationSession, event *model.ProjectCollaborationEvent) error {
+	r.sessions[session.ProjectID+":"+session.UserID+":"+session.ClientID] = *session
+	if event != nil {
+		event.Sequence = int64(len(r.events) + 1)
+		r.events = append(r.events, *event)
+	}
+	return nil
+}
+func (r *r64CollaborationRepo) LeaveCollaborationSessionWithEvent(_ context.Context, projectID, userID, clientID string, leftAt time.Time, event *model.ProjectCollaborationEvent) error {
+	key := projectID + ":" + userID + ":" + clientID
+	session, ok := r.sessions[key]
+	if !ok || session.Status != "active" {
+		return nil
+	}
+	session.Status = "left"
+	session.ExpiresAt = leftAt
+	session.UpdatedAt = leftAt
+	r.sessions[key] = session
+	if event != nil {
+		event.Sequence = int64(len(r.events) + 1)
+		r.events = append(r.events, *event)
+	}
+	return nil
+}
+func (r *r64CollaborationRepo) ExpireCollaborationSessions(_ context.Context, projectID string, expiredAt time.Time) error {
+	for key, session := range r.sessions {
+		if session.ProjectID != projectID || session.Status != "active" || session.ExpiresAt.After(expiredAt) {
+			continue
+		}
+		session.Status = "expired"
+		session.UpdatedAt = expiredAt
+		r.sessions[key] = session
+		event := newProjectCollaborationEvent(
+			projectID,
+			session.UserID,
+			session.ID,
+			ProjectCollaborationEventPresenceExpired,
+			session.CurrentFile,
+			"",
+			map[string]interface{}{"activity": session.Activity, "role": session.Role},
+			expiredAt,
+		)
+		event.Sequence = int64(len(r.events) + 1)
+		r.events = append(r.events, *event)
+	}
+	return nil
+}
+func (r *r64CollaborationRepo) ListActiveCollaborationSessions(_ context.Context, projectID string, activeAfter time.Time) ([]model.ProjectCollaborationSession, error) {
+	items := []model.ProjectCollaborationSession{}
+	for _, session := range r.sessions {
+		if session.ProjectID == projectID && session.Status == "active" && session.ExpiresAt.After(activeAfter) {
+			items = append(items, session)
+		}
+	}
+	return items, nil
+}
+func (r *r64CollaborationRepo) AppendCollaborationEvent(_ context.Context, event *model.ProjectCollaborationEvent) error {
+	event.Sequence = int64(len(r.events) + 1)
+	r.events = append(r.events, *event)
+	return nil
+}
+func (r *r64CollaborationRepo) ListCollaborationEvents(_ context.Context, projectID string, afterSequence int64, limit int) ([]model.ProjectCollaborationEvent, error) {
+	items := []model.ProjectCollaborationEvent{}
+	for _, event := range r.events {
+		if event.ProjectID == projectID && event.Sequence > afterSequence {
+			items = append(items, event)
+			if len(items) == limit {
+				break
+			}
 		}
 	}
 	return items, nil

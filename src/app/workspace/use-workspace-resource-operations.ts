@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import { projectApi } from '@/lib/api';
 import type { ProjectFileWriteResponse, ProjectRuntimeStatus } from '@/lib/api';
+import type { CollaborationEvent } from '@/lib/collaboration-api';
 import type { GitBranch, GitBranchCompareFileApplyResult, GitBranchCreateFromRemoteResult, GitBranchCreateResult, GitBranchDeleteResult, GitBranchRenameResult, GitBranchSwitchReadiness, GitBranchSwitchResult, GitCommit, GitCommitFileRestoreResult, GitRemoteBranch, GitRemoteBranchRefreshResult, GitStash, GitStashApplyResult, GitStashCreateResult, GitTag, GitTagCreateResult, GitTagDeleteResult, GitWorktreeCommitResult, GitWorktreeFileDiscardResult, GitWorktreeStatus } from '@/lib/types';
 import { appendWorkspaceDebugEvent } from '@/lib/workspace/workspace-debug-events';
 import type {
@@ -55,6 +56,7 @@ type WorkspaceResourceOperationSavePromise = Promise<boolean>;
 type WorkspaceResourceOperationSavePromiseMap = Map<string, WorkspaceResourceOperationSavePromise>;
 type WorkspaceResourceOperationQueuedSaveContentMap = Map<string, string>;
 type WorkspaceResourceOperationErrorLike = {
+  code?: unknown;
   reasonCode?: unknown;
   source?: unknown;
   details?: unknown;
@@ -134,6 +136,14 @@ function isWorkspaceResourceOperationBackendUnreachable(error: unknown): boolean
   return hasWorkspaceResourceOperationBackendUnreachableText(message);
 }
 
+function isWorkspaceResourceOperationRevisionConflict(error: unknown): boolean {
+  if (isWorkspaceResourceOperationErrorLike(error) === false) {
+    return false;
+  }
+
+  return error.code === 409 || error.reasonCode === 'file_revision_conflict';
+}
+
 function getFileSaveFailureReasonCode(isBackendUnreachable: boolean): WorkspaceFileSaveFailureReasonCode {
   if (isBackendUnreachable === true) {
     return 'file_save_backend_unreachable_dirty_buffer_retained';
@@ -148,6 +158,11 @@ function getFileSaveFailureStatusContent(isBackendUnreachable: boolean): string 
   }
 
   return '保存失败，本地修改仍保留';
+}
+
+async function getWorkspaceFileContentRevision(content: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function getFileSaveFailureMessage({
@@ -334,6 +349,7 @@ type UseWorkspaceResourceOperationsOptions = {
   projectInfo: WorkspaceProjectInfo | null;
   activeFile: string | null;
   files: Map<string, string>;
+  savedFiles: Map<string, string>;
   mobileEditingFile: string | null;
   isRestoringCommit: boolean;
   pendingRestoreCommit: GitCommit | null;
@@ -3182,6 +3198,7 @@ export function useWorkspaceResourceOperations({
   projectInfo,
   activeFile,
   files,
+  savedFiles,
   mobileEditingFile,
   isRestoringCommit,
   pendingRestoreCommit,
@@ -3213,6 +3230,11 @@ export function useWorkspaceResourceOperations({
 }: UseWorkspaceResourceOperationsOptions): WorkspaceResourceOperationsContract {
   const saveFilePromisesRef = useRef<WorkspaceResourceOperationSavePromiseMap>(new Map());
   const queuedSaveContentRef = useRef<WorkspaceResourceOperationQueuedSaveContentMap>(new Map());
+  const collaborationEventSequenceRef = useRef(0);
+  const filesRef = useRef(files);
+  const savedFilesRef = useRef(savedFiles);
+  filesRef.current = files;
+  savedFilesRef.current = savedFiles;
 
   const performSaveFile = useCallback(async (filePath: string, content: string) => {
     const projectId = getWorkspaceResourceOperationPersistedProjectId(projectInfo);
@@ -3221,8 +3243,16 @@ export function useWorkspaceResourceOperations({
 
     let writeResult: ProjectFileWriteResponse;
     try {
-      writeResult = await projectApi.writeFile(projectId, filePath, content);
+      const expectedRevision = savedFilesRef.current.has(filePath)
+        ? await getWorkspaceFileContentRevision(savedFilesRef.current.get(filePath) ?? '')
+        : undefined;
+      writeResult = await projectApi.writeFile(projectId, filePath, content, expectedRevision);
     } catch (error) {
+      if (isWorkspaceResourceOperationRevisionConflict(error)) {
+        window.dispatchEvent(new CustomEvent('yistack:collaboration-conflict', {
+          detail: { path: filePath, actor: '其他协作者' },
+        }));
+      }
       const failureMessage = formatWorkspaceResourceOperationFailure(error, '请重试');
       const isBackendUnreachable = isWorkspaceResourceOperationBackendUnreachable(error);
       applyResourceFileMessages((prev) => [...prev, {
@@ -3237,15 +3267,20 @@ export function useWorkspaceResourceOperations({
       return false;
     }
 
-    setSavedFiles((prev) => {
-      const next = new Map(prev);
-      next.set(filePath, content);
-      return next;
-    });
+    const nextSavedFiles = new Map(savedFilesRef.current);
+    nextSavedFiles.set(filePath, content);
+    savedFilesRef.current = nextSavedFiles;
+    setSavedFiles(nextSavedFiles);
     setEditorBufferStatuses((prev) => new Map(prev).set(filePath, buildFileSaveEditorBufferStatus(filePath)));
     requestPreviewReload();
 
     const postSaveSyncFailures: WorkspaceResourceOperationFailureList = [];
+    if (writeResult.collaboration_event_status === 'failed') {
+      postSaveSyncFailures.push(`协作事件同步失败：${writeResult.collaboration_event_error || '后端未记录文件保存事件'}`);
+    }
+    window.dispatchEvent(new CustomEvent('yistack:collaboration-conflict-resolved', {
+      detail: { path: filePath },
+    }));
     const shouldSyncRuntimeStatus = projectInfo !== null && appTypeNeedsRuntime(projectInfo.appType) === true;
     if (shouldSyncRuntimeStatus === true) {
       try {
@@ -3414,6 +3449,76 @@ export function useWorkspaceResourceOperations({
     saveFilePromisesRef.current.set(filePath, savePromise);
     return savePromise;
   }, [performSaveFile, setEditorBufferStatuses]);
+
+  useEffect(() => {
+    collaborationEventSequenceRef.current = 0;
+  }, [projectInfo?.projectId]);
+
+  useEffect(() => {
+    const projectId = getWorkspaceResourceOperationPersistedProjectId(projectInfo);
+    if (projectId === null) return;
+
+    const handleCollaborationResourceChanged = (rawEvent: Event) => {
+      if (!(rawEvent instanceof CustomEvent)) return;
+      const event = rawEvent.detail as CollaborationEvent | undefined;
+      if (!event || event.project_id !== projectId || event.sequence <= collaborationEventSequenceRef.current) return;
+      collaborationEventSequenceRef.current = event.sequence;
+      const resourcePath = event.resource_path ?? '';
+
+      void (async () => {
+        try {
+          await refreshProjectFileTree(projectId, true, {
+            throwOnFailure: true,
+            suppressNotice: true,
+          });
+        } catch {
+          return;
+        }
+        if (event.event_type !== 'file_saved' || !resourcePath || !filesRef.current.has(resourcePath)) return;
+
+        const currentContent = filesRef.current.get(resourcePath);
+        const savedContent = savedFilesRef.current.get(resourcePath);
+        if (currentContent !== savedContent) {
+          window.dispatchEvent(new CustomEvent('yistack:collaboration-conflict', {
+            detail: { path: resourcePath, actor: event.actor_username },
+          }));
+          return;
+        }
+        try {
+          const response = await projectApi.readFile(projectId, resourcePath);
+          if (filesRef.current.get(resourcePath) !== savedFilesRef.current.get(resourcePath)) {
+            window.dispatchEvent(new CustomEvent('yistack:collaboration-conflict', {
+              detail: { path: resourcePath, actor: event.actor_username },
+            }));
+            return;
+          }
+          const nextFiles = new Map(filesRef.current).set(resourcePath, response.content);
+          const nextSavedFiles = new Map(savedFilesRef.current).set(resourcePath, response.content);
+          filesRef.current = nextFiles;
+          savedFilesRef.current = nextSavedFiles;
+          setFiles(nextFiles);
+          setSavedFiles(nextSavedFiles);
+          setEditorBufferStatuses((prev) => new Map(prev).set(
+            resourcePath,
+            buildFileReadEditorBufferStatus(resourcePath),
+          ));
+          requestPreviewReload();
+        } catch {
+          return;
+        }
+      })();
+    };
+
+    window.addEventListener('yistack:collaboration-resource-changed', handleCollaborationResourceChanged);
+    return () => window.removeEventListener('yistack:collaboration-resource-changed', handleCollaborationResourceChanged);
+  }, [
+    projectInfo,
+    refreshProjectFileTree,
+    requestPreviewReload,
+    setEditorBufferStatuses,
+    setFiles,
+    setSavedFiles,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

@@ -1421,6 +1421,9 @@ function buildExplorerContextOperationAppliedState(
       : result.commit_status === 'created_record_missing' || result.commit_status === 'created_record_failed'
         ? `Git 快照记录同步异常：${getWorkspaceIdeInteractionStructuredStatusLabel(result.commit_error, result.commit_status_label)}`
       : null,
+    result.collaboration_event_status === 'failed'
+      ? `协作事件同步失败：${result.collaboration_event_error || '后端未记录文件树变更事件'}`
+      : null,
     getWorkspaceIdeInteractionFrontendRefreshFailureSegment(frontendRefreshFailure),
   ]);
   const hasSyncFailures = syncFailures.length > 0;
@@ -2034,7 +2037,6 @@ export function useWorkspaceIdeInteractions({
         target_path: targetPath,
         content,
       });
-
       if (isCreateOperation === true) {
         reflectFilePathInTree(path, localOperationNodeType);
       } else if (isDeleteOperation === true) {
@@ -2067,7 +2069,8 @@ export function useWorkspaceIdeInteractions({
         }));
       }
       const syncFailureActions = buildExplorerContextOperationSyncFailureActions(result, frontendRefreshFailure);
-      const hasSyncFailure = syncFailureActions.length > 0;
+      const hasSyncFailure = syncFailureActions.length > 0
+        || result.collaboration_event_status === 'failed';
       const targetNotice = getWorkspaceIdeInteractionAppliedTargetNotice(targetPath);
       const renameMigrationNotice = getWorkspaceIdeInteractionRenameMigrationNotice(renameLocalMigration);
       const createApplyNotice = getWorkspaceIdeInteractionCreateApplyNotice(createLocalApply);
@@ -2082,7 +2085,7 @@ export function useWorkspaceIdeInteractions({
         id: `explorer-context-operation-applied-${Date.now()}`,
         role: 'assistant',
         kind: 'workflow',
-        content: `Explorer 右键“${operationLabel}”已执行：目标 \`${path}\`${targetNotice}。${renameMigrationNotice}${createApplyNotice}${deleteCleanupNotice}文件树同步状态：${frontendRefreshStatusLabel}；Git 快照状态：${result.commit_status_label}。`,
+        content: `Explorer 右键“${operationLabel}”已执行：目标 \`${path}\`${targetNotice}。${renameMigrationNotice}${createApplyNotice}${deleteCleanupNotice}文件树同步状态：${frontendRefreshStatusLabel}；Git 快照状态：${result.commit_status_label}；协作事件状态：${result.collaboration_event_status}。`,
         statusContent: hasSyncFailure ? `Explorer ${operationLabel}已执行但同步失败` : `Explorer ${operationLabel}已执行`,
         suggestedActions,
         engineeringState: buildExplorerContextOperationAppliedState(operation, path, targetPath, result, frontendRefreshFailure, renameLocalMigration, createLocalApply, deleteLocalCleanup),

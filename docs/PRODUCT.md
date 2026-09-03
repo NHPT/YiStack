@@ -46,7 +46,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | Supabase 应用预设 | 已实现 | Auth、CRUD RLS、私有 Storage、类型、migration 和 rollback |
 | GitHub 集成 | 已实现 | OAuth PKCE、token 加密、import、pull/push 冲突防护、webhook |
 | Vercel adapter | 合同已实现 | 发布、日志脱敏、回滚和域名合同已测试；真实云端验收待统一多 Provider 阶段 |
-| 项目协作 | 已实现 | owner/editor/viewer，owner-only 管理，append-only audit |
+| 项目协作 | 已实现 | owner/editor/viewer，持久 presence、SSE 重放、后端资源事件审计、远端文件同步和 SHA-256 冲突保护 |
 | 官方模板 | 试验性 | 一个初始模板，支持不可变版本、checksum、发布和 CAS rollback |
 | Contributor workflow | 已实现 | Apache-2.0、治理文件、CODEOWNERS、CI 和 clean-checkout 门禁 |
 

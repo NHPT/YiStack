@@ -473,6 +473,7 @@ export function useWorkspacePageProjectActions({
     projectInfo,
     activeFile,
     files,
+    savedFiles,
     mobileEditingFile,
     isRestoringCommit,
     pendingRestoreCommit,
