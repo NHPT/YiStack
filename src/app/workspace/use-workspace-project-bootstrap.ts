@@ -1257,6 +1257,8 @@ export function useWorkspaceProjectBootstrap({
       gitBranch: data.gitBranch,
       runtimeStatus: data.runtimeStatus,
       engineeringState: data.engineeringState,
+      accessRole: data.accessRole,
+      canWrite: data.canWrite,
       isPersisted: isPersistedProject,
     });
 
@@ -1439,6 +1441,8 @@ export function useWorkspaceProjectBootstrap({
         techStack: getWorkspaceBootstrapProjectTextValue(project.tech_stack, ''),
         planId: getWorkspaceBootstrapProjectTextValue(project.plan_id, ''),
         planData: getWorkspaceBootstrapProjectTextValue(project.plan_data, ''),
+        accessRole: project.access_role,
+        canWrite: project.can_write,
         isPersisted: true,
         directoryPath: getWorkspaceBootstrapProjectTextValue(project.directory_path, ''),
       }, { skipDetailRefresh: true });

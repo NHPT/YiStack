@@ -141,6 +141,9 @@ func buildGenerationUserPrompt(req *GenerateRequest) string {
 	if visualSection := visualContextPromptSection(req.VisualContext); visualSection != "" {
 		sections = append(sections, visualSection)
 	}
+	if visualEditSection := visualEditPromptSection(req.VisualEdit); visualEditSection != "" {
+		sections = append(sections, visualEditSection)
+	}
 
 	if acceptanceSection := buildBrowserAcceptancePromptSection(req.BrowserAcceptance); acceptanceSection != "" {
 		sections = append(sections, acceptanceSection)

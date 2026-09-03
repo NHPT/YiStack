@@ -59,6 +59,9 @@ func (o *GenerateOrchestrator) Generate(ctx context.Context, command GenerateCom
 	if err := prepareGenerateCommandVisualAttachments(&command); err != nil {
 		return err
 	}
+	if err := prepareGenerateCommandVisualEdit(&command); err != nil {
+		return err
+	}
 	if isBootstrapWorkflowStage(command.Context.WorkflowStage) {
 		return o.executeBootstrapWorkflowStage(ctx, command, handler)
 	}

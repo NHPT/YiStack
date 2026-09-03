@@ -55,6 +55,10 @@ func classifyGenerateOrchestrationError(err error) (int, map[string]interface{},
 		return consts.StatusBadGateway, map[string]interface{}{
 			"code": service.VisualContextErrorAnalysisFailed, "blocking": true, "error": err.Error(),
 		}, true
+	case service.VisualEditErrorCode(err) == service.VisualEditErrorInvalidInput:
+		return consts.StatusBadRequest, map[string]interface{}{
+			"code": service.VisualEditErrorInvalidInput, "blocking": true, "error": err.Error(),
+		}, true
 	default:
 		return 0, nil, false
 	}

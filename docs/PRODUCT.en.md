@@ -54,6 +54,7 @@ Core goals:
 | Browser acceptance | Implemented | Deterministic acceptance runs after preview startup and blocks browser errors |
 | Workspace | Implemented | Monaco, file tree, terminal, Git, preview, and generation state |
 | Visual context | Implemented | PNG/JPEG upload and paste, real multimodal analysis, `visual_context.v1`, message/plan/Job binding, and vision-model enforcement |
+| Visual editing | Implemented | Select real elements in internal project previews, submit sanitized `visual_edit.v1` evidence as owner/editor, and write changes back to source; viewers, public shares, and external URLs fail closed |
 | Container runtime | Implemented | Per-project rootless Podman boundaries and resource policies |
 | Supabase application preset | Implemented | Auth, CRUD RLS, private Storage, types, migrations, and rollback |
 | GitHub integration | Implemented | OAuth PKCE, encrypted tokens, import, guarded pull/push, and webhooks |
@@ -91,6 +92,7 @@ Requirement input (optionally with screenshots or reference images)
   -> Bounded automatic repair
   -> Preview service
   -> Browser acceptance
+  -> Optional: select a Preview element and start another source-editing and quality-gate cycle with visual_edit.v1
   -> Git version and delivery evidence
 ```
 
