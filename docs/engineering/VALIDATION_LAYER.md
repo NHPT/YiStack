@@ -1075,3 +1075,21 @@ Validation Layer 后续应逐步补齐：
 - `visual_context.v1` 必须绑定原图 SHA-256/尺寸证据、消息、方案与 Generation Job 请求/attempt 快照；上下文携带基于服务端密钥签发的 HMAC 证明，客户端不得通过同时改写请求与 `plan_data` 伪造分析结果，复用值仍必须与项目已保存 Plan 完全一致。
 - Plan、Discuss 和 Implement Prompt 必须消费结构化视觉约束；`visual_context` SSE event 必须支持实时消费和持久 Job replay，历史消息恢复必须显示净化后的图片缩略图。
 - `scripts/validate-vis001-visual-context-model.ts`、Go 单元测试、TypeScript 检查和 `pnpm test:vis001-browser` 桌面/移动浏览器验收共同构成完成证据；CI 必须在 production build 后运行该浏览器验收。
+
+### COLLAB-001 共享工作区闭环校验
+
+- `scripts/validate-collab001-shared-workspace-model.ts` 固定
+  `project_collaboration.v1`、owner/editor/viewer 权限、45 秒 presence TTL、
+  持久 event sequence、SSE cursor replay、后端资源事件所有权和客户端禁止伪造
+  mutation audit 的边界。
+- 文件写入必须携带 saved snapshot 的 SHA-256 revision；后端必须在项目级互斥锁
+  内重新读取并执行 compare-and-set，stale editor 返回 HTTP 409，不能覆盖远端版本。
+- `touch/leave/expire_project_collaboration_session(s)` RPC 必须仅允许
+  `service_role`，presence 状态和 joined/updated/left/expired 审计事件必须原子写入。
+- `pnpm db:verify` 必须在隔离 PostgreSQL 中重复执行 `init.sql`，实际调用 touch
+  和 expire RPC，并证明 session 状态为 `expired`、事件数为 2 且 service role
+  保留执行权限。
+- Go 测试覆盖权限、输入边界、heartbeat 去重、leave、expiry 幂等、cursor replay、
+  Supabase RPC payload 和生成文件事件；`pnpm test:collab001-browser` 使用两个独立
+  浏览器上下文验证在线成员、clean file 自动刷新、dirty buffer 保留、409 CAS，
+  并在 390px viewer 视口验证只读 activity 和无横向溢出。

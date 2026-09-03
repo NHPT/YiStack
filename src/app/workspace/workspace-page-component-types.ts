@@ -44,6 +44,7 @@ export type WorkspacePageOverlaysProps = {
 export type WorkspacePageHeaderProps = {
   isMobile: boolean;
   projectName?: string | null;
+  collaborationPresence?: ReactNode;
   goBack: () => void;
   clearChat: () => void;
 };

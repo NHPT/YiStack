@@ -31,8 +31,9 @@ The main sequence is:
 2. `VIS-001` is complete: screenshots and reference images are analyzed by a
    real multimodal model into `visual_context.v1`, then bound to plans, messages,
    durable Jobs, SSE recovery, and code generation.
-3. The next differentiation track is `COLLAB-001` shared-workspace collaboration,
-   built on the existing owner/editor/viewer permissions and audit boundary.
+3. `COLLAB-001` is complete: shared workspaces provide durable presence, SSE
+   cursor replay, backend-owned resource-event auditing, SHA-256 concurrency
+   protection, and dirty-buffer conflict feedback.
 4. The GitHub remote, required Actions checks, and branch protection are enabled.
    Continue accepting community contributions through controlled pull requests.
 5. Validate real cloud lifecycles for multiple deployment providers and the
@@ -152,7 +153,8 @@ Scope:
 
 - Project Foundation Stage, artifacts, and gate;
 - VIS-001 visual context: image upload/paste, vision-capability enforcement, structured analysis, and generation constraints (Done);
-- COLLAB-001 shared-workspace collaboration (Next);
+- COLLAB-001 shared-workspace collaboration: presence, resource events,
+  recovery, and conflict protection (Done);
 - Task Orchestration Layer;
 - Engineering State Layer;
 - Execution Transparency Layer;

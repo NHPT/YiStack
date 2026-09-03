@@ -43,6 +43,7 @@ type ProjectService struct {
 	deleteRestoreWindows   sync.Map
 	deleteRestoreRequests  sync.Map
 	projectCreateLocks     sync.Map
+	projectMutationLocks   sync.Map
 }
 
 const projectCreateIdempotencyWindow = 2 * time.Minute

@@ -29,6 +29,42 @@ type ProjectCollaborationAudit struct {
 
 func (ProjectCollaborationAudit) TableName() string { return "project_collaboration_audits" }
 
+type ProjectCollaborationSession struct {
+	ID          string    `gorm:"primaryKey;type:uuid" json:"id"`
+	ProjectID   string    `gorm:"uniqueIndex:project_collaboration_session_unique;index;size:64;not null" json:"project_id"`
+	UserID      string    `gorm:"uniqueIndex:project_collaboration_session_unique;index;type:uuid;not null" json:"user_id"`
+	ClientID    string    `gorm:"uniqueIndex:project_collaboration_session_unique;size:128;not null" json:"client_id"`
+	Role        string    `gorm:"index;size:32;not null" json:"role"`
+	Activity    string    `gorm:"index;size:32;not null" json:"activity"`
+	CurrentFile string    `gorm:"size:1024" json:"current_file,omitempty"`
+	Status      string    `gorm:"index;size:32;not null" json:"status"`
+	JoinedAt    time.Time `json:"joined_at"`
+	LastSeenAt  time.Time `gorm:"index;not null" json:"last_seen_at"`
+	ExpiresAt   time.Time `gorm:"index;not null" json:"expires_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (ProjectCollaborationSession) TableName() string {
+	return "project_collaboration_sessions"
+}
+
+type ProjectCollaborationEvent struct {
+	Sequence         int64     `gorm:"primaryKey;autoIncrement" json:"sequence"`
+	ID               string    `gorm:"uniqueIndex;type:uuid;not null" json:"id"`
+	ProjectID        string    `gorm:"index;size:64;not null" json:"project_id"`
+	ActorUserID      string    `gorm:"index;type:uuid;not null" json:"actor_user_id"`
+	SessionID        string    `gorm:"index;type:uuid" json:"session_id,omitempty"`
+	EventType        string    `gorm:"index;size:64;not null" json:"event_type"`
+	ResourcePath     string    `gorm:"size:1024" json:"resource_path,omitempty"`
+	ResourceRevision string    `gorm:"size:64" json:"resource_revision,omitempty"`
+	PayloadJSON      string    `gorm:"type:text;not null;default:'{}'" json:"payload_json"`
+	CreatedAt        time.Time `gorm:"index;not null" json:"created_at"`
+}
+
+func (ProjectCollaborationEvent) TableName() string {
+	return "project_collaboration_events"
+}
+
 type OfficialProjectTemplate struct {
 	ID               string    `gorm:"primaryKey;type:uuid" json:"id"`
 	Slug             string    `gorm:"uniqueIndex;size:100;not null" json:"slug"`

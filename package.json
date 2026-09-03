@@ -28,7 +28,8 @@
     "eval:canonical": "node scripts/run-generation-benchmark.mjs",
     "eval:smoke": "node scripts/run-generation-benchmark.mjs --limit 1",
     "eval:smoke:ci": "node scripts/validate-generation-benchmark-model.mjs",
-    "test:vis001-browser": "node scripts/validate-vis001-browser-acceptance.mjs"
+    "test:vis001-browser": "node scripts/validate-vis001-browser-acceptance.mjs",
+    "test:collab001-browser": "node scripts/validate-collab001-browser-acceptance.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",

@@ -2,9 +2,12 @@ package handler
 
 import (
 	"context"
+	"errors"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"yistack/internal/service"
 )
 
 // GetCommits GET /api/project/:id/commits 获取项目 Git 提交历史。
@@ -999,16 +1002,18 @@ func (h *ProjectHandler) ReadFile(c context.Context, ctx *app.RequestContext) {
 	ctx.JSON(consts.StatusOK, map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"path":    filePath,
-			"content": content,
+			"path":              filePath,
+			"content":           content,
+			"resource_revision": service.ProjectFileContentRevision(content),
 		},
 	})
 }
 
 // WriteFileRequest 写入文件请求。
 type WriteFileRequest struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path             string `json:"path"`
+	Content          string `json:"content"`
+	ExpectedRevision string `json:"expected_revision"`
 }
 
 type ProjectFileOperationRequest struct {
@@ -1043,13 +1048,46 @@ func (h *ProjectHandler) WriteFile(c context.Context, ctx *app.RequestContext) {
 		return
 	}
 
+	userID, ok := h.currentUserID(ctx)
+	if !ok {
+		return
+	}
 	projectService, _, ok := h.requireOwnedProject(c, ctx, projectID)
 	if !ok {
 		return
 	}
 
-	result, err := projectService.WriteProjectFile(c, projectID, req.Path, req.Content)
+	result, err := projectService.WriteProjectFileAsUser(
+		c,
+		userID,
+		projectID,
+		req.Path,
+		req.Content,
+		req.ExpectedRevision,
+	)
 	if err != nil {
+		var validationErr *service.ProjectFileRevisionValidationError
+		if errors.As(err, &validationErr) {
+			ctx.JSON(consts.StatusBadRequest, map[string]interface{}{
+				"error":       "Invalid expected file revision",
+				"code":        "file_revision_invalid",
+				"reason_code": "file_revision_invalid",
+			})
+			return
+		}
+		var conflictErr *service.ProjectFileRevisionConflictError
+		if errors.As(err, &conflictErr) {
+			ctx.JSON(consts.StatusConflict, map[string]interface{}{
+				"error":       "File changed since it was opened",
+				"code":        "file_revision_conflict",
+				"reason_code": "file_revision_conflict",
+				"data": map[string]interface{}{
+					"expected_revision": conflictErr.ExpectedRevision,
+					"current_revision":  conflictErr.CurrentRevision,
+				},
+			})
+			return
+		}
 		ctx.JSON(consts.StatusInternalServerError, map[string]interface{}{
 			"error":   "Failed to write file",
 			"details": err.Error(),
@@ -1088,12 +1126,24 @@ func (h *ProjectHandler) ApplyFileOperation(c context.Context, ctx *app.RequestC
 		return
 	}
 
+	userID, ok := h.currentUserID(ctx)
+	if !ok {
+		return
+	}
 	projectService, _, ok := h.requireOwnedProject(c, ctx, projectID)
 	if !ok {
 		return
 	}
 
-	result, err := projectService.PerformProjectFileOperation(c, projectID, req.Operation, req.Path, req.TargetPath, req.Content)
+	result, err := projectService.PerformProjectFileOperationAsUser(
+		c,
+		userID,
+		projectID,
+		req.Operation,
+		req.Path,
+		req.TargetPath,
+		req.Content,
+	)
 	if err != nil {
 		ctx.JSON(consts.StatusInternalServerError, map[string]interface{}{
 			"error":   "Failed to apply file operation",

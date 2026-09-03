@@ -204,6 +204,8 @@ func migrateDatabase(db *gorm.DB) error {
 		&model.ProjectDeploymentOperation{},
 		&model.ProjectMember{},
 		&model.ProjectCollaborationAudit{},
+		&model.ProjectCollaborationSession{},
+		&model.ProjectCollaborationEvent{},
 		&model.OfficialProjectTemplate{},
 		&model.OfficialProjectTemplateVersion{},
 		&model.OfficialProjectTemplateAudit{},
@@ -433,6 +435,10 @@ func registerRoutes(
 	project.POST("/:id/members", collaborationHandler.AddOrUpdateMember)
 	project.DELETE("/:id/members", collaborationHandler.RemoveMember)
 	project.GET("/:id/collaboration-audits", collaborationHandler.ListAudits)
+	project.GET("/:id/collaboration/state", collaborationHandler.GetCollaborationState)
+	project.POST("/:id/collaboration/presence", collaborationHandler.TouchCollaborationPresence)
+	project.DELETE("/:id/collaboration/presence", collaborationHandler.LeaveCollaborationPresence)
+	project.GET("/:id/collaboration/events", collaborationHandler.StreamCollaborationEvents)
 	project.DELETE("/:id", projectHandler.Delete)
 	project.POST("/:id/restore", projectHandler.RestoreDeleted)
 	project.PUT("/:id", projectHandler.Update)

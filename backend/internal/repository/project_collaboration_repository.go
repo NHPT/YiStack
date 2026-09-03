@@ -2,12 +2,16 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"yistack/internal/model"
 	"yistack/pkg/database"
+	"yistack/pkg/utils"
 )
 
 type ProjectCollaborationRepository struct{ db *gorm.DB }
@@ -53,6 +57,114 @@ func (r *ProjectCollaborationRepository) ListCollaborationAudits(ctx context.Con
 	}
 	var items []model.ProjectCollaborationAudit
 	return items, r.db.WithContext(ctx).Where("project_id = ?", projectID).Order("created_at DESC").Limit(limit).Find(&items).Error
+}
+func (r *ProjectCollaborationRepository) FindCollaborationSession(ctx context.Context, projectID, userID, clientID string) (*model.ProjectCollaborationSession, error) {
+	var session model.ProjectCollaborationSession
+	if err := r.db.WithContext(ctx).Where(
+		"project_id = ? AND user_id = ? AND client_id = ?",
+		projectID,
+		userID,
+		clientID,
+	).First(&session).Error; err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+func (r *ProjectCollaborationRepository) UpsertCollaborationSessionWithEvent(ctx context.Context, session *model.ProjectCollaborationSession, event *model.ProjectCollaborationEvent) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "project_id"}, {Name: "user_id"}, {Name: "client_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"role", "activity", "current_file", "status", "joined_at", "last_seen_at", "expires_at", "updated_at",
+			}),
+		}).Create(session).Error; err != nil {
+			return err
+		}
+		if event == nil {
+			return nil
+		}
+		return tx.Create(event).Error
+	})
+}
+func (r *ProjectCollaborationRepository) LeaveCollaborationSessionWithEvent(ctx context.Context, projectID, userID, clientID string, leftAt time.Time, event *model.ProjectCollaborationEvent) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.ProjectCollaborationSession{}).Where(
+			"project_id = ? AND user_id = ? AND client_id = ? AND status = ?",
+			projectID,
+			userID,
+			clientID,
+			"active",
+		).Updates(map[string]interface{}{
+			"status": "left", "expires_at": leftAt, "updated_at": leftAt,
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 || event == nil {
+			return nil
+		}
+		return tx.Create(event).Error
+	})
+}
+func (r *ProjectCollaborationRepository) ExpireCollaborationSessions(ctx context.Context, projectID string, expiredAt time.Time) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var sessions []model.ProjectCollaborationSession
+		result := tx.Model(&sessions).
+			Clauses(clause.Returning{}).
+			Where("project_id = ? AND status = ? AND expires_at <= ?", projectID, "active", expiredAt).
+			Updates(map[string]interface{}{"status": "expired", "updated_at": expiredAt})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		events := make([]model.ProjectCollaborationEvent, 0, len(sessions))
+		for _, session := range sessions {
+			payload, _ := json.Marshal(map[string]interface{}{
+				"activity": session.Activity,
+				"role":     session.Role,
+			})
+			events = append(events, model.ProjectCollaborationEvent{
+				ID:           utils.GenerateUUID(),
+				ProjectID:    projectID,
+				ActorUserID:  session.UserID,
+				SessionID:    session.ID,
+				EventType:    "presence_expired",
+				ResourcePath: session.CurrentFile,
+				PayloadJSON:  string(payload),
+				CreatedAt:    expiredAt,
+			})
+		}
+		return tx.Create(&events).Error
+	})
+}
+func (r *ProjectCollaborationRepository) ListActiveCollaborationSessions(ctx context.Context, projectID string, activeAfter time.Time) ([]model.ProjectCollaborationSession, error) {
+	var items []model.ProjectCollaborationSession
+	return items, r.db.WithContext(ctx).Where(
+		"project_id = ? AND status = ? AND expires_at > ?",
+		projectID,
+		"active",
+		activeAfter,
+	).Order("last_seen_at DESC").Find(&items).Error
+}
+func (r *ProjectCollaborationRepository) AppendCollaborationEvent(ctx context.Context, event *model.ProjectCollaborationEvent) error {
+	query := r.db.WithContext(ctx)
+	if strings.TrimSpace(event.SessionID) == "" {
+		query = query.Omit("session_id")
+	}
+	return query.Create(event).Error
+}
+func (r *ProjectCollaborationRepository) ListCollaborationEvents(ctx context.Context, projectID string, afterSequence int64, limit int) ([]model.ProjectCollaborationEvent, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	var items []model.ProjectCollaborationEvent
+	return items, r.db.WithContext(ctx).Where(
+		"project_id = ? AND sequence > ?",
+		projectID,
+		afterSequence,
+	).Order("sequence ASC").Limit(limit).Find(&items).Error
 }
 func (r *ProjectCollaborationRepository) UpsertOfficialTemplate(ctx context.Context, template *model.OfficialProjectTemplate) error {
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "slug"}}, DoUpdates: clause.AssignmentColumns([]string{"name", "description", "app_type", "status", "updated_at"})}).Create(template).Error

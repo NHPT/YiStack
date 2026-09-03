@@ -309,6 +309,47 @@ func mergeGenerationErrorPayload(err error, extra map[string]interface{}) map[st
 	return payload
 }
 
+func (s *GeneratorService) recordGenerationCollaborationEvents(
+	ctx context.Context,
+	req *GenerateRequest,
+	project *model.Project,
+	operations []GenerationFileOperation,
+) error {
+	if s == nil || s.collaborationRepo == nil || req == nil || project == nil {
+		return nil
+	}
+	role := ProjectMemberRoleEditor
+	if strings.TrimSpace(project.UserID) == strings.TrimSpace(req.UserID) {
+		role = ProjectMemberRoleOwner
+	}
+	for _, operation := range operations {
+		eventType := ProjectCollaborationEventFileSaved
+		revision := operation.ResultHash
+		if operation.Operation == GenerationFileOperationDelete {
+			eventType = ProjectCollaborationEventTreeChanged
+			revision = ""
+		}
+		event := newProjectCollaborationEvent(
+			req.ProjectID,
+			req.UserID,
+			"",
+			eventType,
+			operation.Path,
+			revision,
+			map[string]interface{}{
+				"role":      role,
+				"source":    "generation",
+				"operation": operation.Operation,
+			},
+			time.Now().UTC(),
+		)
+		if err := s.collaborationRepo.AppendCollaborationEvent(ctx, event); err != nil {
+			return fmt.Errorf("record generation collaboration event for %s: %w", operation.Path, err)
+		}
+	}
+	return nil
+}
+
 // applyGenerationArtifacts 负责把生成结果真正落到文件系统、容器、文档和 Git。
 func (s *GeneratorService) applyGenerationArtifacts(ctx context.Context, req *GenerateRequest, project *model.Project, result *generationResult, handler StreamEventHandler) error {
 	if result == nil {
@@ -331,6 +372,14 @@ func (s *GeneratorService) applyGenerationArtifacts(ctx context.Context, req *Ge
 		}
 		result.Operations = operations
 		result.Files = files
+		if eventErr := s.recordGenerationCollaborationEvents(ctx, req, project, operations); eventErr != nil {
+			log.Printf("Warning: failed to record generation collaboration events: %v", eventErr)
+			_ = handler(StreamEventProgress, map[string]interface{}{
+				"progress": 70,
+				"message":  "文件已写入，但共享工作区事件同步失败；协作者需手动刷新。",
+				"warning":  eventErr.Error(),
+			})
+		}
 		if s.containerMgr != nil {
 			refreshProjectFileTree(ctx, req.ProjectID, s.containerMgr, s.projectRepo)
 		}

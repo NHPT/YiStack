@@ -58,7 +58,7 @@ Core goals:
 | Supabase application preset | Implemented | Auth, CRUD RLS, private Storage, types, migrations, and rollback |
 | GitHub integration | Implemented | OAuth PKCE, encrypted tokens, import, guarded pull/push, and webhooks |
 | Vercel adapter | Contract implemented | Publish, redacted logs, rollback, and domain contracts are tested; live cloud acceptance is deferred to the unified multi-provider phase |
-| Project collaboration | Implemented | Owner/editor/viewer roles, owner-only administration, and append-only auditing |
+| Project collaboration | Implemented | Owner/editor/viewer roles, durable presence, SSE replay, backend-owned resource auditing, remote file synchronization, and SHA-256 conflict protection |
 | Official templates | Experimental | One initial template with immutable versions, checksums, publishing, and CAS rollback |
 | Contributor workflow | Implemented | Apache-2.0, governance files, CODEOWNERS, CI, and clean-checkout gates |
 

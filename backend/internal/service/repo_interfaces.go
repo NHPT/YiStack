@@ -115,6 +115,13 @@ type ProjectCollaborationRepo interface {
 	UpsertMemberWithAudit(ctx context.Context, member *model.ProjectMember, audit *model.ProjectCollaborationAudit) error
 	DeleteMemberWithAudit(ctx context.Context, projectID, userID string, audit *model.ProjectCollaborationAudit) error
 	ListCollaborationAudits(ctx context.Context, projectID string, limit int) ([]model.ProjectCollaborationAudit, error)
+	FindCollaborationSession(ctx context.Context, projectID, userID, clientID string) (*model.ProjectCollaborationSession, error)
+	UpsertCollaborationSessionWithEvent(ctx context.Context, session *model.ProjectCollaborationSession, event *model.ProjectCollaborationEvent) error
+	LeaveCollaborationSessionWithEvent(ctx context.Context, projectID, userID, clientID string, leftAt time.Time, event *model.ProjectCollaborationEvent) error
+	ExpireCollaborationSessions(ctx context.Context, projectID string, expiredAt time.Time) error
+	ListActiveCollaborationSessions(ctx context.Context, projectID string, activeAfter time.Time) ([]model.ProjectCollaborationSession, error)
+	AppendCollaborationEvent(ctx context.Context, event *model.ProjectCollaborationEvent) error
+	ListCollaborationEvents(ctx context.Context, projectID string, afterSequence int64, limit int) ([]model.ProjectCollaborationEvent, error)
 	UpsertOfficialTemplate(ctx context.Context, template *model.OfficialProjectTemplate) error
 	FindOfficialTemplateBySlug(ctx context.Context, slug string) (*model.OfficialProjectTemplate, error)
 	FindOfficialTemplateByID(ctx context.Context, id string) (*model.OfficialProjectTemplate, error)

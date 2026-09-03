@@ -721,11 +721,15 @@ export interface ProjectSoftDeleteRestoreResult {
 export interface ProjectFileReadResponse {
   path: string;
   content: string;
+  resource_revision: string;
 }
 
 export interface ProjectFileWriteResponse {
   path: string;
   write_status: 'saved';
+  resource_revision: string;
+  collaboration_event_status: 'recorded' | 'failed' | 'not_requested';
+  collaboration_event_error?: string;
   file_tree_status: ProjectFileTreeSyncStatus;
   file_tree_status_label: string;
   file_tree_error?: ProjectFileTreeSyncError;
@@ -752,6 +756,8 @@ export interface ProjectFileOperationResponse {
   operation: ProjectFileOperationKind;
   path: string;
   target_path?: string;
+  collaboration_event_status: 'recorded' | 'failed' | 'not_requested';
+  collaboration_event_error?: string;
   file_tree_status: ProjectFileTreeSyncStatus;
   file_tree_status_label: string;
   file_tree_error?: ProjectFileTreeSyncError;
@@ -1226,10 +1232,15 @@ export const projectApi = {
   },
 
   // 写入项目文件
-  writeFile: async (id: string, path: string, content: string): Promise<ProjectFileWriteResponse> => {
+  writeFile: async (
+    id: string,
+    path: string,
+    content: string,
+    expectedRevision?: string,
+  ): Promise<ProjectFileWriteResponse> => {
     return request<ProjectFileWriteResponse>(`/project/${id}/files/content`, {
       method: 'PUT',
-      body: { path, content },
+      body: { path, content, expected_revision: expectedRevision ?? '' },
       requireAuth: true,
     });
   },

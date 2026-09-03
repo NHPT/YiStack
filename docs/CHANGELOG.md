@@ -17,10 +17,14 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - VIS-001 视觉上下文闭环：聊天支持上传或粘贴 PNG/JPEG 参考图，只有声明 `vision` 能力的模型可接收图片。
 - 图片会在服务端执行 MIME、大小、尺寸、像素与真实解码校验，并重新编码净化；多模态分析严格输出 `visual_context.v1`。
 - 视觉上下文绑定消息、候选方案与持久 Generation Job，SSE 实时流和刷新重放均可恢复；方案与代码生成消费布局、组件、颜色、字体、间距、响应式和交互约束。
+- COLLAB-001 共享工作区闭环：owner/editor/viewer 会话显示持久在线状态，资源变更通过可重放 SSE 同步，超时和离开事件保留追加式审计。
+- 远端文件保存会自动刷新 clean buffer；dirty buffer 保持本地内容并显示冲突。文件保存使用 SHA-256 revision 和 HTTP 409 防止静默覆盖。
 
 ### 安全
 
 - 视觉上下文携带服务端 HMAC 完整性证明；即使客户端同时改写请求与项目 `plan_data` 也不能伪造分析结果，合法上下文可在讨论与重规划中连续复用。
+- 协作资源事件只能由后端文件或生成事务写入，客户端不能伪造 mutation audit。
+- `express@5.2.1` 的传递依赖 `body-parser` 固定升级至 2.3.0，High/Critical 依赖审计保持为零。
 
 ## [1.0.0] - 2026-09-01
 

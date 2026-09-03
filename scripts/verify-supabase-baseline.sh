@@ -106,6 +106,66 @@ if [ "$admin_auth_contract" != "true:1:true" ]; then
   exit 1
 fi
 
+echo "[R7] Verifying collaboration session, audit, and expiry RPCs..."
+collaboration_contract="$(
+  podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
+    psql -qAt -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack <<'SQL'
+INSERT INTO public.users (id, email, username, password_hash)
+VALUES (
+  '10000000-0000-0000-0000-000000000001',
+  'collab-owner@example.invalid',
+  'Collab Owner',
+  'test-only'
+);
+INSERT INTO public.projects (id, user_id, project_id, name, app_type)
+VALUES (
+  '20000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000001',
+  'collab-baseline',
+  'Collaboration Baseline',
+  'vite-react'
+);
+DO $$
+BEGIN
+  PERFORM public.touch_project_collaboration_session(
+    '30000000-0000-0000-0000-000000000001',
+    'collab-baseline',
+    '10000000-0000-0000-0000-000000000001',
+    'browser-client-1',
+    'owner',
+    'editing',
+    'src/App.tsx',
+    '2026-09-02T12:00:00Z',
+    '2026-09-02T12:00:00Z',
+    '2026-09-02T12:00:45Z',
+    true,
+    '40000000-0000-0000-0000-000000000001',
+    'presence_joined',
+    '{"role":"owner","activity":"editing"}'::jsonb
+  );
+  PERFORM public.expire_project_collaboration_sessions(
+    'collab-baseline',
+    '2026-09-02T12:00:46Z'
+  );
+END
+$$;
+SELECT
+  (SELECT status FROM public.project_collaboration_sessions WHERE project_id = 'collab-baseline')
+  || ':' ||
+  (SELECT count(*) FROM public.project_collaboration_events WHERE project_id = 'collab-baseline')
+  || ':' ||
+  has_function_privilege(
+    'service_role',
+    'public.expire_project_collaboration_sessions(text,timestamp with time zone)',
+    'EXECUTE'
+  )::text;
+SQL
+)"
+if [ "$collaboration_contract" != "expired:2:true" ]; then
+  echo "[R7] Unexpected collaboration persistence contract: $collaboration_contract" >&2
+  exit 1
+fi
+
 echo "[R7] Verifying baseline rollback and re-apply..."
 podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
   psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
