@@ -1,0 +1,19 @@
+[Unit]
+Description=Optional YiStack PostgreSQL container
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=yistack
+Group=yistack
+Environment=HOME=/var/lib/yistack
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=/opt/yistack/current/bin/yistack-postgres start
+ExecStop=/opt/yistack/current/bin/yistack-postgres stop
+TimeoutStartSec=180
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

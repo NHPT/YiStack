@@ -53,6 +53,7 @@ import type {
   WorkspacePreviewNavigateAction,
   WorkspaceProjectExportAction,
   WorkspaceRuntimeRecoverAction,
+  WorkspaceVisualEditSubmitAction,
   WorkspaceGitApplyBranchCompareFileAction,
   WorkspaceGitApplyStashAction,
   WorkspaceGitCommitWorktreeAction,
@@ -294,6 +295,8 @@ type BuildDesktopIdePanelPropsOptions = {
   previewUrlStatus: PreviewUrlStatus | null;
   previewReloadToken: number;
   runtimeStatus: ProjectRuntimeStatus | undefined;
+  canVisualEdit: boolean;
+  onSubmitVisualEdit: WorkspaceVisualEditSubmitAction;
   searchQuery: string;
   filteredTree: FileNode[];
   hasOriginalFileTreeData: boolean;
@@ -379,6 +382,8 @@ export function buildDesktopIdePanelProps({
   previewUrlStatus,
   previewReloadToken,
   runtimeStatus,
+  canVisualEdit,
+  onSubmitVisualEdit,
   searchQuery,
   filteredTree,
   hasOriginalFileTreeData,
@@ -463,6 +468,8 @@ export function buildDesktopIdePanelProps({
     previewUrlStatus,
     previewReloadToken,
     runtimeStatus,
+    canVisualEdit,
+    onSubmitVisualEdit,
     searchQuery,
     filteredTree,
     hasOriginalFileTreeData,
@@ -575,6 +582,8 @@ type BuildMobileIdePanelPropsOptions = {
   mobilePreviewUrlStatus: PreviewUrlStatus | null;
   previewReloadToken: number;
   runtimeStatus: ProjectRuntimeStatus | undefined;
+  canVisualEdit: boolean;
+  onSubmitVisualEdit: WorkspaceVisualEditSubmitAction;
   searchQuery: string;
   filteredTree: FileNode[];
   hasOriginalFileTreeData: boolean;
@@ -646,6 +655,8 @@ export function buildMobileIdePanelProps({
   mobilePreviewUrlStatus,
   previewReloadToken,
   runtimeStatus,
+  canVisualEdit,
+  onSubmitVisualEdit,
   searchQuery,
   filteredTree,
   hasOriginalFileTreeData,
@@ -733,6 +744,8 @@ export function buildMobileIdePanelProps({
     mobilePreviewUrlStatus,
     previewReloadToken,
     runtimeStatus,
+    canVisualEdit,
+    onSubmitVisualEdit,
     searchQuery,
     filteredTree,
     hasOriginalFileTreeData,

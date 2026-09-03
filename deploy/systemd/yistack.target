@@ -1,0 +1,7 @@
+[Unit]
+Description=YiStack application stack
+Wants=yistack-backend.service yistack-frontend.service yistack-browser-worker.service
+After=yistack-backend.service yistack-frontend.service yistack-browser-worker.service
+
+[Install]
+WantedBy=multi-user.target

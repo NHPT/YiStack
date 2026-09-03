@@ -2,6 +2,7 @@ import type { ComponentType, MouseEvent as ReactMouseEvent, ReactNode } from 're
 
 import type { FileNode, GitBranch, GitBranchCompare, GitBranchSwitchReadiness, GitCommit, GitRemote, GitRemoteBranch, GitStash, GitTag, GitWorktreeStatus } from '@/lib/types';
 import type { ProjectRuntimeStatus } from '@/lib/api';
+import type { VisualEditContext } from '@/lib/visual-edit';
 import type {
   WorkspaceEngineeringStateSnapshot,
   WorkspaceGateResult,
@@ -82,6 +83,10 @@ export type WorkspaceGitApplyStashAction = (stashRef: string) => void | Promise<
 export type WorkspaceRuntimeRecoverAction = () => void | Promise<void>;
 export type WorkspacePreviewHistoryNavigationAction = () => void;
 export type WorkspacePreviewNavigateAction = (value: string) => void;
+export type WorkspaceVisualEditSubmitAction = (
+  context: VisualEditContext,
+  instruction: string,
+) => void | Promise<void>;
 export type WorkspaceExplorerToggleFolderAction = (path: string) => void;
 export type WorkspaceExplorerContextMenuAction = (event: ReactMouseEvent, node: FileNode) => void;
 export type WorkspaceProjectExportAction = () => void;
@@ -181,6 +186,8 @@ export type DesktopPreviewPanelProps = {
   onOpenRuntimeHomeUrl: (value: string) => void;
   previewDeviceStyle: { width: string; height: string };
   runtimeStatus?: ProjectRuntimeStatus;
+  canVisualEdit: boolean;
+  onSubmitVisualEdit: WorkspaceVisualEditSubmitAction;
   onOpenCapabilityAudit: () => void;
   onRecoverRuntime: WorkspaceRuntimeRecoverAction;
 };
@@ -207,6 +214,8 @@ export type MobilePreviewPanelProps = SharedPreviewProps & {
   mobilePreviewUrlStatus: PreviewUrlStatus | null;
   previewReloadToken: number;
   runtimeStatus?: ProjectRuntimeStatus;
+  canVisualEdit: boolean;
+  onSubmitVisualEdit: WorkspaceVisualEditSubmitAction;
   onOpenCapabilityAudit: () => void;
   onOpenRuntimeHomeUrl: (value: string) => void;
   onRecoverRuntime: WorkspaceRuntimeRecoverAction;
@@ -230,6 +239,8 @@ export type DesktopIdeProps = SharedExplorerProps & SharedGitProps & SharedPrevi
   previewReloadToken: number;
   runtimeStatus?: ProjectRuntimeStatus;
   projectId: string | null;
+  canVisualEdit: boolean;
+  onSubmitVisualEdit: WorkspaceVisualEditSubmitAction;
   engineeringState?: WorkspaceEngineeringStateSnapshot;
   contextGateResult?: WorkspaceGateResult;
   foundationActionLabel: string;
@@ -266,6 +277,8 @@ export type MobileIdeProps = SharedExplorerProps & SharedGitProps & SharedPrevie
   mobileEditorBufferStatus: EditorBufferStatus | null;
   editorNavigationTarget: WorkspaceEditorNavigationTarget | null;
   projectId: string | null;
+  canVisualEdit: boolean;
+  onSubmitVisualEdit: WorkspaceVisualEditSubmitAction;
   engineeringState?: WorkspaceEngineeringStateSnapshot;
   contextGateResult?: WorkspaceGateResult;
   foundationActionLabel: string;

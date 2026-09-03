@@ -18,8 +18,12 @@ CREATE TABLE IF NOT EXISTS public.users (
     llm_temperature character varying(10),
     llm_max_tokens integer,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    instance_id uuid
 );
+
+ALTER TABLE public.users
+    ADD COLUMN IF NOT EXISTS instance_id uuid;
 
 -- 2. 管理员表（独立于用户表，仅存管理员）
 CREATE TABLE IF NOT EXISTS public.admins (

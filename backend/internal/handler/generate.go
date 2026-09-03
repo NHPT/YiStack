@@ -37,6 +37,7 @@ type GenerateRequest struct {
 	Mode              string                                  `json:"mode"`
 	VisualAttachments []model.VisualAttachmentInput           `json:"visual_attachments"`
 	VisualContext     *model.VisualContext                    `json:"visual_context,omitempty"`
+	VisualEdit        *model.VisualEditContext                `json:"visual_edit,omitempty"`
 	Online            bool                                    `json:"online"`
 	CapabilityProfile string                                  `json:"capability_profile"`
 	Provider          string                                  `json:"provider"`

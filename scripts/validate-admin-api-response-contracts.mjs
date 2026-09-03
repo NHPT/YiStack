@@ -416,7 +416,7 @@ if (adminApiClient.includes('Promise<{ logs: AuditLog[]; total: number }>')
   'LLMMaxTokens   int    `gorm:"column:llm_max_tokens;default:4096" json:"llm_max_tokens"`',
   'CreatedAt time.Time `json:"created_at"`',
   'UpdatedAt time.Time `json:"updated_at"`',
-  'InstanceID string `gorm:"column:instance_id;type:uuid" json:"instance_id,omitempty"`',
+  'InstanceID *string `gorm:"column:instance_id;type:uuid" json:"instance_id,omitempty"`',
 ].forEach((snippet) => {
   if (!backendModels.includes(snippet)) {
     fail(`backend User model must preserve Admin user raw response field: ${snippet}`);

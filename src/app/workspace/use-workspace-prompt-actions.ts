@@ -3,6 +3,11 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
 import type { Plan } from '@/lib/api';
 import { resolveVisualContextForPlans } from '@/lib/visual-context';
+import {
+  buildVisualEditUserPrompt,
+  isVisualEditContext,
+  type VisualEditContext,
+} from '@/lib/visual-edit';
 import { toWorkspaceVisualAttachmentInputs } from './workspace-visual-attachments';
 import { buildInitialChatAttachmentSnapshot, buildRejectedChatAttachmentSnapshot } from './workspace-chat-composer-snapshot';
 import {
@@ -782,6 +787,40 @@ export function useWorkspacePromptActions({
     await submitPrompt(input);
   }, [input, submitPrompt]);
 
+  const handleVisualEdit = useCallback(async (
+    visualEdit: VisualEditContext,
+    instruction: string,
+  ) => {
+    const normalizedInstruction = instruction.trim();
+    const hasBusyGeneration = hasWorkspacePromptBusyGeneration({ isGenerating, isPlanning });
+    const canWriteProject = projectInfo?.isPersisted === true && projectInfo.canWrite !== false;
+    if (hasBusyGeneration || canWriteProject === false || normalizedInstruction.length === 0
+      || isVisualEditContext(visualEdit) === false) {
+      return;
+    }
+
+    const prompt = buildVisualEditUserPrompt(visualEdit, normalizedInstruction);
+    applyPromptInteractionMessages((previous) => [...previous, {
+      id: `user-visual-edit-${Date.now()}`,
+      role: 'user',
+      content: prompt,
+      timestamp: new Date(),
+    }]);
+    await handleLLMGenerate(prompt, undefined, {
+      mode: 'implement',
+      online: isOnline,
+      visualEdit,
+      initialReasoningContent: '正在定位选中的预览元素并生成受控源码修改...',
+    });
+  }, [
+    applyPromptInteractionMessages,
+    handleLLMGenerate,
+    isGenerating,
+    isOnline,
+    isPlanning,
+    projectInfo,
+  ]);
+
   const handleSuggestedQuestion = useCallback(async (question: string) => {
     await submitPrompt(question);
   }, [submitPrompt]);
@@ -994,6 +1033,7 @@ export function useWorkspacePromptActions({
     handleGenerate,
     handleSuggestedQuestion,
     handleSuggestedAction,
+    handleVisualEdit,
     handleStartFoundation,
     handleConfirmFoundationDecisions,
     foundationActionLabel: foundationAction.label,

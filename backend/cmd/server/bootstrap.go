@@ -119,7 +119,7 @@ func bootstrapApplication(cfg *config.Config) (*appBootstrap, error) {
 		return nil, fmt.Errorf("initialize database: %w", err)
 	}
 
-	repositories, err := initRepositories(db, supabaseClient)
+	repositories, err := initRepositories(db, supabaseClient, cfg.Database.AutoMigrate)
 	if err != nil {
 		return nil, err
 	}
@@ -140,11 +140,11 @@ func bootstrapApplication(cfg *config.Config) (*appBootstrap, error) {
 	}, nil
 }
 
-func initRepositories(db database.Database, supabaseClient *supabase.Client) (repositorySet, error) {
+func initRepositories(db database.Database, supabaseClient *supabase.Client, autoMigrate bool) (repositorySet, error) {
 	repositories := repositorySet{}
 
 	if db != nil && db.GetDB() != nil {
-		if err := migrateDatabase(db.GetDB()); err != nil {
+		if err := migrateDatabase(db.GetDB(), autoMigrate); err != nil {
 			return repositories, fmt.Errorf("migrate database: %w", err)
 		}
 

@@ -39,6 +39,9 @@ The main sequence is:
 5. Validate real cloud lifecycles for multiple deployment providers and the
    migration runner for the first upgrade-capable tag within their established
    boundaries.
+6. `VIS-002` is complete: internal project previews support real-element
+   selection, sanitized `visual_edit.v1` evidence, owner/editor authorization,
+   durable-Job source writeback, and the complete quality gate.
 
 `LT-02R` repairs LT-02, LT-03, and LT-06. It does not create LT-09 or renumber
 the original eight product stages.
@@ -153,6 +156,8 @@ Scope:
 
 - Project Foundation Stage, artifacts, and gate;
 - VIS-001 visual context: image upload/paste, vision-capability enforcement, structured analysis, and generation constraints (Done);
+- VIS-002 visual editing: Preview element selection, sanitized DOM location
+  evidence, controlled source changes, and the complete quality gate (Done);
 - COLLAB-001 shared-workspace collaboration: presence, resource events,
   recovery, and conflict protection (Done);
 - Task Orchestration Layer;

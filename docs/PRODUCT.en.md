@@ -54,7 +54,10 @@ Core goals:
 | Browser acceptance | Implemented | Deterministic acceptance runs after preview startup and blocks browser errors |
 | Workspace | Implemented | Monaco, file tree, terminal, Git, preview, and generation state |
 | Visual context | Implemented | PNG/JPEG upload and paste, real multimodal analysis, `visual_context.v1`, message/plan/Job binding, and vision-model enforcement |
+| Visual editing | Implemented | Select real elements in internal project previews, submit sanitized `visual_edit.v1` evidence as owner/editor, and write changes back to source; viewers, public shares, and external URLs fail closed |
 | Container runtime | Implemented | Per-project rootless Podman boundaries and resource policies |
+| Production distribution | Implemented | Prebuilt Debian 12 amd64/arm64 packages, systemd, bundled Node.js 22, optional PostgreSQL 16 container, SHA-256, SBOMs, and build provenance |
+| Demo maintenance | Implemented | Optional baseline snapshots, daily restoration, TTLs, and disk-watermark governance for local PostgreSQL deployments; automatic reset explicitly excludes external Supabase |
 | Supabase application preset | Implemented | Auth, CRUD RLS, private Storage, types, migrations, and rollback |
 | GitHub integration | Implemented | OAuth PKCE, encrypted tokens, import, guarded pull/push, and webhooks |
 | Vercel adapter | Implemented; live acceptance pending | Publish, redacted-log, rollback, and domain behavior has automated coverage; credentialed lifecycle acceptance is deferred to the unified multi-provider phase |
@@ -91,6 +94,7 @@ Requirement input (optionally with screenshots or reference images)
   -> Bounded automatic repair
   -> Preview service
   -> Browser acceptance
+  -> Optional: select a Preview element and start another source-editing and quality-gate cycle with visual_edit.v1
   -> Git version and delivery evidence
 ```
 

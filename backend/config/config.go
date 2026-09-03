@@ -120,6 +120,7 @@ type DatabaseConfig struct {
 	MaxIdleConns int    // 最大空闲连接数
 	MaxOpenConns int    // 最大打开连接数
 	ConnMaxLife  int    // 连接最大生命周期（秒）
+	AutoMigrate  bool   // 是否允许启动时由 GORM 修改 schema
 	SSLMode      string // PostgreSQL SSL 模式
 	Charset      string // MySQL 字符集
 
@@ -353,6 +354,7 @@ func Load() *Config {
 				MaxIdleConns: getEnvInt("DB_MAX_IDLE_CONNS", 10),
 				MaxOpenConns: getEnvInt("DB_MAX_OPEN_CONNS", 100),
 				ConnMaxLife:  getEnvInt("DB_CONN_MAX_LIFE", 3600),
+				AutoMigrate:  getEnvBool("DB_AUTO_MIGRATE", true),
 				SSLMode:      getEnv("DB_SSL_MODE", "disable"),
 				Charset:      getEnv("DB_CHARSET", "utf8mb4"),
 

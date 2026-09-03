@@ -1,0 +1,736 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+YISTACK_ENV_FILE="${YISTACK_ENV_FILE:-/etc/yistack/yistack.env}"
+YISTACK_POSTGRES_ENV_FILE="${YISTACK_POSTGRES_ENV_FILE:-/etc/yistack/postgres.env}"
+YISTACK_DEMO_ENV_FILE="${YISTACK_DEMO_ENV_FILE:-/etc/yistack/demo-maintenance.env}"
+
+if [ -r "$YISTACK_ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$YISTACK_ENV_FILE"
+fi
+if [ -r "$YISTACK_DEMO_ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$YISTACK_DEMO_ENV_FILE"
+fi
+
+: "${YISTACK_INSTALL_DIR:=/opt/yistack/current}"
+: "${YISTACK_DATA_DIR:=/var/lib/yistack}"
+: "${YISTACK_LOG_DIR:=/var/log/yistack}"
+: "${YISTACK_CACHE_DIR:=/var/cache/yistack}"
+: "${CONTAINER_PROJECT_DIR:=$YISTACK_DATA_DIR/runtime/projects}"
+: "${CONTAINER_TEMPLATE_DIR:=$YISTACK_DATA_DIR/runtime/templates}"
+: "${CONTAINER_DATA_DIR:=$YISTACK_DATA_DIR/runtime/container-data}"
+: "${YISTACK_BROWSER_EVIDENCE_DIR:=$YISTACK_DATA_DIR/runtime/generation-evidence}"
+: "${PLAYWRIGHT_BROWSERS_PATH:=$YISTACK_DATA_DIR/ms-playwright}"
+: "${DEMO_MAINTENANCE_ENABLED:=false}"
+: "${DEMO_BASELINE_DIR:=$YISTACK_DATA_DIR/demo-baseline}"
+: "${DEMO_PROJECT_TTL_HOURS:=24}"
+: "${DEMO_STOPPED_CONTAINER_TTL_MINUTES:=60}"
+: "${DEMO_EVIDENCE_TTL_HOURS:=24}"
+: "${DEMO_CACHE_TTL_HOURS:=24}"
+: "${DEMO_LOG_TTL_DAYS:=7}"
+: "${DEMO_DISK_HIGH_WATERMARK_PERCENT:=80}"
+: "${DEMO_DISK_LOW_WATERMARK_PERCENT:=70}"
+: "${DEMO_RESTART_AFTER_RESET:=true}"
+: "${DEMO_HEALTH_TIMEOUT_SECONDS:=120}"
+: "${DEMO_LOCK_FILE:=/run/lock/yistack-demo-maintenance.lock}"
+: "${SERVICE_USER:=yistack}"
+
+APP_RESTORE_ON_EXIT=false
+RUNNING_CONTAINERS_FILE=""
+TEMP_PATHS=()
+POSTGRES_CONFIG_LOADED=false
+
+log() {
+  printf '[demo-maintenance] %s\n' "$*"
+}
+
+die() {
+  printf '[demo-maintenance] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: yistack-demo-maintenance {snapshot|reset|cleanup|enforce|status}
+
+  snapshot  Capture the local PostgreSQL database and demo project workspaces
+  reset     Restore the verified baseline and restart the YiStack application
+  cleanup   Apply project, container, evidence, cache, and log retention rules
+  enforce   Run cleanup and enforce the configured disk high/low watermarks
+  status    Report configuration, baseline, resource, and disk status
+EOF
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "Required command is missing: $1"
+}
+
+require_uint() {
+  local name="$1"
+  local value="$2"
+  [[ "$value" =~ ^[0-9]+$ ]] || die "$name must be a non-negative integer"
+}
+
+require_bool() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    true | false) ;;
+    *) die "$name must be true or false" ;;
+  esac
+}
+
+canonical_path() {
+  realpath -m -- "$1"
+}
+
+assert_not_symlink() {
+  local path="$1"
+  [ ! -L "$path" ] || die "Managed path must not be a symbolic link: $path"
+}
+
+assert_safe_auxiliary_dir() {
+  local name="$1"
+  local path="$2"
+  case "$path" in
+    / | /etc | /opt | /usr | /var | /var/lib | /var/log | /var/cache)
+      die "$name points at an unsafe directory: $path"
+      ;;
+  esac
+  [[ "$path" = /*/*/* ]] || die "$name must contain at least three path components"
+  assert_not_symlink "$path"
+}
+
+paths_overlap() {
+  local first="$1"
+  local second="$2"
+  [ "$first" = "$second" ] ||
+    [[ "$first" = "$second"/* ]] ||
+    [[ "$second" = "$first"/* ]]
+}
+
+resolve_managed_paths() {
+  DATA_DIR="$(canonical_path "$YISTACK_DATA_DIR")"
+  TEMPLATE_DIR="$(canonical_path "$CONTAINER_TEMPLATE_DIR")"
+  BROWSER_RUNTIME_DIR="$(canonical_path "$PLAYWRIGHT_BROWSERS_PATH")"
+  PROJECT_DIR="$(canonical_path "$CONTAINER_PROJECT_DIR")"
+  CONTAINER_STATE_DIR="$(canonical_path "$CONTAINER_DATA_DIR")"
+  EVIDENCE_DIR="$(canonical_path "$YISTACK_BROWSER_EVIDENCE_DIR")"
+  BASELINE_DIR="$(canonical_path "$DEMO_BASELINE_DIR")"
+  CACHE_DIR="$(canonical_path "$YISTACK_CACHE_DIR")"
+  LOG_DIR="$(canonical_path "$YISTACK_LOG_DIR")"
+  INSTALL_DIR="$(canonical_path "$YISTACK_INSTALL_DIR")"
+  CONFIG_DIR="$(canonical_path "$(dirname "$YISTACK_ENV_FILE")")"
+
+  [ "$TEMPLATE_DIR" = "$DATA_DIR/runtime/templates" ] ||
+    die "CONTAINER_TEMPLATE_DIR must be YISTACK_DATA_DIR/runtime/templates"
+  [ "$BROWSER_RUNTIME_DIR" = "$DATA_DIR/ms-playwright" ] ||
+    die "PLAYWRIGHT_BROWSERS_PATH must be YISTACK_DATA_DIR/ms-playwright"
+  [ "$PROJECT_DIR" = "$DATA_DIR/runtime/projects" ] ||
+    die "CONTAINER_PROJECT_DIR must be YISTACK_DATA_DIR/runtime/projects"
+  [ "$CONTAINER_STATE_DIR" = "$DATA_DIR/runtime/container-data" ] ||
+    die "CONTAINER_DATA_DIR must be YISTACK_DATA_DIR/runtime/container-data"
+  [ "$EVIDENCE_DIR" = "$DATA_DIR/runtime/generation-evidence" ] ||
+    die "YISTACK_BROWSER_EVIDENCE_DIR must be inside the managed runtime"
+  [ "$BASELINE_DIR" = "$DATA_DIR/demo-baseline" ] ||
+    die "DEMO_BASELINE_DIR must be YISTACK_DATA_DIR/demo-baseline"
+
+  assert_safe_auxiliary_dir YISTACK_DATA_DIR "$DATA_DIR"
+  case "$DATA_DIR" in
+    /etc/* | /opt/* | /usr/* | /run/*)
+      die "YISTACK_DATA_DIR must not be inside a protected system directory"
+      ;;
+  esac
+  for path in "$DATA_DIR" "$TEMPLATE_DIR" "$BROWSER_RUNTIME_DIR" "$PROJECT_DIR" \
+    "$CONTAINER_STATE_DIR" "$EVIDENCE_DIR" "$BASELINE_DIR"; do
+    assert_not_symlink "$path"
+  done
+  assert_safe_auxiliary_dir YISTACK_CACHE_DIR "$CACHE_DIR"
+  assert_safe_auxiliary_dir YISTACK_LOG_DIR "$LOG_DIR"
+  for auxiliary_dir in "$CACHE_DIR" "$LOG_DIR"; do
+    for protected_dir in "$DATA_DIR" "$INSTALL_DIR" "$CONFIG_DIR"; do
+      if paths_overlap "$auxiliary_dir" "$protected_dir"; then
+        die "Cache and log directories must not overlap data, configuration, or installed Releases"
+      fi
+    done
+  done
+  if paths_overlap "$CACHE_DIR" "$LOG_DIR"; then
+    die "YISTACK_CACHE_DIR and YISTACK_LOG_DIR must not overlap"
+  fi
+}
+
+validate_configuration() {
+  require_bool DEMO_MAINTENANCE_ENABLED "$DEMO_MAINTENANCE_ENABLED"
+  require_bool DEMO_RESTART_AFTER_RESET "$DEMO_RESTART_AFTER_RESET"
+  require_uint DEMO_PROJECT_TTL_HOURS "$DEMO_PROJECT_TTL_HOURS"
+  require_uint DEMO_STOPPED_CONTAINER_TTL_MINUTES "$DEMO_STOPPED_CONTAINER_TTL_MINUTES"
+  require_uint DEMO_EVIDENCE_TTL_HOURS "$DEMO_EVIDENCE_TTL_HOURS"
+  require_uint DEMO_CACHE_TTL_HOURS "$DEMO_CACHE_TTL_HOURS"
+  require_uint DEMO_LOG_TTL_DAYS "$DEMO_LOG_TTL_DAYS"
+  require_uint DEMO_DISK_HIGH_WATERMARK_PERCENT "$DEMO_DISK_HIGH_WATERMARK_PERCENT"
+  require_uint DEMO_DISK_LOW_WATERMARK_PERCENT "$DEMO_DISK_LOW_WATERMARK_PERCENT"
+  require_uint DEMO_HEALTH_TIMEOUT_SECONDS "$DEMO_HEALTH_TIMEOUT_SECONDS"
+
+  (( DEMO_DISK_LOW_WATERMARK_PERCENT >= 1 )) ||
+    die "DEMO_DISK_LOW_WATERMARK_PERCENT must be at least 1"
+  (( DEMO_DISK_HIGH_WATERMARK_PERCENT <= 99 )) ||
+    die "DEMO_DISK_HIGH_WATERMARK_PERCENT must be less than 100"
+  (( DEMO_DISK_LOW_WATERMARK_PERCENT < DEMO_DISK_HIGH_WATERMARK_PERCENT )) ||
+    die "The disk low watermark must be lower than the high watermark"
+  (( DEMO_HEALTH_TIMEOUT_SECONDS >= 10 )) ||
+    die "DEMO_HEALTH_TIMEOUT_SECONDS must be at least 10"
+
+  resolve_managed_paths
+}
+
+require_enabled() {
+  [ -r "$YISTACK_DEMO_ENV_FILE" ] ||
+    die "Demo maintenance configuration is missing: $YISTACK_DEMO_ENV_FILE"
+  [ "$DEMO_MAINTENANCE_ENABLED" = "true" ] ||
+    die "Demo maintenance is disabled; set DEMO_MAINTENANCE_ENABLED=true explicitly"
+}
+
+load_postgres_configuration() {
+  [ "$POSTGRES_CONFIG_LOADED" = "true" ] && return 0
+  [ "${DB_TYPE:-}" = "postgres" ] ||
+    die "Demo maintenance supports only DB_TYPE=postgres; external Supabase is refused"
+  [ -r "$YISTACK_POSTGRES_ENV_FILE" ] ||
+    die "PostgreSQL configuration is missing: $YISTACK_POSTGRES_ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$YISTACK_POSTGRES_ENV_FILE"
+  : "${POSTGRES_CONTAINER_NAME:=yistack-postgres}"
+  : "${POSTGRES_USER:=postgres}"
+  : "${POSTGRES_DB:=yistack}"
+  [[ "$POSTGRES_DB" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] ||
+    die "POSTGRES_DB contains unsupported characters"
+  case "$POSTGRES_DB" in
+    postgres | template0 | template1)
+      die "POSTGRES_DB must be a dedicated YiStack database"
+      ;;
+  esac
+  POSTGRES_CONFIG_LOADED=true
+}
+
+run_as_service() {
+  if [ "$(id -u)" -eq 0 ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
+    local service_uid
+    service_uid="$(id -u "$SERVICE_USER")"
+    runuser -u "$SERVICE_USER" -- env \
+      HOME="$DATA_DIR" \
+      XDG_RUNTIME_DIR="/run/user/$service_uid" \
+      PATH="$PATH" \
+      "$@"
+  else
+    "$@"
+  fi
+}
+
+podman_cmd() {
+  run_as_service podman "$@"
+}
+
+postgres_psql() {
+  podman_cmd exec -i "$POSTGRES_CONTAINER_NAME" \
+    psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"
+}
+
+postgres_query() {
+  postgres_psql -qAt "$@"
+}
+
+ensure_postgres_running() {
+  load_postgres_configuration
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl start yistack-postgres.service
+  else
+    run_as_service "$YISTACK_INSTALL_DIR/bin/yistack-postgres" start
+  fi
+  [ "$(podman_cmd inspect --format '{{.State.Running}}' "$POSTGRES_CONTAINER_NAME" 2>/dev/null || true)" = "true" ] ||
+    die "The managed PostgreSQL container is not running"
+}
+
+acquire_lock() {
+  require_command flock
+  install -d -m 0755 "$(dirname "$DEMO_LOCK_FILE")"
+  exec 9>"$DEMO_LOCK_FILE"
+  flock -n 9 || die "Another demo maintenance operation is already running"
+}
+
+pause_application() {
+  if systemctl is-active --quiet yistack.target; then
+    systemctl stop yistack.target
+    APP_RESTORE_ON_EXIT=true
+  fi
+}
+
+resume_application() {
+  if [ "$APP_RESTORE_ON_EXIT" = "true" ]; then
+    systemctl start yistack.target
+    APP_RESTORE_ON_EXIT=false
+  fi
+}
+
+restore_running_containers() {
+  [ -n "$RUNNING_CONTAINERS_FILE" ] || return 0
+  if [ -f "$RUNNING_CONTAINERS_FILE" ]; then
+    while IFS= read -r container_id; do
+      [ -n "$container_id" ] || continue
+      podman_cmd start "$container_id" >/dev/null 2>&1 || true
+    done < "$RUNNING_CONTAINERS_FILE"
+    rm -f -- "$RUNNING_CONTAINERS_FILE"
+  fi
+  RUNNING_CONTAINERS_FILE=""
+}
+
+cleanup_on_exit() {
+  local rc=$?
+  trap - EXIT
+  restore_running_containers
+  if [ "$APP_RESTORE_ON_EXIT" = "true" ]; then
+    systemctl start yistack.target >/dev/null 2>&1 || true
+  fi
+  for path in "${TEMP_PATHS[@]}"; do
+    [ -n "$path" ] && rm -rf -- "$path"
+  done
+  exit "$rc"
+}
+trap cleanup_on_exit EXIT
+
+project_id_is_safe() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]
+}
+
+baseline_contains_project() {
+  [ -f "$BASELINE_DIR/baseline-project-ids" ] &&
+    grep -Fqx -- "$1" "$BASELINE_DIR/baseline-project-ids"
+}
+
+project_has_running_container() {
+  local project_id="$1"
+  local container_id label
+  while IFS= read -r container_id; do
+    [ -n "$container_id" ] || continue
+    label="$(podman_cmd container inspect --format '{{ index .Config.Labels "yistack.project_id" }}' "$container_id" 2>/dev/null || true)"
+    [ "$label" = "$project_id" ] && return 0
+  done < <(podman_cmd ps -q --filter "label=yistack.project_id=$project_id" --filter status=running)
+  return 1
+}
+
+remove_project_resources() {
+  local project_id="$1"
+  local resource_id label
+  project_id_is_safe "$project_id" || die "Refusing unsafe project ID: $project_id"
+
+  while IFS= read -r resource_id; do
+    [ -n "$resource_id" ] || continue
+    label="$(podman_cmd container inspect --format '{{ index .Config.Labels "yistack.project_id" }}' "$resource_id" 2>/dev/null || true)"
+    [ "$label" = "$project_id" ] || continue
+    podman_cmd rm --force "$resource_id" >/dev/null
+  done < <(podman_cmd ps -aq --filter "label=yistack.project_id=$project_id")
+
+  while IFS= read -r resource_id; do
+    [ -n "$resource_id" ] || continue
+    label="$(podman_cmd network inspect --format '{{ index .Labels "yistack.project_id" }}' "$resource_id" 2>/dev/null || true)"
+    [ "$label" = "$project_id" ] || continue
+    podman_cmd network rm --force "$resource_id" >/dev/null
+  done < <(podman_cmd network ls -q --filter "label=yistack.project_id=$project_id")
+}
+
+remove_all_project_resources() {
+  local resource_id label
+  while IFS= read -r resource_id; do
+    [ -n "$resource_id" ] || continue
+    label="$(podman_cmd container inspect --format '{{ index .Config.Labels "yistack.project_id" }}' "$resource_id" 2>/dev/null || true)"
+    [ -n "$label" ] || continue
+    podman_cmd rm --force "$resource_id" >/dev/null
+  done < <(podman_cmd ps -aq --filter label=yistack.project_id)
+
+  while IFS= read -r resource_id; do
+    [ -n "$resource_id" ] || continue
+    label="$(podman_cmd network inspect --format '{{ index .Labels "yistack.project_id" }}' "$resource_id" 2>/dev/null || true)"
+    [ -n "$label" ] || continue
+    podman_cmd network rm --force "$resource_id" >/dev/null
+  done < <(podman_cmd network ls -q --filter label=yistack.project_id)
+}
+
+delete_project() {
+  local project_id="$1"
+  local force_active="${2:-false}"
+  local project_path
+  project_id_is_safe "$project_id" || die "Refusing unsafe project ID: $project_id"
+  if baseline_contains_project "$project_id"; then
+    log "Protected baseline project retained: $project_id"
+    return 0
+  fi
+  if [ "$force_active" != "true" ] && project_has_running_container "$project_id"; then
+    log "Active demo project retained despite its TTL: $project_id"
+    return 0
+  fi
+
+  remove_project_resources "$project_id"
+  printf '%s\n' "DELETE FROM public.projects WHERE project_id = :'project_id';" |
+    postgres_psql -q -v "project_id=$project_id"
+  project_path="$PROJECT_DIR/$project_id"
+  [ "$(canonical_path "$project_path")" = "$PROJECT_DIR/$project_id" ] ||
+    die "Project workspace escaped its managed root: $project_path"
+  rm -rf -- "$project_path"
+  log "Removed expired demo project: $project_id"
+}
+
+clear_directory_contents() {
+  local path="$1"
+  case "$path" in
+    "$CONTAINER_STATE_DIR" | "$EVIDENCE_DIR" | "$CACHE_DIR") ;;
+    *) die "Refusing to clear unmanaged directory: $path" ;;
+  esac
+  install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$path"
+  find "$path" -xdev -mindepth 1 -delete
+}
+
+delete_aged_files() {
+  local path="$1"
+  local minutes="$2"
+  [ "$minutes" -gt 0 ] || return 0
+  [ -d "$path" ] || return 0
+  find "$path" -xdev -mindepth 1 -type f -mmin "+$minutes" -delete
+  find "$path" -xdev -depth -mindepth 1 -type d -empty -delete
+}
+
+cleanup_transient_files() {
+  delete_aged_files "$EVIDENCE_DIR" "$((DEMO_EVIDENCE_TTL_HOURS * 60))"
+  delete_aged_files "$CACHE_DIR" "$((DEMO_CACHE_TTL_HOURS * 60))"
+  delete_aged_files "$LOG_DIR" "$((DEMO_LOG_TTL_DAYS * 1440))"
+}
+
+cleanup_stopped_containers() {
+  local container_id full_id label finished_at finished_epoch cutoff now index
+  local container_ids=()
+  local project_ids=()
+  [ "$DEMO_STOPPED_CONTAINER_TTL_MINUTES" -gt 0 ] || return 0
+  now="$(date +%s)"
+  cutoff="$((now - DEMO_STOPPED_CONTAINER_TTL_MINUTES * 60))"
+  while IFS= read -r container_id; do
+    [ -n "$container_id" ] || continue
+    label="$(podman_cmd container inspect --format '{{ index .Config.Labels "yistack.project_id" }}' "$container_id" 2>/dev/null || true)"
+    project_id_is_safe "$label" || continue
+    [ "$(podman_cmd container inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)" = "false" ] || continue
+    finished_at="$(podman_cmd container inspect --format '{{.State.FinishedAt}}' "$container_id" 2>/dev/null || true)"
+    finished_epoch="$(date -d "$finished_at" +%s 2>/dev/null || true)"
+    [ -n "$finished_epoch" ] || continue
+    if [ "$finished_epoch" -le "$cutoff" ]; then
+      full_id="$(podman_cmd container inspect --format '{{.Id}}' "$container_id")"
+      container_ids+=("$full_id")
+      project_ids+=("$label")
+    fi
+  done < <(podman_cmd ps -aq --filter label=yistack.project_id)
+
+  [ "${#container_ids[@]}" -gt 0 ] || return 0
+  pause_application
+  for index in "${!container_ids[@]}"; do
+    container_id="${container_ids[$index]}"
+    label="${project_ids[$index]}"
+    podman_cmd rm --force "$container_id" >/dev/null
+    printf '%s\n' "UPDATE public.projects SET container_id = NULL, container_name = NULL, container_port = NULL, container_status = 'stopped' WHERE project_id = :'project_id' AND container_id = :'container_id';" |
+      postgres_psql -q -v "project_id=$label" -v "container_id=$container_id"
+    log "Removed stopped project container: $container_id"
+  done
+  resume_application
+}
+
+expired_project_ids() {
+  [ "$DEMO_PROJECT_TTL_HOURS" -gt 0 ] || return 0
+  postgres_query -c \
+    "SELECT project_id FROM public.projects WHERE deleted_at IS NOT NULL OR updated_at < now() - make_interval(hours => $DEMO_PROJECT_TTL_HOURS) ORDER BY updated_at NULLS FIRST, project_id;"
+}
+
+oldest_project_ids() {
+  postgres_query -c \
+    'SELECT project_id FROM public.projects ORDER BY updated_at NULLS FIRST, project_id;'
+}
+
+cleanup_expired_projects() {
+  local project_ids=()
+  local project_id
+  mapfile -t project_ids < <(expired_project_ids)
+  [ "${#project_ids[@]}" -gt 0 ] || return 0
+  pause_application
+  for project_id in "${project_ids[@]}"; do
+    [ -n "$project_id" ] || continue
+    delete_project "$project_id"
+  done
+  resume_application
+}
+
+disk_usage_percent() {
+  df -P "$DATA_DIR" | awk 'NR == 2 { value=$5; gsub(/%/, "", value); print value }'
+}
+
+enforce_disk_watermarks() {
+  local usage project_id removed=false
+  usage="$(disk_usage_percent)"
+  require_uint disk_usage_percent "$usage"
+  if [ "$usage" -lt "$DEMO_DISK_HIGH_WATERMARK_PERCENT" ]; then
+    return 0
+  fi
+
+  log "Disk usage ${usage}% reached the ${DEMO_DISK_HIGH_WATERMARK_PERCENT}% high watermark"
+  pause_application
+  while IFS= read -r project_id; do
+    [ -n "$project_id" ] || continue
+    baseline_contains_project "$project_id" && continue
+    delete_project "$project_id" true
+    removed=true
+    usage="$(disk_usage_percent)"
+    if [ "$usage" -le "$DEMO_DISK_LOW_WATERMARK_PERCENT" ]; then
+      break
+    fi
+  done < <(oldest_project_ids)
+  resume_application
+
+  usage="$(disk_usage_percent)"
+  if [ "$usage" -gt "$DEMO_DISK_LOW_WATERMARK_PERCENT" ]; then
+    [ "$removed" = "true" ] || log "No non-baseline projects were eligible for pressure cleanup"
+    die "Disk usage remains ${usage}% after bounded cleanup; operator action is required"
+  fi
+}
+
+stop_running_project_containers() {
+  RUNNING_CONTAINERS_FILE="$(mktemp)"
+  TEMP_PATHS+=("$RUNNING_CONTAINERS_FILE")
+  podman_cmd ps -q --filter label=yistack.project_id --filter status=running > "$RUNNING_CONTAINERS_FILE"
+  while IFS= read -r container_id; do
+    [ -n "$container_id" ] || continue
+    podman_cmd stop --time 20 "$container_id" >/dev/null
+  done < "$RUNNING_CONTAINERS_FILE"
+}
+
+write_baseline_metadata() {
+  local destination="$1"
+  local version=unknown source_commit=unknown
+  [ -r "$YISTACK_INSTALL_DIR/VERSION" ] && version="$(tr -d '[:space:]' < "$YISTACK_INSTALL_DIR/VERSION")"
+  [ -r "$YISTACK_INSTALL_DIR/SOURCE_COMMIT" ] && source_commit="$(tr -d '[:space:]' < "$YISTACK_INSTALL_DIR/SOURCE_COMMIT")"
+  cat > "$destination" <<EOF
+schema=demo-baseline.v1
+created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+version=$version
+source_commit=$source_commit
+db_type=postgres
+db_name=$POSTGRES_DB
+project_dir=$PROJECT_DIR
+EOF
+}
+
+metadata_value() {
+  local key="$1"
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$BASELINE_DIR/METADATA"
+}
+
+verify_baseline() {
+  local expected_commit current_commit
+  for file in FILES.sha256 METADATA baseline-project-ids database.dump workspace.tar.gz; do
+    [ -f "$BASELINE_DIR/$file" ] || die "Baseline is incomplete: $BASELINE_DIR/$file"
+  done
+  (
+    cd "$BASELINE_DIR"
+    sha256sum --check --quiet FILES.sha256
+  ) || die "Baseline checksum verification failed"
+  [ "$(metadata_value schema)" = "demo-baseline.v1" ] || die "Unsupported demo baseline schema"
+  [ "$(metadata_value db_name)" = "$POSTGRES_DB" ] || die "Baseline database name does not match POSTGRES_DB"
+  [ "$(metadata_value project_dir)" = "$PROJECT_DIR" ] || die "Baseline project directory does not match this installation"
+
+  expected_commit="$(metadata_value source_commit)"
+  current_commit=unknown
+  [ -r "$YISTACK_INSTALL_DIR/SOURCE_COMMIT" ] && current_commit="$(tr -d '[:space:]' < "$YISTACK_INSTALL_DIR/SOURCE_COMMIT")"
+  [ "$expected_commit" = "$current_commit" ] ||
+    die "Baseline source commit differs from the installed release; capture a new baseline"
+}
+
+snapshot_baseline() {
+  local parent temp_dir previous_dir
+  ensure_postgres_running
+  pause_application
+  stop_running_project_containers
+
+  parent="$(dirname "$BASELINE_DIR")"
+  install -d -m 0750 "$parent"
+  if [ "$(id -u)" -eq 0 ]; then
+    chown root:"$SERVICE_USER" "$parent"
+  fi
+  temp_dir="$(mktemp -d "${BASELINE_DIR}.tmp.XXXXXX")"
+  TEMP_PATHS+=("$temp_dir")
+  install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$PROJECT_DIR"
+
+  podman_cmd exec "$POSTGRES_CONTAINER_NAME" \
+    pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      --format=custom --no-owner --no-privileges > "$temp_dir/database.dump"
+  tar --sort=name --numeric-owner -czf "$temp_dir/workspace.tar.gz" -C "$PROJECT_DIR" .
+  postgres_query -c 'SELECT project_id FROM public.projects ORDER BY project_id;' \
+    > "$temp_dir/baseline-project-ids"
+  write_baseline_metadata "$temp_dir/METADATA"
+  (
+    cd "$temp_dir"
+    sha256sum database.dump workspace.tar.gz baseline-project-ids > FILES.sha256
+  )
+  chmod 0750 "$temp_dir"
+  chmod 0640 "$temp_dir"/*
+  if [ "$(id -u)" -eq 0 ]; then
+    chown -R root:"$SERVICE_USER" "$temp_dir"
+  fi
+
+  previous_dir="${BASELINE_DIR}.previous"
+  rm -rf -- "$previous_dir"
+  if [ -d "$BASELINE_DIR" ]; then
+    mv "$BASELINE_DIR" "$previous_dir"
+  fi
+  if ! mv "$temp_dir" "$BASELINE_DIR"; then
+    [ -d "$previous_dir" ] && mv "$previous_dir" "$BASELINE_DIR"
+    die "Failed to activate the new demo baseline"
+  fi
+  rm -rf -- "$previous_dir"
+  TEMP_PATHS=()
+  restore_running_containers
+  resume_application
+  log "Baseline captured at $BASELINE_DIR"
+}
+
+restore_database() {
+  podman_cmd exec "$POSTGRES_CONTAINER_NAME" \
+    dropdb --if-exists --force -U "$POSTGRES_USER" "$POSTGRES_DB"
+  podman_cmd exec "$POSTGRES_CONTAINER_NAME" \
+    createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"
+  podman_cmd exec -i "$POSTGRES_CONTAINER_NAME" \
+    pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      --exit-on-error --no-owner --no-privileges < "$BASELINE_DIR/database.dump"
+  postgres_psql -q -c \
+    "UPDATE public.projects SET container_id = NULL, container_name = NULL, container_port = NULL, container_status = 'stopped';"
+  [ "$(postgres_query -c "SELECT count(*) FROM public.schema_migrations WHERE version = '000000000000_contributor_alpha';")" = "1" ] ||
+    die "Restored database is missing the YiStack baseline migration"
+}
+
+restore_workspaces() {
+  local stage_dir old_dir
+  stage_dir="${PROJECT_DIR}.reset.$$"
+  old_dir="${PROJECT_DIR}.old.$$"
+  TEMP_PATHS+=("$stage_dir" "$old_dir")
+  rm -rf -- "$stage_dir" "$old_dir"
+  install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$stage_dir"
+  tar -xzf "$BASELINE_DIR/workspace.tar.gz" -C "$stage_dir" --no-same-owner
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$stage_dir"
+
+  if [ -d "$PROJECT_DIR" ]; then
+    mv "$PROJECT_DIR" "$old_dir"
+  fi
+  if ! mv "$stage_dir" "$PROJECT_DIR"; then
+    [ -d "$old_dir" ] && mv "$old_dir" "$PROJECT_DIR"
+    die "Failed to activate restored project workspaces"
+  fi
+  rm -rf -- "$old_dir"
+  TEMP_PATHS=()
+}
+
+wait_for_health() {
+  local deadline
+  deadline="$(( $(date +%s) + DEMO_HEALTH_TIMEOUT_SECONDS ))"
+  until "$YISTACK_INSTALL_DIR/bin/yistackctl" health >/dev/null 2>&1; do
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      die "YiStack did not become healthy after the demo reset"
+    fi
+    sleep 2
+  done
+}
+
+reset_to_baseline() {
+  ensure_postgres_running
+  verify_baseline
+  systemctl stop yistack.target
+  APP_RESTORE_ON_EXIT=false
+  remove_all_project_resources
+  restore_database
+  restore_workspaces
+  clear_directory_contents "$CONTAINER_STATE_DIR"
+  clear_directory_contents "$EVIDENCE_DIR"
+  clear_directory_contents "$CACHE_DIR"
+
+  if [ "$DEMO_RESTART_AFTER_RESET" = "true" ]; then
+    systemctl start yistack.target
+    wait_for_health
+  fi
+  log "Demo state restored from the verified baseline"
+}
+
+run_cleanup() {
+  ensure_postgres_running
+  cleanup_stopped_containers
+  cleanup_expired_projects
+  cleanup_transient_files
+}
+
+show_status() {
+  local baseline_status=missing usage=unknown project_count=unknown
+  if [ -f "$BASELINE_DIR/FILES.sha256" ]; then
+    if (cd "$BASELINE_DIR" && sha256sum --check --quiet FILES.sha256 2>/dev/null); then
+      baseline_status=verified
+    else
+      baseline_status=invalid
+    fi
+  fi
+  usage="$(disk_usage_percent 2>/dev/null || printf unknown)"
+  if [ "${DB_TYPE:-}" = "postgres" ] && [ -r "$YISTACK_POSTGRES_ENV_FILE" ]; then
+    load_postgres_configuration
+    if [ "$(podman_cmd inspect --format '{{.State.Running}}' "$POSTGRES_CONTAINER_NAME" 2>/dev/null || true)" = "true" ]; then
+      project_count="$(postgres_query -c 'SELECT count(*) FROM public.projects;' 2>/dev/null || printf unknown)"
+    fi
+  fi
+  printf 'enabled=%s\n' "$DEMO_MAINTENANCE_ENABLED"
+  printf 'database_mode=%s\n' "${DB_TYPE:-unset}"
+  printf 'baseline=%s\n' "$baseline_status"
+  printf 'baseline_dir=%s\n' "$BASELINE_DIR"
+  printf 'project_count=%s\n' "$project_count"
+  printf 'disk_usage_percent=%s\n' "$usage"
+  printf 'project_ttl_hours=%s\n' "$DEMO_PROJECT_TTL_HOURS"
+  printf 'disk_watermarks=%s/%s\n' "$DEMO_DISK_HIGH_WATERMARK_PERCENT" "$DEMO_DISK_LOW_WATERMARK_PERCENT"
+}
+
+main() {
+  local command="${1:-status}"
+  require_command realpath
+  require_command sha256sum
+  validate_configuration
+
+  case "$command" in
+    status)
+      show_status
+      ;;
+    snapshot | reset | cleanup | enforce)
+      require_enabled
+      require_command date
+      require_command find
+      require_command podman
+      require_command runuser
+      require_command systemctl
+      require_command tar
+      acquire_lock
+      case "$command" in
+        snapshot) snapshot_baseline ;;
+        reset) reset_to_baseline ;;
+        cleanup) run_cleanup ;;
+        enforce)
+          run_cleanup
+          enforce_disk_watermarks
+          ;;
+      esac
+      ;;
+    -h | --help | help)
+      usage
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

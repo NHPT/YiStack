@@ -24,6 +24,7 @@ const bootstrapEnvKeys = [
   'CORS_ALLOWED_ORIGINS',
   'CORS_EXPOSED_HEADERS',
   'CORS_MAX_AGE',
+  'DB_AUTO_MIGRATE',
   'DB_TYPE',
   'DEPLOYMENT_SECRET_ENCRYPTION_KEY',
   'FRONTEND_HOST',
@@ -52,6 +53,7 @@ const bootstrapEnvKeys = [
 ];
 
 const optionalBootstrapEnvKeys = new Set([
+  'DB_AUTO_MIGRATE',
   'GITHUB_API_BASE_URL',
   'GITHUB_OAUTH_CALLBACK_URL',
   'GITHUB_OAUTH_CLIENT_ID',

@@ -1,0 +1,19 @@
+[Unit]
+Description=Enforce YiStack demonstration retention and disk limits
+After=network-online.target yistack-postgres.service
+Wants=network-online.target
+ConditionPathExists=/etc/yistack/demo-maintenance.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/yistack/current/bin/yistack-demo-maintenance enforce
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=20min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/yistack /var/log/yistack /var/cache/yistack /run/lock

@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 
 const BACKEND_PORT = process.env.APP_PORT || process.env.BACKEND_PORT || '8080';
 const DIST_DIR = process.env.NEXT_DIST_DIR || '.next';
+const BUILD_ID = process.env.YISTACK_BUILD_ID?.trim();
 
 function normalizeDevOrigin(origin: string) {
   const value = origin.trim();
@@ -22,6 +23,8 @@ const allowedDevOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS || '')
 
 const nextConfig: NextConfig = {
   distDir: DIST_DIR,
+  output: 'standalone',
+  ...(BUILD_ID ? { generateBuildId: async () => BUILD_ID } : {}),
   // API 代理配置 - 将 /api/* 请求代理到 Go 后端
   async rewrites() {
     return [

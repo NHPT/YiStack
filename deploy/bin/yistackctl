@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+CONFIG_FILE="${YISTACK_ENV_FILE:-/etc/yistack/yistack.env}"
+
+read_config_value() {
+  local key="$1"
+  local fallback="$2"
+  local value=""
+  if [ -r "$CONFIG_FILE" ]; then
+    value="$(sed -n "s/^${key}=//p" "$CONFIG_FILE" | tail -n 1)"
+  fi
+  printf '%s' "${value:-$fallback}"
+}
+
+case "${1:-status}" in
+  start)
+    systemctl start yistack.target
+    ;;
+  stop)
+    systemctl stop yistack.target
+    ;;
+  restart)
+    systemctl restart yistack.target
+    ;;
+  status)
+    systemctl --no-pager --full status \
+      yistack-backend.service \
+      yistack-frontend.service \
+      yistack-browser-worker.service
+    ;;
+  logs)
+    journalctl -u yistack-backend.service \
+      -u yistack-frontend.service \
+      -u yistack-browser-worker.service \
+      --since "${2:-today}" -f
+    ;;
+  health)
+    backend_port="$(read_config_value APP_PORT 8080)"
+    frontend_port="$(read_config_value FRONTEND_PORT 5000)"
+    case "$backend_port:$frontend_port" in
+      *[!0-9:]* | :* | *:)
+        echo "APP_PORT and FRONTEND_PORT must be numeric." >&2
+        exit 1
+        ;;
+    esac
+    curl --fail --silent --show-error "http://127.0.0.1:$backend_port/api/health"
+    printf '\n'
+    curl --fail --silent --show-error "http://127.0.0.1:$frontend_port/auth" >/dev/null
+    echo "YiStack frontend and backend are healthy."
+    ;;
+  postgres)
+    shift
+    exec /opt/yistack/current/bin/yistack-postgres "${1:-status}"
+    ;;
+  demo)
+    shift
+    exec /opt/yistack/current/bin/yistack-demo-maintenance "${1:-status}"
+    ;;
+  *)
+    echo "Usage: yistackctl {start|stop|restart|status|logs|health|postgres|demo}" >&2
+    exit 2
+    ;;
+esac

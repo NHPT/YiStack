@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+CONFIG_FILE="${YISTACK_POSTGRES_ENV_FILE:-/etc/yistack/postgres.env}"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "PostgreSQL configuration is missing: $CONFIG_FILE" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$CONFIG_FILE"
+
+: "${POSTGRES_IMAGE:=docker.io/library/postgres:16-alpine}"
+: "${POSTGRES_CONTAINER_NAME:=yistack-postgres}"
+: "${POSTGRES_USER:=postgres}"
+: "${POSTGRES_DB:=yistack}"
+: "${POSTGRES_PORT:=5432}"
+: "${POSTGRES_DATA_DIR:=/var/lib/yistack/postgres}"
+
+if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+  echo "POSTGRES_PASSWORD must be configured in $CONFIG_FILE" >&2
+  exit 1
+fi
+
+container_exists() {
+  podman container exists "$POSTGRES_CONTAINER_NAME"
+}
+
+container_running() {
+  [ "$(podman inspect --format '{{.State.Running}}' "$POSTGRES_CONTAINER_NAME" 2>/dev/null || true)" = "true" ]
+}
+
+wait_until_ready() {
+  for _ in $(seq 1 90); do
+    if podman exec "$POSTGRES_CONTAINER_NAME" \
+      pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"; then
+      return 0
+    fi
+    sleep 1
+  done
+  podman logs "$POSTGRES_CONTAINER_NAME" >&2 || true
+  echo "PostgreSQL did not become ready" >&2
+  return 1
+}
+
+start_database() {
+  mkdir -p "$POSTGRES_DATA_DIR"
+  if container_exists; then
+    if ! container_running; then
+      podman start "$POSTGRES_CONTAINER_NAME" >/dev/null
+    fi
+  else
+    podman run \
+      --detach \
+      --name "$POSTGRES_CONTAINER_NAME" \
+      --label io.yistack.role=database \
+      --cpus 1 \
+      --memory 1g \
+      --pids-limit 256 \
+      --env "POSTGRES_USER=$POSTGRES_USER" \
+      --env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+      --env "POSTGRES_DB=$POSTGRES_DB" \
+      --publish "127.0.0.1:${POSTGRES_PORT}:5432" \
+      --volume "$POSTGRES_DATA_DIR:/var/lib/postgresql/data:Z,U" \
+      "$POSTGRES_IMAGE" >/dev/null
+  fi
+  wait_until_ready
+}
+
+initialize_database() {
+  start_database
+  podman exec -i --env PGOPTIONS=--client-min-messages=warning \
+    "$POSTGRES_CONTAINER_NAME" \
+    psql --quiet -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    < "$PACKAGE_ROOT/database/postgres-auth-compat.sql"
+  podman exec -i --env PGOPTIONS=--client-min-messages=warning \
+    "$POSTGRES_CONTAINER_NAME" \
+    psql --quiet -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    < "$PACKAGE_ROOT/database/init.sql"
+}
+
+case "${1:-status}" in
+  start)
+    start_database
+    ;;
+  init)
+    initialize_database
+    ;;
+  stop)
+    if container_exists && container_running; then
+      podman stop --time 20 "$POSTGRES_CONTAINER_NAME" >/dev/null
+    fi
+    ;;
+  status)
+    if container_exists; then
+      podman inspect --format '{{.State.Status}}' "$POSTGRES_CONTAINER_NAME"
+    else
+      echo "missing"
+      exit 3
+    fi
+    ;;
+  logs)
+    exec podman logs --tail 200 "$POSTGRES_CONTAINER_NAME"
+    ;;
+  *)
+    echo "Usage: yistack-postgres {start|init|stop|status|logs}" >&2
+    exit 2
+    ;;
+esac

@@ -20,6 +20,7 @@ func (r *GenerateRequest) toGenerateCommand(userID string) orchestration.Generat
 		ConversationStage: r.ConversationStage,
 		VisualAttachments: r.VisualAttachments,
 		VisualContext:     r.VisualContext,
+		VisualEdit:        r.VisualEdit,
 		PlanContext:       r.PlanContext,
 		Mode:              r.Mode,
 		Online:            r.Online,

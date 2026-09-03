@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+INSTALL_DIR="${YISTACK_INSTALL_DIR:-/opt/yistack/current}"
+CONFIG_FILE="${YISTACK_ENV_FILE:-/etc/yistack/yistack.env}"
+
+read_config_value() {
+  local key="$1"
+  local fallback="${2:-}"
+  local value=""
+  if [ -r "$CONFIG_FILE" ]; then
+    value="$(sed -n "s/^${key}=//p" "$CONFIG_FILE" | tail -n 1)"
+  fi
+  printf '%s' "${value:-$fallback}"
+}
+
+for key in \
+  APP_DEBUG \
+  APP_PORT \
+  BACKEND_PORT \
+  BACKEND_URL \
+  CONTAINER_PREVIEW_INTERNAL_URL \
+  CONTAINER_PREVIEW_PORT \
+  NEXT_PUBLIC_API_URL \
+  NEXT_PUBLIC_PREVIEW_GATEWAY_URL \
+  PREVIEW_GATEWAY_URL; do
+  value="$(read_config_value "$key")"
+  if [ -n "$value" ]; then
+    printf -v "$key" '%s' "$value"
+    export "$key"
+  fi
+done
+
+export NODE_ENV=production
+export HOSTNAME="$(read_config_value FRONTEND_HOST 127.0.0.1)"
+export PORT="$(read_config_value FRONTEND_PORT 5000)"
+
+exec "$INSTALL_DIR/runtime/node/bin/node" "$INSTALL_DIR/frontend/server.js"

@@ -27,6 +27,8 @@ YiStack v1.0.0 的 `backend/init.sql` 是全新 Supabase 数据库的单点真�
 仓库门禁 `bash scripts/verify-supabase-baseline.sh` 会在隔离的 PostgreSQL
 容器中执行这套流程，并补齐兼容 Supabase 的认证角色和函数。
 
+预编译生产包默认设置 `DB_AUTO_MIGRATE=false`。后端启动时只验证上述 baseline 已存在，不允许 GORM 隐式修改生产 schema；源码开发环境可保留 `DB_AUTO_MIGRATE=true`，但它不能替代正式 migration。
+
 ## Migration 契约
 
 后续升级脚本使用以下路径：

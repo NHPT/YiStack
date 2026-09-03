@@ -34,6 +34,7 @@ import type {
   WorkspaceBrowserHistoryUrlList,
   WorkspaceChatMessage,
   WorkspaceEditorNavigationTarget,
+  WorkspaceMobileView,
   WorkspaceProjectInfo,
 } from './workspace-types';
 
@@ -75,6 +76,7 @@ export type WorkspacePageViewContentFlowState = {
 
 export type WorkspacePageViewContentShellState = {
   setChatExpanded: WorkspaceShellStateSetter<boolean>;
+  setMobileView: WorkspaceShellStateSetter<WorkspaceMobileView>;
   isChatAutoScrollEnabled: boolean;
   setIsChatAutoScrollEnabled: WorkspaceShellStateSetter<boolean>;
   chatScrollSnapshot: ChatScrollSnapshot;
@@ -139,6 +141,7 @@ export type UseWorkspacePageViewContentOptions = {
     handleApplyGitStash: (stashRef: string) => Promise<void>;
     handleStopGenerate: () => void;
     handleGenerate: () => Promise<void>;
+    handleVisualEdit: UseWorkspacePageContentOptions['handleVisualEdit'];
     handleRecoverRuntime: () => Promise<void>;
     handleStartFoundation: WorkspaceFoundationStartAction;
     handleConfirmFoundationDecisions: WorkspaceFoundationConfirmDecisionsAction;
@@ -243,6 +246,7 @@ export function buildWorkspacePageContentOptions({
 
   const {
     setChatExpanded,
+    setMobileView,
     isChatAutoScrollEnabled,
     setIsChatAutoScrollEnabled,
     chatScrollSnapshot,
@@ -277,6 +281,8 @@ export function buildWorkspacePageContentOptions({
     textareaRef,
     input,
     setInput,
+    setChatExpanded,
+    setMobileView,
     projectInfo,
     isGenerating,
     generationStage,
@@ -325,6 +331,7 @@ export function buildWorkspacePageContentOptions({
     handleGenerate: async () => {
       await actions.handleGenerate();
     },
+    handleVisualEdit: actions.handleVisualEdit,
     handleRecoverRuntime: async () => {
       await actions.handleRecoverRuntime();
     },

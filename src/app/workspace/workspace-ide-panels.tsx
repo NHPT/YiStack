@@ -267,6 +267,8 @@ export function WorkspaceDesktopIde({
   previewUrlStatus,
   previewReloadToken,
   runtimeStatus,
+  canVisualEdit,
+  onSubmitVisualEdit,
   searchQuery,
   filteredTree,
   hasOriginalFileTreeData,
@@ -421,6 +423,8 @@ export function WorkspaceDesktopIde({
             onOpenRuntimeHomeUrl={onOpenRuntimeHomeUrl}
             previewDeviceStyle={previewDeviceStyle}
             runtimeStatus={runtimeStatus}
+            canVisualEdit={canVisualEdit}
+            onSubmitVisualEdit={onSubmitVisualEdit}
             onOpenCapabilityAudit={() => onSelectTab('debug')}
             onRecoverRuntime={onRecoverRuntime}
           />
@@ -501,6 +505,8 @@ export function WorkspaceMobileIde({
   mobilePreviewUrlStatus,
   previewReloadToken,
   runtimeStatus,
+  canVisualEdit,
+  onSubmitVisualEdit,
   searchQuery,
   filteredTree,
   hasOriginalFileTreeData,
@@ -675,6 +681,8 @@ export function WorkspaceMobileIde({
             mobilePreviewUrlStatus={mobilePreviewUrlStatus}
             previewReloadToken={previewReloadToken}
             runtimeStatus={runtimeStatus}
+            canVisualEdit={canVisualEdit}
+            onSubmitVisualEdit={onSubmitVisualEdit}
             onOpenCapabilityAudit={() => onSelectTab('debug')}
             onOpenRuntimeHomeUrl={onOpenRuntimeHomeUrl}
             onRecoverRuntime={onRecoverRuntime}

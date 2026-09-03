@@ -28,6 +28,9 @@ func (o *GenerateOrchestrator) StartGenerationJob(ctx context.Context, command G
 	if err := prepareGenerateCommandVisualAttachments(&command); err != nil {
 		return nil, err
 	}
+	if err := prepareGenerateCommandVisualEdit(&command); err != nil {
+		return nil, err
+	}
 	if err := prepareGenerateCommandVisualContext(ctx, o.generatorService, &command); err != nil {
 		return nil, err
 	}

@@ -14,20 +14,31 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 ### 新增
 
+- 新增 Debian 12 预编译生产部署包，内置 Go 后端、Next.js standalone、Node.js 22、浏览器验收 worker、systemd 单元和可选 PostgreSQL 16 rootless Podman 控制面数据库。
+- 新增 Tag Release 工作流，在 amd64 和原生 arm64 runner 上构建并验收部署包，发布 SHA-256、SPDX JSON SBOM 和 GitHub 构建来源证明。
+- 新增默认关闭的演示环境维护层，为本地 PostgreSQL 部署提供带校验和的基线快照、每日恢复、项目与容器 TTL、缓存与证据清理以及磁盘高低水位保护。
 - VIS-001 视觉上下文闭环：聊天支持上传或粘贴 PNG/JPEG 参考图，只有声明 `vision` 能力的模型可接收图片。
 - 图片会在服务端执行 MIME、大小、尺寸、像素与真实解码校验，并重新编码净化；多模态分析严格输出 `visual_context.v1`。
 - 视觉上下文绑定消息、候选方案与持久 Generation Job，SSE 实时流和刷新重放均可恢复；方案与代码生成消费布局、组件、颜色、字体、间距、响应式和交互约束。
+- VIS-002 可视化编辑闭环：owner/editor 可在内部项目 Preview 中选择真实页面元素并提交修改要求，viewer、公共分享和外部地址不可启用。
+- 选中元素以脱敏 `visual_edit.v1` 绑定持久 Generation Job，修改写回真实源码，并继续经过 `generation_result.v2`、项目级 build/test/lint、有限自动修复、浏览器验收和 Git 快照。
 - COLLAB-001 共享工作区闭环：owner/editor/viewer 会话显示持久在线状态，资源变更通过可重放 SSE 同步，超时和离开事件保留追加式审计。
 - 远端文件保存会自动刷新 clean buffer；dirty buffer 保持本地内容并显示冲突。文件保存使用 SHA-256 revision 和 HTTP 409 防止静默覆盖。
 
 ### 变更
 
+- README 的首要快速开始改为下载 Release 部署包并配置生产数据库；源码 clone、依赖安装和 `scripts/dev.sh` 移至源码开发流程。
+- PR CI 将轻量仓库合同前置，合同失败时不再先运行完整构建和浏览器验收，并新增部署包运行时验收。
+- 生产配置关闭 GORM 启动时隐式改表并验证已安装 SQL baseline；补齐可空 `users.instance_id`，使本地 PostgreSQL 的注册链路与 Supabase 模型一致。
 - README 首屏新增一句话生成完整应用、YES 工程体系、高性能隔离运行、持久恢复、视觉上下文与实时协作等核心优势说明。
 - 新增 YES 工程体系英文文档，并更新产品差距与开源准备度报告，使 VIS-001、COLLAB-001 和后续真实缺口与当前实现保持一致。
 
 ### 安全
 
 - 视觉上下文携带服务端 HMAC 完整性证明；即使客户端同时改写请求与项目 `plan_data` 也不能伪造分析结果，合法上下文可在讨论与重规划中连续复用。
+- Preview inspector 校验 iframe `source/origin`，不读取 Cookie、Storage、HTML、表单值或 URL 查询参数；服务端再次校验路径、选择器、矩形和 computed-style allowlist，权限读取失败时关闭失败。
+- systemd 仅向后端注入完整密钥配置；前端按 allowlist 读取非敏感运行参数，浏览器 worker 只接收浏览器目录和监听端口。
+- 演示维护只接受安装器管理的本地 PostgreSQL，只操作带 `yistack.project_id` 标签的 Podman 资源，并保护模板、浏览器运行时、配置和 Release 目录。
 - 协作资源事件只能由后端文件或生成事务写入，客户端不能伪造 mutation audit。
 - `express@5.2.1` 的传递依赖 `body-parser` 固定升级至 2.3.0，High/Critical 依赖审计保持为零。
 

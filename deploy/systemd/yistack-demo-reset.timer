@@ -1,0 +1,11 @@
+[Unit]
+Description=Reset the YiStack demonstration instance each day
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=yistack-demo-reset.service
+
+[Install]
+WantedBy=timers.target

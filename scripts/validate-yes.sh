@@ -107,6 +107,9 @@ echo "[YES] Checking VIS-001 visual context model..."
 cd "$ROOT_DIR"
 pnpm exec tsx "$ROOT_DIR/scripts/validate-vis001-visual-context-model.ts"
 
+echo "[YES] Checking VIS-002 visual editing model..."
+pnpm exec tsx "$ROOT_DIR/scripts/validate-vis002-visual-editing-model.ts"
+
 echo "[YES] Checking COLLAB-001 shared workspace model..."
 pnpm exec tsx "$ROOT_DIR/scripts/validate-collab001-shared-workspace-model.ts"
 

@@ -39,7 +39,7 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 
 	// Supabase 实例 ID
-	InstanceID string `gorm:"column:instance_id;type:uuid" json:"instance_id,omitempty"`
+	InstanceID *string `gorm:"column:instance_id;type:uuid" json:"instance_id,omitempty"`
 }
 
 // GetID 获取用户 ID（UUID 字符串）

@@ -87,6 +87,9 @@ func GenerationFailureCode(err error) string {
 	if code := VisualContextErrorCode(err); code != "" {
 		return code
 	}
+	if code := VisualEditErrorCode(err); code != "" {
+		return code
+	}
 	var failure *GenerationFailureError
 	if errors.As(err, &failure) {
 		return strings.TrimSpace(failure.Code)

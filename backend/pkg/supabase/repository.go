@@ -259,7 +259,7 @@ func (r *UserRepository) mapToUser(m map[string]interface{}) *model.User {
 		u.LLMMaxTokens = int(tokens)
 	}
 	if instanceID, ok := m["instance_id"].(string); ok {
-		u.InstanceID = instanceID
+		u.InstanceID = &instanceID
 	}
 	return u
 }
