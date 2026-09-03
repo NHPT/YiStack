@@ -37,11 +37,8 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 - 视觉上下文携带服务端 HMAC 完整性证明；即使客户端同时改写请求与项目 `plan_data` 也不能伪造分析结果，合法上下文可在讨论与重规划中连续复用。
 - Preview inspector 校验 iframe `source/origin`，不读取 Cookie、Storage、HTML、表单值或 URL 查询参数；服务端再次校验路径、选择器、矩形和 computed-style allowlist，权限读取失败时关闭失败。
-<<<<<<< HEAD
 - systemd 仅向后端注入完整密钥配置；前端按 allowlist 读取非敏感运行参数，浏览器 worker 只接收浏览器目录和监听端口。
 - 演示维护只接受安装器管理的本地 PostgreSQL，只操作带 `yistack.project_id` 标签的 Podman 资源，并保护模板、浏览器运行时、配置和 Release 目录。
-=======
->>>>>>> origin/main
 - 协作资源事件只能由后端文件或生成事务写入，客户端不能伪造 mutation audit。
 - `express@5.2.1` 的传递依赖 `body-parser` 固定升级至 2.3.0，High/Critical 依赖审计保持为零。
 
