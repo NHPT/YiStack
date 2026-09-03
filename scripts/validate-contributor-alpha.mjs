@@ -36,9 +36,11 @@ const requiredFiles = [
   'docs/PRODUCT.en.md',
   'docs/engineering/DATABASE_LIFECYCLE.md',
   'docs/engineering/DATABASE_LIFECYCLE.en.md',
+  'docs/engineering/YES.en.md',
   'docs/engineering/PRINCIPLES.en.md',
   'docs/engineering/DEVELOPMENT_WORKFLOW.en.md',
   'docs/roadmap/ROADMAP.en.md',
+  'docs/yistack_open_source_progress_and_competitor_matrix.html',
   'pnpm-workspace.yaml',
   'scripts/verify-repository-integrity.sh',
   'scripts/verify-clean-checkout.sh',
@@ -125,11 +127,38 @@ assert.match(codeOfConduct, /\[简体中文\]\(CODE_OF_CONDUCT\.zh-CN\.md\)/);
 assert.match(codeOfConductChinese, /\[English \(canonical\)\]\(CODE_OF_CONDUCT\.md\)/);
 assert.match(contributing, /`main` 分支/);
 assert.match(contributingEnglish, /the `main` branch/);
+assert.match(readme, /一句话生成完整应用/);
+assert.match(readme, /\[YES 工程体系\]\(docs\/engineering\/YES\.md\)/);
+assert.match(readme, /已实现，待云端验收/);
+assert.match(readme, /请勿通过公开 Issue 或其他公开渠道提交/);
+assert.doesNotMatch(readme, /合同已实现|不能公开提交/);
+assert.match(readmeEnglish, /One prompt to a complete application/);
+assert.match(readmeEnglish, /Implemented; live acceptance pending/);
+assert.doesNotMatch(readmeEnglish, /Contract implemented/);
+assert.match(
+  readmeEnglish,
+  /\[YES Engineering System\]\(docs\/engineering\/YES\.en\.md\)/,
+);
+assert.match(product, /已实现，待云端验收/);
+assert.doesNotMatch(product, /合同已实现/);
+assert.match(productEnglish, /Implemented; live acceptance pending/);
+assert.doesNotMatch(productEnglish, /Contract implemented/);
+
+const capabilityReport = read(
+  'docs/yistack_open_source_progress_and_competitor_matrix.html',
+);
+assert.match(capabilityReport, /VIS-001 与 COLLAB-001 差异化闭环已完成/);
+assert.match(capabilityReport, /visual_context\.v1/);
+assert.match(capabilityReport, /Presence\/SSE\/CAS/);
+assert.match(capabilityReport, /Figma\/画布\/直接可视化编辑/);
+assert.match(capabilityReport, /适配器完成，待验收/);
+assert.doesNotMatch(capabilityReport, /视觉输入仍是后续产品缺口/);
 
 const bilingualDocumentPairs = [
   ['docs/DEVELOPER_GUIDE.md', 'docs/DEVELOPER_GUIDE.en.md'],
   ['docs/ARCHITECTURE.md', 'docs/ARCHITECTURE.en.md'],
   ['docs/PRODUCT.md', 'docs/PRODUCT.en.md'],
+  ['docs/engineering/YES.md', 'docs/engineering/YES.en.md'],
   ['docs/engineering/PRINCIPLES.md', 'docs/engineering/PRINCIPLES.en.md'],
   ['docs/engineering/DEVELOPMENT_WORKFLOW.md', 'docs/engineering/DEVELOPMENT_WORKFLOW.en.md'],
   ['docs/engineering/DATABASE_LIFECYCLE.md', 'docs/engineering/DATABASE_LIFECYCLE.en.md'],

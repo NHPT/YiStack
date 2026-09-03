@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 required_files=(
   "$ROOT_DIR/AGENTS.md"
   "$ROOT_DIR/docs/engineering/YES.md"
+  "$ROOT_DIR/docs/engineering/YES.en.md"
   "$ROOT_DIR/docs/engineering/PRINCIPLES.md"
   "$ROOT_DIR/docs/engineering/ARCHITECTURE_RULES.md"
   "$ROOT_DIR/docs/engineering/DEVELOPMENT_WORKFLOW.md"

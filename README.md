@@ -2,11 +2,23 @@
 
 [**简体中文**](README.md) | [English](README.en.md)
 
-**从自然语言需求到可运行、可验证、可迭代的完整应用。**
+**一句话生成完整应用：从自然语言需求到可运行、可验证、可迭代的全栈交付。**
 
-YiStack 是面向开发者和小型团队的开源 AI 应用生成与工程工作台。它将方案确认、代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 版本管理组织成一条可追踪、可恢复的交付流程。
+YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
 > 当前版本：**v1.0.0**。这是 YiStack 首个稳定开源版本；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。当前仅承诺全新数据库安装，不承诺任意历史数据库版本的原地升级。
+
+## 核心优势
+
+| 特点 | 用户获得的能力 |
+| --- | --- |
+| 一句话到完整应用 | 从自然语言需求或参考图开始，贯通 Foundation、方案、实现、验证、预览和 Git 交付，而不只生成代码片段 |
+| YES 工程体系 | 用 Specification、Execution 和 Validation 约束 AI 与人工开发；协议、权限或验证失败时拒绝伪成功 |
+| 真实项目级验证 | 在生成项目中运行 stack-aware build/test/lint，失败后执行有限自动修复，并通过浏览器验收最终结果 |
+| 高性能隔离运行 | Go 后端承载编排与流式事件，每个项目运行在独立 rootless Podman Workspace 中 |
+| 持久且可恢复 | Generation Job、attempt、lease 和 SSE replay 共同保证刷新、断线或进程中断后的状态恢复 |
+| 视觉与实时协作 | 参考图转为可信 `visual_context.v1`；共享工作区提供角色权限、presence、远端同步和 SHA-256 冲突保护 |
+| 源码与交付可控 | Monaco、终端、Git、GitHub 同步、版本恢复和导出能力让生成代码始终归用户管理 |
 
 ## 产品预览
 
@@ -31,14 +43,16 @@ YiStack 是面向开发者和小型团队的开源 AI 应用生成与工程工�
 
 | 能力 | 状态 | 边界 |
 | --- | --- | --- |
+| Foundation 与方案决策 | 已实现 | 从需求约束生成结构化 Foundation 和候选技术方案，经用户确认后进入实现 |
+| 视觉上下文 | 已实现 | PNG/JPEG 上传或粘贴、真实多模态分析、HMAC 完整性证明和 `visual_context.v1` 全链路绑定 |
 | 结构化应用生成 | 已实现 | LLM 输出使用版本化 Schema，失败不能伪装成成功 |
 | 项目质量门禁 | 已实现 | 按项目技术栈运行 build/test/lint，支持有限自动修复 |
 | 持久 Generation Job | 已实现 | 支持任务状态、attempt、SSE replay 和终态恢复 |
 | 独立运行环境与预览 | 已实现 | 使用 rootless Podman，包含浏览器验收契约 |
 | Supabase 应用预设 | 已实现 | 生成 Auth、RLS、私有 Storage、migration/rollback 和类型边界 |
 | GitHub 导入与同步 | 已实现 | OAuth PKCE、加密 token、冲突阻断、安全 push 和 webhook 幂等 |
-| Vercel 部署适配器 | 合同已实现 | 真实云端 lifecycle 需要外部凭据，并与后续多 Provider 统一验收 |
-| 项目协作 | 已实现 | owner/editor/viewer，owner-only 高风险操作，append-only 审计 |
+| Vercel 部署适配器 | 已实现，待云端验收 | 发布、域名、日志和回滚逻辑已有自动化测试；真实 lifecycle 仍需外部凭据验收 |
+| 共享工作区协作 | 已实现 | owner/editor/viewer、持久 presence、SSE 重放、远端文件同步、append-only 审计和 SHA-256 CAS |
 | 官方模板 | 已实现 | 持久版本、SHA-256、CAS 发布/回滚；当前不是社区模板市场 |
 | 插件系统与模板市场 | 未实现 | 仍属后续规划 |
 | 商业版本、SSO、K8s、SLA | 未发布 | 产品假设，不是当前开源版本承诺 |
@@ -47,6 +61,20 @@ YiStack 是面向开发者和小型团队的开源 AI 应用生成与工程工�
 [`docs/PRODUCT.md`](docs/PRODUCT.md) 和
 [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) 为准；实现状态必须由
 可执行门禁验证。
+
+## YES 工程体系
+
+YES（YiStack Engineering Specification）是 YiStack 的工程规范与执行内核，不是一个提示词模板。它用五层结构把“生成了代码”和“完成了可交付软件”区分开：
+
+1. **Entry**：统一入口、上下文读取顺序和硬约束。
+2. **Principle**：定义真实性、安全性、用户控制权和工程价值排序。
+3. **Architecture**：约束模块边界、调用方向、状态职责和数据所有权。
+4. **Execution**：规定需求澄清、方案、实现、验证和交付的连续执行协议。
+5. **Validation**：通过 `pnpm yes:validate`、项目级 build/test/lint、数据库检查、安全审计和浏览器验收提供可执行证据。
+
+YES 使 YiStack 不把文件写入或模型回复视为成功。协议、权限、构建、测试、运行或浏览器验收失败时，流程必须明确阻断、记录原因并提供恢复路径。
+
+完整定义、当前边界和演进方向见 [YES 工程体系](docs/engineering/YES.md)。
 
 ## 技术栈
 
@@ -147,6 +175,7 @@ runtime/       本地运行工作区与证据，不进入源码审查
 - [开发者指南](docs/DEVELOPER_GUIDE.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [产品边界](docs/PRODUCT.md)
+- [YES 工程体系](docs/engineering/YES.md)
 - [工程原则](docs/engineering/PRINCIPLES.md)
 - [开发工作流](docs/engineering/DEVELOPMENT_WORKFLOW.md)
 - [数据库生命周期](docs/engineering/DATABASE_LIFECYCLE.md)
@@ -163,7 +192,7 @@ runtime/       本地运行工作区与证据，不进入源码审查
 - [GOVERNANCE.md](GOVERNANCE.md)
 - [MAINTAINERS.md](MAINTAINERS.md)
 
-安全问题必须使用 [`SECURITY.md`](SECURITY.md) 中的私下披露渠道，不能公开提交。
+安全问题必须使用 [`SECURITY.md`](SECURITY.md) 中的私下披露渠道，请勿通过公开 Issue 或其他公开渠道提交。
 
 ## License
 
