@@ -102,6 +102,8 @@ section{margin-bottom:32px}
 .verdict h2{color:var(--color-sky-8);margin-bottom:6px}
 .verdict p{color:var(--color-text-primary)}
 .source{margin-top:18px;font:400 11px/1.6 var(--font-mono);color:var(--color-text-tertiary)}
+.source a{color:var(--color-sky-7);text-decoration:none}
+.source a:hover{text-decoration:underline}
 @media(max-width:760px){
   .metrics,.priority,.timeline{grid-template-columns:1fr}
   .matrix{overflow-x:auto}
@@ -116,23 +118,23 @@ section{margin-bottom:32px}
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow">Capability audit · Updated 2026-09-01</div>
+    <div class="eyebrow">Capability audit · Updated 2026-09-03 · v1.0.0 + Unreleased</div>
     <h1>YiStack 产品差距与开源准备度</h1>
-    <p>基于当前仓库实现、统一门禁、生产构建、真实生成评测和同类产品公开文档核验。评分表示产品闭环成熟度，不表示底层代码数量。</p>
+    <p>基于当前仓库实现、统一门禁、生产构建、真实生成评测和同类产品公开文档核验。YiStack 状态包含 v1.0.0 与当前 Unreleased 变更；评分表示产品闭环成熟度，不表示底层代码数量。</p>
   </header>
 
   <div class="metrics">
     <div class="metric">
-      <div class="value">强</div>
-      <div class="label">自托管容器、Workspace、Git、终端、多模型和预览</div>
+      <div class="value">闭环</div>
+      <div class="label">需求、生成、验证、运行、协作与 Git 交付</div>
     </div>
     <div class="metric">
       <div class="value">10/10</div>
       <div class="label">R1-R7 仓库门禁已完成</div>
     </div>
     <div class="metric warn">
-      <div class="value">Ready</div>
-      <div class="label">v1.0.0 稳定开源版本</div>
+      <div class="value">2/2</div>
+      <div class="label">VIS-001 与 COLLAB-001 差异化闭环已完成</div>
     </div>
   </div>
 
@@ -141,16 +143,18 @@ section{margin-bottom:32px}
     <h2>核心能力对标</h2>
     <div class="matrix">
       <div class="row head"><div class="cell">能力</div><div class="cell">YiStack</div><div class="cell">Lovable</div><div class="cell">Bolt</div><div class="cell">v0</div><div class="cell">Replit</div></div>
-      <div class="row"><div class="cell">自然语言全栈生成</div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
+      <div class="row"><div class="cell">一句话全栈应用生成</div><div class="cell"><span class="state strong"><i class="dot"></i><span>完整链路</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
       <div class="row"><div class="cell">自托管与独立容器</div><div class="cell"><span class="state lead"><i class="dot"></i><span>领先</span></span></div><div class="cell"><span class="state gap"><i class="dot"></i><span>云端</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>云端</span></span></div><div class="cell"><span class="state gap"><i class="dot"></i><span>云端</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>云端</span></span></div></div>
       <div class="row"><div class="cell">生成应用构建/测试/自动修复</div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
+      <div class="row"><div class="cell">工程规范与可执行交付门禁</div><div class="cell"><span class="state lead"><i class="dot"></i><span>YES 内建</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>平台内建</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>平台内建</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>平台内建</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>平台内建</span></span></div></div>
       <div class="row"><div class="cell">持久任务与断线恢复</div><div class="cell"><span class="state strong"><i class="dot"></i><span>Job/SSE</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>版本历史</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>项目历史</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>Chat/版本</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>Checkpoint</span></span></div></div>
       <div class="row"><div class="cell">浏览器验收与视觉反馈</div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>部分</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
       <div class="row"><div class="cell">应用数据库/Auth/存储供给</div><div class="cell"><span class="state strong"><i class="dot"></i><span>Supabase</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>集成</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
-      <div class="row"><div class="cell">Figma/截图/视觉编辑</div><div class="cell"><span class="state gap"><i class="dot"></i><span>缺口</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
+      <div class="row"><div class="cell">截图/参考图理解与生成约束</div><div class="cell"><span class="state strong"><i class="dot"></i><span>visual_context.v1</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
+      <div class="row"><div class="cell">Figma/画布/直接可视化编辑</div><div class="cell"><span class="state gap"><i class="dot"></i><span>缺口</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state partial"><i class="dot"></i><span>部分</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>Canvas</span></span></div></div>
       <div class="row"><div class="cell">Git 与版本恢复</div><div class="cell"><span class="state strong"><i class="dot"></i><span>本地+远端</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>双向同步</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>GitHub</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>Branch/PR</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>版本控制</span></span></div></div>
-      <div class="row"><div class="cell">发布、域名、生产托管</div><div class="cell"><span class="state strong"><i class="dot"></i><span>适配器完成</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
-      <div class="row"><div class="cell">多人协作与共享工作区</div><div class="cell"><span class="state gap"><i class="dot"></i><span>角色协作</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
+      <div class="row"><div class="cell">发布、域名、生产托管</div><div class="cell"><span class="state partial"><i class="dot"></i><span>适配器完成，待验收</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>强</span></span></div></div>
+      <div class="row"><div class="cell">多人协作与共享工作区</div><div class="cell"><span class="state strong"><i class="dot"></i><span>Presence/SSE/CAS</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>实时协作</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>共享项目</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>共享项目</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>实时协作</span></span></div></div>
       <div class="row"><div class="cell">Skills / MCP / Connectors</div><div class="cell"><span class="state partial"><i class="dot"></i><span>受控 runner</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>生态强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>生态强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>生态强</span></span></div><div class="cell"><span class="state strong"><i class="dot"></i><span>生态强</span></span></div></div>
     </div>
     <div class="legend"><span class="state lead"><i class="dot"></i>差异化领先</span><span class="state strong"><i class="dot"></i>完整闭环</span><span class="state partial"><i class="dot"></i>部分实现或待实证</span><span class="state gap"><i class="dot"></i>关键缺口</span></div>
@@ -158,22 +162,22 @@ section{margin-bottom:32px}
 
   <section>
     <div class="eyebrow">Execution order</div>
-    <h2>提升生成应用能力的优先顺序</h2>
+    <h2>已闭环能力与下一步优先级</h2>
     <div class="priority">
       <div class="lane">
-        <h3>P0 生成正确率闭环</h3>
-        <div class="meta">DONE · R1-R3</div>
-        <ol><li>stack-aware build/test/lint</li><li>命令失败和 Schema 失败强制阻断</li><li>文件级 operation 与 hash guard</li><li>最多 2 轮有限自动修复</li></ol>
+        <h3>P0 可验证应用交付</h3>
+        <div class="meta">DONE · R1-R7</div>
+        <ol><li>版本化生成协议与失败阻断</li><li>stack-aware build/test/lint</li><li>有限自动修复与浏览器验收</li><li>Supabase、GitHub 和部署适配器</li></ol>
       </div>
       <div class="lane p1">
-        <h3>P1 可恢复 Agent 执行</h3>
-        <div class="meta">DONE · R4-R6.1</div>
-        <ol><li>持久 Job、Event 和 SSE replay</li><li>Playwright 浏览器阻断式验收</li><li>24 条 canonical benchmark</li><li>Supabase Auth/RLS/Storage 预设</li></ol>
+        <h3>P1 差异化上下文与协作</h3>
+        <div class="meta">DONE · VIS-001 / COLLAB-001</div>
+        <ol><li>参考图到可信 visual_context.v1</li><li>视觉约束贯穿方案、Job 与代码生成</li><li>持久 presence 与 SSE cursor replay</li><li>clean buffer 同步和 dirty buffer 冲突保护</li></ol>
       </div>
       <div class="lane p2">
-        <h3>P2 产品生态闭环</h3>
-        <div class="meta">DONE · R6</div>
-        <ol><li>GitHub 导入和同步已完成</li><li>Vercel 与域名 adapter 已完成</li><li>项目角色协作与版本化官方模板已完成</li><li>视觉输入仍是后续产品缺口</li></ol>
+        <h3>P2 下一阶段产品缺口</h3>
+        <div class="meta">NEXT · COMMUNITY BETA</div>
+        <ol><li>Figma、Canvas 与直接可视化编辑</li><li>通用 Skills / MCP / Connector 生态</li><li>多部署 Provider 真实云端 lifecycle</li><li>存量数据库 migration runner</li></ol>
       </div>
     </div>
   </section>
@@ -183,28 +187,28 @@ section{margin-bottom:32px}
     <h2>当前开源节奏</h2>
     <div class="timeline">
       <div class="phase">
-        <div class="when">基础已完成</div>
-        <h3>生成质量基线</h3>
-        <ul><li>无伪成功和失败阻断</li><li>项目级质量门禁</li><li>任务恢复和浏览器验收</li><li>canonical benchmark 达标</li></ul>
+        <div class="when">v1.0.0 已发布</div>
+        <h3>稳定开源基线</h3>
+        <ul><li>无伪成功和项目级质量门禁</li><li>任务恢复和浏览器验收</li><li>Apache-2.0 与治理边界</li><li>clean checkout 与安全审计</li></ul>
       </div>
       <div class="phase">
-        <div class="when">本阶段完成</div>
-        <h3>v1.0.0 Release</h3>
-        <ul><li>Apache-2.0 与公开声明已统一</li><li>CI、CODEOWNERS 与模板已建立</li><li>贡献、安全和治理规范已补齐</li><li>clean checkout 与数据库 baseline 已验证</li></ul>
+        <div class="when">Unreleased 已完成</div>
+        <h3>视觉与实时协作</h3>
+        <ul><li>VIS-001 视觉上下文闭环</li><li>COLLAB-001 共享工作区闭环</li><li>SHA-256 CAS 与追加式审计</li><li>桌面和 390px 浏览器验收</li></ul>
       </div>
       <div class="phase">
         <div class="when">下一阶段</div>
         <h3>Community Beta</h3>
-        <ul><li>持续维护 required checks 与 branch protection</li><li>吸收 v1.0.0 社区反馈</li><li>统一多部署 Provider 云端 lifecycle 验收</li><li>存量升级 tag 前落 migration runner</li></ul>
+        <ul><li>持续维护 required checks 与 branch protection</li><li>吸收社区反馈并扩展生成 benchmark</li><li>推进直接视觉编辑与 Skills/MCP</li><li>统一部署验收并落地 migration runner</li></ul>
       </div>
     </div>
   </section>
 
   <div class="verdict">
     <h2>建议结论</h2>
-    <p>YiStack v1.0.0 已完成 R1-R7：生成真实性、项目质量门禁、持久任务、浏览器评测、Supabase/GitHub/发布适配器、协作模板与开源仓库治理均已通过。当前状态为 Stable Open Source；后续通过 required checks、branch protection 与受控社区 PR 持续演进。多部署适配器真实云端 lifecycle 与存量升级 runner 继续按既定边界推进。</p>
+    <p>YiStack 已具备从自然语言或参考图到完整应用、项目级验证、隔离运行、浏览器验收和 Git 交付的闭环，并通过 YES 将失败阻断、恢复、证据与安全边界固化为工程门禁。v1.0.0 已达到 Stable Open Source；VIS-001 与 COLLAB-001 已补齐视觉理解和文件级实时协作。当前主要差距已转向直接可视化编辑、通用 Skills/MCP 生态、多部署 Provider 真实云端验收和存量数据库升级。</p>
   </div>
-  <div class="source">YiStack evidence: public roadmap · changelog · executable gates · canonical report. Competitor references: Lovable docs · Bolt support docs · v0 docs · Replit Agent docs.</div>
+  <div class="source">YiStack evidence: <a href="PRODUCT.md">product boundary</a> · <a href="roadmap/ROADMAP.md">public roadmap</a> · <a href="CHANGELOG.md">changelog</a> · <a href="engineering/YES.md">YES Engineering System</a> · executable gates. Competitor snapshot (2026-09-03): <a href="https://docs.lovable.dev/features/collaboration">Lovable collaboration</a> · <a href="https://docs.lovable.dev/integrations/github">Lovable Git sync</a> · <a href="https://support.bolt.new/integrations/git">Bolt Git</a> · <a href="https://support.bolt.new/release-notes">Bolt releases</a> · <a href="https://v0.app/docs/images-and-videos">v0 files</a> · <a href="https://v0.app/docs/faqs">v0 platform</a> · <a href="https://docs.replit.com/core-concepts/project-editor/version-control">Replit version control</a> · <a href="https://docs.replit.com/learn/build-with-agent">Replit Agent</a>.</div>
 </div>
 </body>
 </html>

@@ -2,19 +2,32 @@
 
 [简体中文](README.md) | [**English**](README.en.md)
 
-**From natural-language requirements to runnable, verified, and evolvable
-applications.**
+**One prompt to a complete application: from natural-language requirements to
+a runnable, verified, and evolvable full-stack delivery.**
 
-YiStack is an open-source AI application generation and engineering workspace
-for developers and small teams. It turns solution approval, code generation,
-project-level validation, bounded automatic repair, container execution,
-browser acceptance, and Git versioning into a traceable, recoverable delivery
-workflow.
+YiStack is a high-performance, open-source AI application generation platform
+for developers and small teams, driven by the **YES Engineering System**. Its
+Go backend, isolated Workspaces, and durable jobs connect requirements and
+visual references, solution approval, full-stack code generation, project-level
+validation, bounded automatic repair, container execution, browser acceptance,
+and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
 > Current release: **v1.0.0**, YiStack's first stable open-source release. Its
 > stability scope is limited to the capabilities documented in this README and
 > [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Only clean database installation
 > is guaranteed; arbitrary in-place upgrades from historical versions are not.
+
+## Why YiStack
+
+| Advantage | What it delivers |
+| --- | --- |
+| One prompt to a complete application | Starts with a natural-language requirement or reference image and connects Foundation, planning, implementation, validation, preview, and Git delivery instead of stopping at code snippets |
+| YES Engineering System | Governs human and AI development through Specification, Execution, and Validation; protocol, authorization, or validation failures cannot be reported as success |
+| Real project-level validation | Runs stack-aware build/test/lint inside the generated project, applies bounded repair, and validates the result in a browser |
+| High-performance isolated runtime | Uses a Go backend for orchestration and streaming events, with every project running in an isolated rootless Podman Workspace |
+| Durable and recoverable execution | Generation Jobs, attempts, leases, and SSE replay preserve state across refreshes, disconnects, and process interruptions |
+| Visual context and live collaboration | Converts references into trusted `visual_context.v1`; shared workspaces add roles, presence, remote synchronization, and SHA-256 conflict protection |
+| User-owned source and delivery | Monaco, terminal, Git, GitHub synchronization, version recovery, and export keep generated source under user control |
 
 ## Product Preview
 
@@ -39,14 +52,16 @@ workflow.
 
 | Capability | Status | Boundary |
 | --- | --- | --- |
+| Foundation and solution decisions | Implemented | Produces a structured Foundation and candidate technical plans from requirements, then waits for user approval before implementation |
+| Visual context | Implemented | PNG/JPEG upload or paste, real multimodal analysis, HMAC integrity proof, and end-to-end `visual_context.v1` binding |
 | Structured application generation | Implemented | LLM output uses a versioned schema; failures cannot be reported as success |
 | Project quality gate | Implemented | Runs stack-aware build/test/lint checks with bounded automatic repair |
 | Durable Generation Jobs | Implemented | Supports job state, attempts, SSE replay, and terminal-state recovery |
 | Isolated runtime and preview | Implemented | Uses rootless Podman and includes browser acceptance contracts |
 | Supabase application preset | Implemented | Generates Auth, RLS, private Storage, migrations/rollback, and type boundaries |
 | GitHub import and synchronization | Implemented | OAuth PKCE, encrypted tokens, conflict blocking, safe push, and idempotent webhooks |
-| Vercel deployment adapter | Contract implemented | A real cloud lifecycle requires external credentials and will be validated with additional providers |
-| Project collaboration | Implemented | Owner/editor/viewer roles, owner-only high-risk operations, and append-only auditing |
+| Vercel deployment adapter | Implemented; live acceptance pending | Publish, domain, log, and rollback behavior has automated coverage; the real lifecycle still requires external credentials |
+| Shared-workspace collaboration | Implemented | Owner/editor/viewer roles, durable presence, SSE replay, remote file synchronization, append-only auditing, and SHA-256 CAS |
 | Official templates | Implemented | Persistent versions, SHA-256 verification, and CAS publish/rollback; not a community marketplace |
 | Plugin system and template marketplace | Not implemented | Planned for a later phase |
 | Commercial editions, SSO, Kubernetes, and SLA | Not released | Product assumptions, not commitments of the current open-source version |
@@ -56,6 +71,25 @@ Public changes are recorded in
 [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md) and
 [`docs/roadmap/ROADMAP.en.md`](docs/roadmap/ROADMAP.en.md). Implementation
 status must be verified by executable gates.
+
+## YES Engineering System
+
+YES (YiStack Engineering Specification) is YiStack's engineering specification
+and execution kernel, not a prompt template. Its five layers distinguish
+"code was generated" from "software is ready to deliver":
+
+1. **Entry** defines the common entry point, context-reading order, and hard constraints.
+2. **Principle** defines truthfulness, security, user control, and engineering priorities.
+3. **Architecture** governs module boundaries, call direction, state ownership, and data ownership.
+4. **Execution** defines the continuous protocol from clarification and planning through implementation, validation, and delivery.
+5. **Validation** supplies executable evidence through `pnpm yes:validate`, project-level build/test/lint, database checks, security audits, and browser acceptance.
+
+YES prevents YiStack from treating a file write or model response as success.
+Protocol, authorization, build, test, runtime, or browser-acceptance failures
+must block the workflow, record the cause, and expose a recovery path.
+
+See [YES Engineering System](docs/engineering/YES.en.md) for its complete
+definition, current boundary, and evolution path.
 
 ## Technology Stack
 
@@ -169,6 +203,7 @@ runtime/       Local workspaces and evidence; excluded from source review
 - [Developer Guide](docs/DEVELOPER_GUIDE.en.md)
 - [Architecture](docs/ARCHITECTURE.en.md)
 - [Product Boundaries](docs/PRODUCT.en.md)
+- [YES Engineering System](docs/engineering/YES.en.md)
 - [Engineering Principles](docs/engineering/PRINCIPLES.en.md)
 - [Development Workflow](docs/engineering/DEVELOPMENT_WORKFLOW.en.md)
 - [Database Lifecycle](docs/engineering/DATABASE_LIFECYCLE.en.md)

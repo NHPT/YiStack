@@ -20,6 +20,11 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - COLLAB-001 共享工作区闭环：owner/editor/viewer 会话显示持久在线状态，资源变更通过可重放 SSE 同步，超时和离开事件保留追加式审计。
 - 远端文件保存会自动刷新 clean buffer；dirty buffer 保持本地内容并显示冲突。文件保存使用 SHA-256 revision 和 HTTP 409 防止静默覆盖。
 
+### 变更
+
+- README 首屏新增一句话生成完整应用、YES 工程体系、高性能隔离运行、持久恢复、视觉上下文与实时协作等核心优势说明。
+- 新增 YES 工程体系英文文档，并更新产品差距与开源准备度报告，使 VIS-001、COLLAB-001 和后续真实缺口与当前实现保持一致。
+
 ### 安全
 
 - 视觉上下文携带服务端 HMAC 完整性证明；即使客户端同时改写请求与项目 `plan_data` 也不能伪造分析结果，合法上下文可在讨论与重规划中连续复用。
