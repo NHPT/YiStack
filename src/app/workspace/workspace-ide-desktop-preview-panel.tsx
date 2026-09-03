@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Globe, Home as HomeIcon, Monitor, MoreVertical, RefreshCw, RotateCw, Smartphone, Tablet } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,11 @@ import {
   RuntimeHealthRecoveryConfirmationSnapshotStrip,
 } from './workspace-runtime-health-recovery-confirmation-snapshot';
 import { normalizePreviewBrowserUrl } from './workspace-preview-url-status';
+import {
+  useWorkspaceVisualEdit,
+  WorkspaceVisualEditPanel,
+  WorkspaceVisualEditToggle,
+} from './workspace-visual-edit';
 
 export type RuntimeHealthBannerProps = {
   runtimeStatus?: ProjectRuntimeStatus;
@@ -1003,9 +1008,12 @@ export function DesktopPreviewPanel({
   onOpenRuntimeHomeUrl,
   previewDeviceStyle,
   runtimeStatus,
+  canVisualEdit,
+  onSubmitVisualEdit,
   onOpenCapabilityAudit,
   onRecoverRuntime,
 }: DesktopPreviewPanelProps) {
+  const previewIframeRef = useRef<HTMLIFrameElement>(null);
   const [previewReloadKey, setPreviewReloadKey] = useState(0);
   const [previewIframeError, setPreviewIframeError] = useState('');
   const [browserUrlDraft, setBrowserUrlDraft] = useState(() => getDesktopPreviewBrowserInputValue(browserUrl));
@@ -1017,6 +1025,14 @@ export function DesktopPreviewPanel({
   const shouldRenderPreviewIframe = shouldRenderDesktopPreviewIframe(normalizedBrowserUrl);
   const canReloadPreview = shouldRenderPreviewIframe;
   const shouldAutoOpenRuntimeHome = shouldAutoOpenDesktopRuntimeHome(normalizedBrowserUrl, hasRuntimeHomeUrl);
+  const visualEditController = useWorkspaceVisualEdit({
+    iframeRef: previewIframeRef,
+    previewUrl: normalizedBrowserUrl,
+    runtimeHomeUrl,
+    projectId,
+    canWrite: canVisualEdit,
+    onSubmit: onSubmitVisualEdit,
+  });
   useEffect(() => {
     if (shouldAutoOpenRuntimeHome === false) {
       return;
@@ -1139,6 +1155,7 @@ export function DesktopPreviewPanel({
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={openRuntimeHome} disabled={hasRuntimeHomeUrl === false}>
             <HomeIcon className="w-4 h-4" />
           </Button>
+          <WorkspaceVisualEditToggle controller={visualEditController} />
         </div>
         <div className="h-7 flex-1 rounded-md bg-muted px-3 flex items-center">
           <Globe className="mr-2 h-3 w-3 shrink-0 text-muted-foreground" />
@@ -1187,7 +1204,7 @@ export function DesktopPreviewPanel({
         onRecoverRuntime={onRecoverRuntime}
       />
       <div className="flex-1 min-h-0 p-4 flex items-center justify-center">
-        <div className="overflow-hidden rounded-lg border bg-white shadow-xl" style={{ ...previewDeviceStyle, maxWidth: '100%', maxHeight: '100%' }}>
+        <div className="relative overflow-hidden rounded-lg border bg-white shadow-xl" style={{ ...previewDeviceStyle, maxWidth: '100%', maxHeight: '100%' }}>
           {shouldRenderPreviewIframe === true ? (
             <>
               {renderablePreviewIframeError !== null && (
@@ -1196,14 +1213,16 @@ export function DesktopPreviewPanel({
                 </div>
               )}
               <iframe
-                key={`${normalizedBrowserUrl}:${previewReloadKey}:${previewReloadToken}`}
-                src={normalizedBrowserUrl}
+                ref={previewIframeRef}
+                key={`${visualEditController.iframeUrl}:${previewReloadKey}:${previewReloadToken}`}
+                src={visualEditController.iframeUrl}
                 className="w-full h-full border-0"
                 title="预览"
                 sandbox="allow-scripts allow-same-origin"
                 onLoad={() => setPreviewIframeError('')}
                 onError={handlePreviewIframeError}
               />
+              <WorkspaceVisualEditPanel controller={visualEditController} />
             </>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground">

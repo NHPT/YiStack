@@ -3166,6 +3166,8 @@ export type WorkspaceProjectInfo = {
   gitBranch?: string;
   runtimeStatus?: ProjectRuntimeStatus;
   engineeringState?: WorkspaceEngineeringStateSnapshot;
+  accessRole?: 'owner' | 'editor' | 'viewer';
+  canWrite?: boolean;
   isPersisted?: boolean;
 };
 

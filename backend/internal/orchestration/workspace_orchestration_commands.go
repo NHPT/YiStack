@@ -124,7 +124,9 @@ type GenerateCommand struct {
 	BrowserAcceptance         BrowserAcceptanceContract
 	VisualAttachments         []model.VisualAttachmentInput `json:"visual_attachments,omitempty"`
 	VisualContext             *model.VisualContext          `json:"visual_context,omitempty"`
+	VisualEdit                *model.VisualEditContext      `json:"visual_edit,omitempty"`
 	VisualAttachmentsPrepared bool                          `json:"-"`
+	VisualEditPrepared        bool                          `json:"-"`
 }
 
 func (c GeneratePlansCommand) normalized() GeneratePlansCommand {

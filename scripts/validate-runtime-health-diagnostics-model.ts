@@ -350,7 +350,7 @@ assert.match(
 );
 assert.match(
   desktopPreviewPanel,
-  /shouldRenderPreviewIframe === true \? \([\s\S]*key=\{`\$\{normalizedBrowserUrl\}:\$\{previewReloadKey\}:\$\{previewReloadToken\}`\}[\s\S]*src=\{normalizedBrowserUrl\}/,
+  /shouldRenderPreviewIframe === true \? \([\s\S]*key=\{`\$\{visualEditController\.iframeUrl\}:\$\{previewReloadKey\}:\$\{previewReloadToken\}`\}[\s\S]*src=\{visualEditController\.iframeUrl\}/,
   'desktop preview iframe should remount when the local reload key or save-triggered reload token changes through a named iframe render fact',
 );
 assert.match(
@@ -395,7 +395,7 @@ assert.match(
 );
 assert.match(
   mobilePreviewPanel,
-  /shouldRenderPreviewIframe === true \? \([\s\S]*key=\{`\$\{normalizedMobileBrowserUrl\}:\$\{previewReloadKey\}:\$\{previewReloadToken\}`\}[\s\S]*src=\{normalizedMobileBrowserUrl\}/,
+  /shouldRenderPreviewIframe === true \? \([\s\S]*key=\{`\$\{visualEditController\.iframeUrl\}:\$\{previewReloadKey\}:\$\{previewReloadToken\}`\}[\s\S]*src=\{visualEditController\.iframeUrl\}/,
   'mobile preview iframe should remount when the local reload key or save-triggered reload token changes through a named iframe render fact',
 );
 assert.match(
@@ -786,7 +786,7 @@ assert.match(
 );
 assert.match(
   previewGateway,
-  /project\.UserID != userID[\s\S]*g\.projectService\.TouchProjectRuntimeActivity\(ctx, project, "preview_gateway"\)[\s\S]*g\.projectService\.ResolveProjectPreviewTarget\(ctx, projectID\)/,
+  /decision := g\.projectService\.AuthorizeProjectAccess\(ctx, userID, projectID\)[\s\S]*if !decision\.CanRead\(\)[\s\S]*g\.projectService\.TouchProjectRuntimeActivity\(ctx, project, "preview_gateway"\)[\s\S]*g\.projectService\.ResolveProjectPreviewTarget\(ctx, projectID\)/,
   'preview gateway requests should refresh runtime activity before resolving the preview target',
 );
 assert.match(

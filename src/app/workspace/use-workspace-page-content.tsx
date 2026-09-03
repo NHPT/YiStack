@@ -8,7 +8,7 @@ import type {
 } from 'react';
 import type { ProjectRuntimeStatus } from '@/lib/api';
 import type { FileNode, GitBranch, GitBranchCompare, GitBranchSwitchReadiness, GitCommit, GitRemote, GitRemoteBranch, GitStash, GitTag, GitWorktreeStatus } from '@/lib/types';
-import type { ChatAttachmentSnapshot, ChatMode, ChatModelRegistrySnapshot, ChatScrollSnapshot, EditorBufferStatus, ExplorerSnapshotStatus, GitBranchCompareStatus, GitBranchListStatus, GitCommitDetailStatus, GitCommitListStatus, GitRemoteBranchListStatus, GitRemoteListStatus, GitStashListStatus, GitTagListStatus, GitWorktreeStatusState, IDETab, PreviewUrlStatus, WorkspaceBrowserDevice, WorkspaceEditorNavigationTarget, WorkspaceOpenFilePathList, WorkspaceProjectInfo } from './workspace-types';
+import type { ChatAttachmentSnapshot, ChatMode, ChatModelRegistrySnapshot, ChatScrollSnapshot, EditorBufferStatus, ExplorerSnapshotStatus, GitBranchCompareStatus, GitBranchListStatus, GitCommitDetailStatus, GitCommitListStatus, GitRemoteBranchListStatus, GitRemoteListStatus, GitStashListStatus, GitTagListStatus, GitWorktreeStatusState, IDETab, PreviewUrlStatus, WorkspaceBrowserDevice, WorkspaceEditorNavigationTarget, WorkspaceMobileView, WorkspaceOpenFilePathList, WorkspaceProjectInfo } from './workspace-types';
 import type { WorkspacePageUiPreviewDeviceStyle, WorkspacePageUiTab } from './workspace-page-ui-contract';
 import type {
   WorkspaceChatAdjustTextareaHeightAction,
@@ -45,6 +45,7 @@ import type {
   WorkspacePreviewNavigateAction,
   WorkspaceProjectExportAction,
   WorkspaceRuntimeRecoverAction,
+  WorkspaceVisualEditSubmitAction,
   WorkspaceGitApplyBranchCompareFileAction,
   WorkspaceGitApplyStashAction,
   WorkspaceGitCommitWorktreeAction,
@@ -139,6 +140,8 @@ export type UseWorkspacePageContentOptions = {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
+  setChatExpanded: Dispatch<SetStateAction<boolean>>;
+  setMobileView: Dispatch<SetStateAction<WorkspaceMobileView>>;
   projectInfo: WorkspaceProjectInfo | null;
   isGenerating: boolean;
   generationStage: string;
@@ -187,6 +190,7 @@ export type UseWorkspacePageContentOptions = {
   handleStopGenerate: WorkspaceChatStopGenerateAction;
   handleCancelStopGenerate: WorkspaceChatCancelStopGenerateAction;
   handleGenerate: () => Promise<void>;
+  handleVisualEdit: WorkspaceVisualEditSubmitAction;
   handleRecoverRuntime: WorkspaceRuntimeRecoverAction;
   foundationStatusLabel: string;
   tabs: WorkspacePageUiTab[];
@@ -284,6 +288,8 @@ export function useWorkspacePageContent({
   textareaRef,
   input,
   setInput,
+  setChatExpanded,
+  setMobileView,
   projectInfo,
   isGenerating,
   generationStage,
@@ -332,6 +338,7 @@ export function useWorkspacePageContent({
   handleStopGenerate,
   handleCancelStopGenerate,
   handleGenerate,
+  handleVisualEdit,
   handleRecoverRuntime,
   foundationStatusLabel,
   tabs,
@@ -467,6 +474,16 @@ export function useWorkspacePageContent({
     setIsChatAutoScrollEnabled(true);
     scrollToBottom();
   }, [scrollToBottom, setIsChatAutoScrollEnabled]);
+  const canVisualEdit = projectInfo?.isPersisted === true
+    && projectInfo.canWrite !== false
+    && isGenerating === false
+    && isPlanning === false;
+  const submitVisualEdit = useCallback<WorkspaceVisualEditSubmitAction>(async (context, instruction) => {
+    setChatMode('implement');
+    setChatExpanded(true);
+    setMobileView('chat');
+    await handleVisualEdit(context, instruction);
+  }, [handleVisualEdit, setChatExpanded, setChatMode, setMobileView]);
 
   const desktopChatPanel = buildDesktopChatPanel({
     onCollapseDesktopChat,
@@ -626,6 +643,8 @@ export function useWorkspacePageContent({
       previewUrlStatus,
       previewReloadToken,
       runtimeStatus,
+      canVisualEdit,
+      onSubmitVisualEdit: submitVisualEdit,
       searchQuery,
       filteredTree,
       hasOriginalFileTreeData,
@@ -680,6 +699,8 @@ export function useWorkspacePageContent({
       mobilePreviewUrlStatus,
       previewReloadToken,
       runtimeStatus,
+      canVisualEdit,
+      onSubmitVisualEdit: submitVisualEdit,
       searchQuery,
       filteredTree,
       hasOriginalFileTreeData,

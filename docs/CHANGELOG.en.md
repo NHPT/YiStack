@@ -19,17 +19,15 @@ starting with v1.0.0.
 - VIS-001 visual context loop: chat accepts pasted or uploaded PNG/JPEG references, and only models declaring the `vision` capability may receive images.
 - The backend validates MIME type, size, dimensions, pixel count, and actual decoding before re-encoding images; multimodal analysis must return strict `visual_context.v1`.
 - Visual context is bound to messages, candidate plans, and durable Generation Jobs, survives live SSE and refresh replay, and constrains layout, components, color, typography, spacing, responsive behavior, and interactions during planning and generation.
+- VIS-002 visual-editing loop: owners and editors can select real page elements in internal project previews and submit change instructions; viewers, public shares, and external URLs cannot enable the inspector.
+- Sanitized `visual_edit.v1` evidence is bound to a durable Generation Job, writes changes back to real source, and continues through `generation_result.v2`, project build/test/lint, bounded repair, browser acceptance, and a Git snapshot.
 - COLLAB-001 shared-workspace loop: owner/editor/viewer sessions expose durable presence, resource changes synchronize through replayable SSE, and leave/expiry transitions retain append-only audit evidence.
 - Remote saves refresh clean buffers automatically. Dirty buffers preserve local content and show a conflict, while SHA-256 revisions and HTTP 409 prevent silent overwrites.
-
-### Changed
-
-- The README now presents one-prompt complete application generation, the YES Engineering System, high-performance isolated execution, durable recovery, visual context, and live collaboration as core advantages.
-- An English YES Engineering System document was added, and the product-gap and open-source-readiness report now reflects VIS-001, COLLAB-001, and the remaining verified gaps.
 
 ### Security
 
 - Visual context carries a server-issued HMAC integrity proof. Clients cannot forge analysis results by changing both the request and project `plan_data`, while valid context remains reusable across discussion and replanning.
+- The Preview inspector validates iframe `source/origin` and never reads cookies, storage, HTML, form values, or URL query parameters. The backend revalidates paths, selectors, rectangles, and the computed-style allowlist, while permission lookup failures fail closed.
 - Collaboration resource events are backend-owned file or generation transaction evidence; clients cannot forge mutation audit events.
 - The `body-parser` transitive dependency under `express@5.2.1` is pinned to 2.3.0, keeping the High/Critical dependency audit at zero.
 

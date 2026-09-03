@@ -11,6 +11,7 @@ import { appendGenerationStatePersistenceFailureMessage } from './workspace-gene
 import type { WorkspaceEngineeringStateSnapshot } from '@/lib/workspace/engineering-state';
 import type { WorkspaceBackendWorkflowStage } from '@/lib/workspace/workflow-contract';
 import type { VisualAttachmentInput, VisualContext } from '@/lib/visual-context';
+import type { VisualEditContext } from '@/lib/visual-edit';
 import type {
   ImplementationStreamContext,
   ImplementationStreamContextInput,
@@ -33,6 +34,7 @@ export type GenerateOptions = {
   initialReasoningContent?: string;
   visualAttachments?: VisualAttachmentInput[];
   visualContext?: VisualContext;
+  visualEdit?: VisualEditContext;
   onTerminal?: (succeeded: boolean) => void;
 };
 
@@ -47,6 +49,7 @@ export type PreparedImplementationGenerationRequest = {
   planContext?: string;
   visualAttachments?: VisualAttachmentInput[];
   visualContext?: VisualContext;
+  visualEdit?: VisualEditContext;
   statusContent: string;
   hasExistingAssistantMessage: boolean;
 };
@@ -277,6 +280,7 @@ export function prepareImplementationGenerationRequest(
     planContext: options?.planContext,
     visualAttachments: options?.visualAttachments,
     visualContext: options?.visualContext,
+    visualEdit: options?.visualEdit,
     statusContent: getImplementationGenerationInitialReasoningContent(options),
     hasExistingAssistantMessage: hasImplementationGenerationAssistantMessageId(options),
   };
@@ -329,6 +333,7 @@ export function buildImplementationGeneratePayload(
     plan_context: request.planContext,
     visual_attachments: request.visualAttachments,
     visual_context: request.visualContext,
+    visual_edit: request.visualEdit,
     idempotency_key: request.assistantMessageId,
   };
 }

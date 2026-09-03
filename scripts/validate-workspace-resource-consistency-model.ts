@@ -11001,7 +11001,7 @@ assert.match(
 );
 assert.match(
   desktopPreviewPanel,
-  /previewReloadToken,[\s\S]*useEffect\(\(\) => \{[\s\S]*setPreviewIframeError\(''\);[\s\S]*\}, \[previewReloadToken\]\);[\s\S]*key=\{`\$\{normalizedBrowserUrl\}:\$\{previewReloadKey\}:\$\{previewReloadToken\}`\}/,
+  /previewReloadToken,[\s\S]*useEffect\(\(\) => \{[\s\S]*setPreviewIframeError\(''\);[\s\S]*\}, \[previewReloadToken\]\);[\s\S]*key=\{`\$\{visualEditController\.iframeUrl\}:\$\{previewReloadKey\}:\$\{previewReloadToken\}`\}/,
   'Desktop Preview panel should include the save-triggered preview reload token in the iframe key and clear stale iframe errors when it changes',
 );
 assert.match(
@@ -11026,7 +11026,7 @@ assert.match(
 );
 assert.match(
   mobilePreviewPanel,
-  /previewReloadToken,[\s\S]*useEffect\(\(\) => \{[\s\S]*setPreviewIframeError\(''\);[\s\S]*\}, \[previewReloadToken\]\);[\s\S]*key=\{`\$\{normalizedMobileBrowserUrl\}:\$\{previewReloadKey\}:\$\{previewReloadToken\}`\}/,
+  /previewReloadToken,[\s\S]*useEffect\(\(\) => \{[\s\S]*setPreviewIframeError\(''\);[\s\S]*\}, \[previewReloadToken\]\);[\s\S]*key=\{`\$\{visualEditController\.iframeUrl\}:\$\{previewReloadKey\}:\$\{previewReloadToken\}`\}/,
   'Mobile Preview panel should include the save-triggered preview reload token in the iframe key and clear stale iframe errors when it changes',
 );
 assert.doesNotMatch(

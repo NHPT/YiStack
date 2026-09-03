@@ -7,6 +7,7 @@ import {
 } from '@/lib/auth-storage';
 import type { AIModelName, AIModelProviderConnectionTestMessage, AIModelProviderConnectionTestStatus, AIModelProvider, AIModelProviderType, ChatMessageRole, GitBranch, GitBranchCompare, GitBranchCompareFileApplyResult, GitBranchCreateFromRemoteResult, GitBranchCreateResult, GitBranchDeleteResult, GitBranchRenameResult, GitBranchSwitchReadiness, GitBranchSwitchResult, GitCommit, GitCommitFileRestoreResult, GitRemote, GitRemoteBranch, GitRemoteBranchRefreshResult, GitStash, GitStashApplyResult, GitStashCreateResult, GitTag, GitTagCreateResult, GitTagDeleteResult, GitWorktreeCommitResult, GitWorktreeFileDiscardResult, GitWorktreeStatus, ProjectBackupListResult, ProjectBackupPolicyReadiness, ProjectBackupRemoteDownloadResult, ProjectBackupRemoteInventoryResult, ProjectBackupRemoteRestoreResult, ProjectBackupRemoteStorageReadiness, ProjectBackupRemoteUploadResult, ProjectBackupRestorePreflightResult, ProjectBackupRestoreResult, ProjectBackupResult, ProjectContainerStatusPersistenceStatus, ProjectContainerStopContainerStatus, ProjectContainerStopStatus, ProjectResourceAlertEnforcementExecuteResult, ProjectResourceAlertEnforcementReadiness, ProjectResourceAlertEvaluationPreview, ProjectResourceAlertEventCreateResult, ProjectResourceAlertEventListResult, ProjectResourceAlertEventStatus, ProjectResourceAlertNotificationReadiness, ProjectResourceAlertNotificationSendResult, ProjectResourceAlertReadiness, ProjectResourceSnapshotResult, ProjectRestoreMutationStatus, ProjectRuntimeContainerStatus, ProjectRuntimeError, ProjectRuntimeLifecycleStatus, ProjectRuntimeMessage, ProjectRuntimePhase, ProjectRuntimeSpecHash, ProjectRuntimeStatusPersistenceStatus } from '@/lib/types';
 import type { VisualAttachmentInput, VisualContext } from '@/lib/visual-context';
+import type { VisualEditContext } from '@/lib/visual-edit';
 import type { WorkspaceBackendWorkflowStage, WorkspaceWorkflowMode } from '@/lib/workspace/workflow-contract';
 
 // 使用环境变量或服务端地址（沙箱环境使用服务端域名）
@@ -668,6 +669,7 @@ export interface ChatGenerateRequest {
   idempotency_key?: string;
   visual_attachments?: VisualAttachmentInput[];
   visual_context?: VisualContext;
+  visual_edit?: VisualEditContext;
 }
 
 export interface ProjectListResponse {

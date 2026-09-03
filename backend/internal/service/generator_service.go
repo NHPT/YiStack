@@ -101,6 +101,7 @@ type GenerateRequest struct {
 	ProjectName               string                        `json:"project_name"`
 	VisualAttachments         []model.VisualAttachmentInput `json:"visual_attachments"`
 	VisualContext             *model.VisualContext          `json:"visual_context,omitempty"`
+	VisualEdit                *model.VisualEditContext      `json:"visual_edit,omitempty"`
 	VisualAttachmentsPrepared bool                          `json:"-"`
 	Mode                      string                        `json:"mode"`
 	Online                    bool                          `json:"online"`
@@ -123,6 +124,11 @@ func (s *GeneratorService) Generate(ctx context.Context, req *GenerateRequest, h
 	if err := s.ensureGenerateProjectAccess(ctx, req); err != nil {
 		return err
 	}
+	preparedVisualEdit, err := PrepareVisualEditContext(req.VisualEdit)
+	if err != nil {
+		return err
+	}
+	req.VisualEdit = preparedVisualEdit
 	if err := s.ensureProviderRuntimeReady(ctx); err != nil {
 		return fmt.Errorf("LLM provider not ready: %w", err)
 	}

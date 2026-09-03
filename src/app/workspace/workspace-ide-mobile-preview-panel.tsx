@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Globe, Home as HomeIcon, Monitor, MoreVertical, RefreshCw, Smartphone, Tablet } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,11 @@ import {
   formatPreviewUrlStatusTitle,
   getPreviewUrlStatusClassName,
 } from './workspace-ide-desktop-preview-panel';
+import {
+  useWorkspaceVisualEdit,
+  WorkspaceVisualEditPanel,
+  WorkspaceVisualEditToggle,
+} from './workspace-visual-edit';
 
 function getMobilePreviewProjectId(projectId: string | null): string | null {
   if (projectId === null) {
@@ -197,6 +202,8 @@ export function MobilePreviewPanel({
   mobilePreviewUrlStatus,
   previewReloadToken,
   runtimeStatus,
+  canVisualEdit,
+  onSubmitVisualEdit,
   onOpenCapabilityAudit,
   onOpenRuntimeHomeUrl,
   onRecoverRuntime,
@@ -206,6 +213,7 @@ export function MobilePreviewPanel({
   onChangeMobileBrowserUrl,
   onNavigateTo,
 }: MobilePreviewPanelProps) {
+  const previewIframeRef = useRef<HTMLIFrameElement>(null);
   const [previewReloadKey, setPreviewReloadKey] = useState(0);
   const [previewIframeError, setPreviewIframeError] = useState('');
   const [mobileBrowserUrlDraft, setMobileBrowserUrlDraft] = useState(() => getMobilePreviewBrowserInputValue(mobileBrowserUrl));
@@ -220,6 +228,14 @@ export function MobilePreviewPanel({
   const desktopButtonVariant = getMobilePreviewDeviceButtonVariant(browserDevice, 'desktop');
   const previewFrameWidth = getMobilePreviewFrameWidth(browserDevice);
   const previewFrameHeight = getMobilePreviewFrameHeight(browserDevice);
+  const visualEditController = useWorkspaceVisualEdit({
+    iframeRef: previewIframeRef,
+    previewUrl: normalizedMobileBrowserUrl,
+    runtimeHomeUrl,
+    projectId,
+    canWrite: canVisualEdit,
+    onSubmit: onSubmitVisualEdit,
+  });
   useEffect(() => {
     if (shouldAutoOpenRuntimeHome === false) {
       return;
@@ -325,6 +341,7 @@ export function MobilePreviewPanel({
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={openRuntimeHome} disabled={hasRuntimeHomeUrl === false}>
           <HomeIcon className="w-4 h-4" />
         </Button>
+        <WorkspaceVisualEditToggle controller={visualEditController} />
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="打开预览更多操作">
@@ -370,7 +387,7 @@ export function MobilePreviewPanel({
       />
       <div className="flex-1 overflow-auto p-2 flex items-center justify-center">
         <div
-          className="overflow-hidden rounded-lg border bg-white shadow-xl"
+          className="relative overflow-hidden rounded-lg border bg-white shadow-xl"
           style={{
             width: previewFrameWidth,
             height: previewFrameHeight,
@@ -385,14 +402,16 @@ export function MobilePreviewPanel({
                 </div>
               )}
               <iframe
-                key={`${normalizedMobileBrowserUrl}:${previewReloadKey}:${previewReloadToken}`}
-                src={normalizedMobileBrowserUrl}
+                ref={previewIframeRef}
+                key={`${visualEditController.iframeUrl}:${previewReloadKey}:${previewReloadToken}`}
+                src={visualEditController.iframeUrl}
                 className="w-full h-full border-0"
                 title="预览"
                 sandbox="allow-scripts allow-same-origin"
                 onLoad={() => setPreviewIframeError('')}
                 onError={handlePreviewIframeError}
               />
+              <WorkspaceVisualEditPanel controller={visualEditController} compact />
             </>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground">

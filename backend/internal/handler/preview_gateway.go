@@ -40,6 +40,8 @@ func (g *PreviewGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	visualEditRequested := previewVisualEditRequested(r)
+	visualEditBridgeRequested := previewVisualEditBridgeRequested(r)
 	if g == nil || g.projectService == nil {
 		http.Error(w, "preview gateway unavailable", http.StatusServiceUnavailable)
 		return
@@ -92,8 +94,23 @@ func (g *PreviewGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project not found", http.StatusNotFound)
 		return
 	}
-	if publicShareRequest == false && project.UserID != userID {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	if publicShareRequest && (visualEditRequested || visualEditBridgeRequested) {
+		http.Error(w, "visual editing is unavailable for public previews", http.StatusForbidden)
+		return
+	}
+	if publicShareRequest == false {
+		decision := g.projectService.AuthorizeProjectAccess(ctx, userID, projectID)
+		if !decision.CanRead() {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if (visualEditRequested || visualEditBridgeRequested) && !decision.CanWrite() {
+			http.Error(w, "visual editing requires project write access", http.StatusForbidden)
+			return
+		}
+	}
+	if visualEditBridgeRequested {
+		servePreviewVisualEditBridge(w)
 		return
 	}
 	g.projectService.TouchProjectRuntimeActivity(ctx, project, "preview_gateway")
@@ -109,7 +126,7 @@ func (g *PreviewGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Name:     previewProjectCookieName,
 			Value:    projectID,
 			Path:     "/",
-			HttpOnly: false,
+			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
 		})
 	}
@@ -130,9 +147,8 @@ func (g *PreviewGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectQuery := r.URL.Query()
-	projectQuery.Del("project")
-	r.URL.RawQuery = projectQuery.Encode()
+	requestPath := r.URL.Path
+	stripPreviewVisualEditQuery(r)
 
 	reverseProxy := httputil.NewSingleHostReverseProxy(targetURL)
 	originalDirector := reverseProxy.Director
@@ -141,10 +157,18 @@ func (g *PreviewGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.Host = targetURL.Host
 		req.Header.Set("X-Forwarded-Host", r.Host)
 		req.Header.Set("X-Forwarded-Proto", proxyRequestScheme(r))
+		if visualEditRequested && publicShareRequest == false {
+			req.Header.Del("Accept-Encoding")
+		}
 	}
 	reverseProxy.ModifyResponse = func(resp *http.Response) error {
 		if location := resp.Header.Get("Location"); location != "" {
 			resp.Header.Set("Location", rewritePreviewRedirectLocation(location, targetURL, projectID, publicShareRequest))
+		}
+		if visualEditRequested && publicShareRequest == false {
+			if err := injectPreviewVisualEditBridge(resp, requestPath, projectID); err != nil {
+				return err
+			}
 		}
 		return nil
 	}

@@ -413,6 +413,8 @@ export async function createPersistedWorkspaceProject(
     planId: plan.id,
     planData: serializedPlan,
     gitBranch: getPersistedWorkspaceProjectGitBranchValue(createdProject.git_branch, projectInfo),
+    accessRole: createdProject.access_role ?? 'owner',
+    canWrite: createdProject.can_write ?? true,
     isPersisted: true,
   };
 

@@ -95,6 +95,7 @@ func buildServiceGenerateRequest(command GenerateCommand) *service.GenerateReque
 		ProjectName:               command.ProjectName,
 		VisualAttachments:         command.VisualAttachments,
 		VisualContext:             command.VisualContext,
+		VisualEdit:                command.VisualEdit,
 		VisualAttachmentsPrepared: command.VisualAttachmentsPrepared,
 		Mode:                      command.Context.WorkflowMode,
 		Online:                    command.Online,

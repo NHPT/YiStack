@@ -30,6 +30,7 @@
 3. `COLLAB-001` 已完成：共享工作区具备持久 presence、SSE cursor replay、后端资源事件审计、SHA-256 并发保护和 dirty buffer 冲突提示
 4. GitHub remote、required Actions checks 与 branch protection 已启用；v1.0.0 后继续通过受控 pull request 接受社区贡献
 5. 多部署 Provider 真实云端 lifecycle 与首个存量升级 tag 的 migration runner 按既定边界集中验收
+6. `VIS-002` 已完成：内部项目 Preview 支持真实元素选择、脱敏 `visual_edit.v1`、owner/editor 权限、持久 Job 源码写回和完整质量门禁
 
 `LT-02R` 是对 LT-02 / LT-03 / LT-06 的返修，不新增 `LT-09`，也不改变原 8 个产品阶段编号。
 
@@ -136,6 +137,7 @@ Deploy、自定义域名、协作和模板不再永久冻结，但只能在 `LT-
 
 - Project Foundation Stage / Foundation Artifacts / Foundation Gate
 - VIS-001 visual context：图片上传/粘贴、vision capability 门禁、结构化分析与生成约束（Done）
+- VIS-002 visual editing：Preview 元素选择、脱敏 DOM 定位证据、受控源码修改与完整质量门禁（Done）
 - COLLAB-001 shared workspace collaboration：presence、资源事件、恢复与冲突保护（Done）
 - Task Orchestration Layer
 - Engineering State Layer

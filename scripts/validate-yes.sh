@@ -7,7 +7,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 required_files=(
   "$ROOT_DIR/AGENTS.md"
   "$ROOT_DIR/docs/engineering/YES.md"
-  "$ROOT_DIR/docs/engineering/YES.en.md"
   "$ROOT_DIR/docs/engineering/PRINCIPLES.md"
   "$ROOT_DIR/docs/engineering/ARCHITECTURE_RULES.md"
   "$ROOT_DIR/docs/engineering/DEVELOPMENT_WORKFLOW.md"
@@ -106,6 +105,9 @@ node "$ROOT_DIR/scripts/validate-lt08-enterprise-governance-contract.mjs"
 echo "[YES] Checking VIS-001 visual context model..."
 cd "$ROOT_DIR"
 pnpm exec tsx "$ROOT_DIR/scripts/validate-vis001-visual-context-model.ts"
+
+echo "[YES] Checking VIS-002 visual editing model..."
+pnpm exec tsx "$ROOT_DIR/scripts/validate-vis002-visual-editing-model.ts"
 
 echo "[YES] Checking COLLAB-001 shared workspace model..."
 pnpm exec tsx "$ROOT_DIR/scripts/validate-collab001-shared-workspace-model.ts"
