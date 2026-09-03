@@ -1,0 +1,24 @@
+[Unit]
+Description=YiStack Next.js frontend
+After=network-online.target yistack-backend.service
+Wants=network-online.target
+PartOf=yistack.target
+
+[Service]
+Type=simple
+User=yistack
+Group=yistack
+Environment=HOME=/var/lib/yistack
+WorkingDirectory=/opt/yistack/current/frontend
+ExecStart=/opt/yistack/current/bin/yistack-frontend
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/yistack /var/log/yistack /var/cache/yistack
+
+[Install]
+WantedBy=yistack.target

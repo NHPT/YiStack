@@ -44,6 +44,8 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | 视觉上下文 | 已实现 | PNG/JPEG 上传与粘贴、真实多模态分析、`visual_context.v1`、消息/方案/Job 绑定和视觉模型门禁 |
 | 可视化编辑 | 已实现 | 在内部项目 Preview 中选择真实元素，生成脱敏 `visual_edit.v1` 并由 owner/editor 提交源码修改；viewer、公共分享和外部地址关闭失败 |
 | 容器运行 | 已实现 | 每项目 rootless Podman 运行边界和资源策略 |
+| 生产部署发行 | 已实现 | Debian 12 amd64/arm64 预编译包、systemd、内置 Node.js 22、可选 PostgreSQL 16 容器、SHA-256、SBOM 和构建来源证明 |
+| 演示环境维护 | 已实现 | 本地 PostgreSQL 部署可选的基线快照、每日恢复、TTL 和磁盘水位治理；外部 Supabase 明确不支持自动重置 |
 | Supabase 应用预设 | 已实现 | Auth、CRUD RLS、私有 Storage、类型、migration 和 rollback |
 | GitHub 集成 | 已实现 | OAuth PKCE、token 加密、import、pull/push 冲突防护、webhook |
 | Vercel adapter | 已实现，待云端验收 | 发布、日志脱敏、回滚和域名逻辑已有自动化测试；真实 lifecycle 待统一多 Provider 阶段使用外部凭据验收 |

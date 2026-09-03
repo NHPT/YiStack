@@ -26,6 +26,22 @@ const requiredFiles = [
   '.github/ISSUE_TEMPLATE/feature_request.yml',
   '.github/ISSUE_TEMPLATE/config.yml',
   '.github/workflows/ci.yml',
+  '.github/workflows/release.yml',
+  'deploy/bin/yistack-frontend',
+  'deploy/bin/yistack-postgres',
+  'deploy/bin/yistackctl',
+  'deploy/config/postgres.env.example',
+  'deploy/config/yistack.env.example',
+  'deploy/database/postgres-auth-compat.sql',
+  'deploy/install.sh',
+  'deploy/systemd/yistack-backend.service',
+  'deploy/systemd/yistack-browser-worker.service',
+  'deploy/systemd/yistack-frontend.service',
+  'deploy/systemd/yistack-postgres.service',
+  'deploy/systemd/yistack.target',
+  'scripts/build-release-package.sh',
+  'scripts/validate-release-package.sh',
+  'scripts/validate-release-postgres-runtime.sh',
   '.github/workflows/codeql.yml',
   '.github/codeql/codeql-config.yml',
   '.github/workflows/canonical-eval.yml',
@@ -79,9 +95,12 @@ assert.equal(
 );
 for (const script of [
   'contributor:validate',
+  'build:release',
   'checkout:verify',
   'db:verify',
   'eval:smoke:ci',
+  'validate:release',
+  'validate:release:postgres',
 ]) {
   assert.equal(typeof packageJSON.scripts[script], 'string', `missing package script ${script}`);
 }
@@ -266,7 +285,12 @@ assert.match(workflow, /git diff --name-only --no-renames "\$BASE_SHA" "\$HEAD_S
 assert.match(workflow, /\*\.md\|docs\/\*/);
 assert.match(
   workflow,
-  /name: Documentation contract[\s\S]*needs\.change_scope\.outputs\.docs_only == 'true'[\s\S]*node scripts\/validate-contributor-alpha\.mjs/,
+  /repository_contract:[\s\S]*name: Repository contract[\s\S]*bash scripts\/verify-repository-integrity\.sh[\s\S]*node scripts\/validate-contributor-alpha\.mjs/,
+);
+assert.match(workflow, /name: Quality gate[\s\S]*needs: \[change_scope, repository_contract\]/);
+assert.match(
+  workflow,
+  /name: Deployment package acceptance[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh/,
 );
 assert.match(
   workflow,
@@ -312,6 +336,16 @@ for (const action of [
 ]) {
   assert.ok(workflow.includes(action), `CI must use: ${action}`);
 }
+
+const releaseWorkflow = read('.github/workflows/release.yml');
+assert.match(releaseWorkflow, /^  push:[\s\S]*tags:[\s\S]*"v\*\.\*\.\*"/m);
+assert.match(releaseWorkflow, /runner: ubuntu-24\.04-arm/);
+assert.match(releaseWorkflow, /pnpm build:release/);
+assert.match(releaseWorkflow, /scripts\/validate-release-package\.sh/);
+assert.match(releaseWorkflow, /scripts\/validate-release-postgres-runtime\.sh/);
+assert.match(releaseWorkflow, /format: spdx-json/);
+assert.match(releaseWorkflow, /actions\/attest-build-provenance@v3/);
+assert.match(releaseWorkflow, /gh release (create|upload)/);
 
 const codeqlWorkflow = read('.github/workflows/codeql.yml');
 assert.match(codeqlWorkflow, /^  pull_request:\s*$/m);

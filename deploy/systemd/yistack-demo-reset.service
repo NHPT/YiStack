@@ -1,0 +1,20 @@
+[Unit]
+Description=Restore the YiStack demonstration baseline
+After=network-online.target yistack-postgres.service
+Wants=network-online.target
+ConditionPathExists=/etc/yistack/demo-maintenance.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/yistack/current/bin/yistack-demo-maintenance reset
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=30min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/yistack /var/log/yistack /var/cache/yistack /run/lock

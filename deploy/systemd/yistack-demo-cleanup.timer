@@ -1,0 +1,11 @@
+[Unit]
+Description=Run YiStack demonstration cleanup each hour
+
+[Timer]
+OnCalendar=*-*-* *:30:00
+RandomizedDelaySec=5min
+Persistent=true
+Unit=yistack-demo-cleanup.service
+
+[Install]
+WantedBy=timers.target

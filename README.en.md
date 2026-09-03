@@ -99,7 +99,115 @@ definition, current boundary, and evolution path.
 - Runtime: rootless Podman
 - Package manager: pnpm 11.5.2
 
-## Requirements
+## Production Requirements
+
+The prebuilt package targets Debian 12 and compatible Ubuntu systems that use `apt`, systemd, and rootless Podman. Select the package matching the server architecture: `amd64` or `arm64`. Installation requires root privileges and network access to system package repositories, Playwright browser downloads, and container registries. Node.js 22 is bundled; production hosts do not need Go, pnpm, or frontend build tools.
+
+## Production Quick Start
+
+Download the deployment archive and matching `.sha256` file from [GitHub Releases](https://github.com/NHPT/YiStack/releases), for example:
+
+```text
+yistack-vX.Y.Z-linux-amd64.tar.gz
+yistack-vX.Y.Z-linux-amd64.tar.gz.sha256
+```
+
+Verify, extract, and install the package:
+
+```bash
+sha256sum --check yistack-vX.Y.Z-linux-amd64.tar.gz.sha256
+tar -xzf yistack-vX.Y.Z-linux-amd64.tar.gz
+cd yistack-vX.Y.Z-linux-amd64
+sudo ./install.sh
+```
+
+The installer verifies the internal `MANIFEST.sha256`, creates the `yistack` system user, configures rootless Podman, installs the systemd units and Playwright Chromium, and uses these stable paths:
+
+```text
+/opt/yistack/current   active release
+/etc/yistack           configuration
+/var/lib/yistack       projects, container data, and browser runtime
+/var/log/yistack       logs
+/var/cache/yistack     caches
+```
+
+### External Supabase
+
+1. Apply `database/init.sql` from the extracted package to a new Supabase project.
+2. Edit `/etc/yistack/yistack.env` and configure at least `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_DB_PASSWORD`. Full functionality requires the direct database password.
+3. Configure `CORS_ALLOWED_ORIGINS`, public callback URLs, and any other deployment secrets.
+4. Start and verify the services:
+
+```bash
+sudo systemctl start yistack.target
+sudo yistackctl health
+sudo yistackctl status
+```
+
+### PostgreSQL 16 Container
+
+To run the YiStack control-plane database without Supabase, let the installer create a rootless PostgreSQL 16 Podman container with CPU, memory, and process limits:
+
+```bash
+sudo ./install.sh --with-postgres --start
+sudo yistackctl postgres status
+sudo yistackctl health
+```
+
+The installer generates the database password in `/etc/yistack/postgres.env`, then applies the Supabase SQL compatibility layer and `database/init.sql`. This mode provides YiStack's own PostgreSQL database and traditional JWT authentication. It does not provide Supabase Auth, Storage, or other managed services; generated applications that depend on Supabase still need a separate Supabase project.
+
+### Optional Demo Maintenance
+
+A public trial instance can use the standard PostgreSQL production deployment above without maintaining a separate application branch. The package includes a disabled-by-default operations layer for daily baseline restoration and hourly TTL, cache, log, and disk-watermark enforcement. It supports only the installer-managed local PostgreSQL database and fails closed when external Supabase is configured, avoiding partial or irreversible resets of an external database.
+
+After configuring providers, demo accounts, and baseline projects, explicitly install the configuration and capture the baseline:
+
+```bash
+sudo install -m 0640 -o root -g yistack \
+  /opt/yistack/current/config/yistack-demo-maintenance.env.example \
+  /etc/yistack/demo-maintenance.env
+sudo sed -i 's/^DEMO_MAINTENANCE_ENABLED=false$/DEMO_MAINTENANCE_ENABLED=true/' \
+  /etc/yistack/demo-maintenance.env
+sudo yistackctl demo snapshot
+sudo systemctl enable --now \
+  yistack-demo-reset.timer \
+  yistack-demo-cleanup.timer
+sudo yistackctl demo status
+```
+
+`snapshot` briefly stops the application and project containers, then records a PostgreSQL dump, project workspaces, protected baseline project IDs, the Release commit, and SHA-256 checksums. It does not copy secrets from `/etc/yistack`. The defaults are:
+
+- restore the baseline after 04:00 each day, with up to 10 minutes of randomized delay;
+- remove expired non-baseline projects, stopped project containers, generation evidence, and caches each hour;
+- when disk usage reaches 80%, remove the oldest non-baseline projects until usage reaches 70%;
+- always retain baseline projects, `runtime/templates`, `ms-playwright`, configuration, and installed Releases;
+- remove only Podman containers and networks with an exact `yistack.project_id` label, without running a global `podman system prune`.
+
+Adjust TTLs and watermarks in `/etc/yistack/demo-maintenance.env`. After upgrading YiStack, the old baseline is rejected because its `SOURCE_COMMIT` no longer matches; capture a new baseline after validating the new release. Manual operations and timer shutdown are available through:
+
+```bash
+sudo yistackctl demo cleanup
+sudo yistackctl demo reset
+sudo systemctl list-timers 'yistack-demo-*'
+sudo systemctl disable --now \
+  yistack-demo-reset.timer \
+  yistack-demo-cleanup.timer
+```
+
+The frontend listens on `127.0.0.1:5000` and the backend on `127.0.0.1:8080` by default. Put Caddy, Nginx, or an equivalent TLS reverse proxy in front of the frontend for public deployments. After editing `/etc/yistack/yistack.env`, run:
+
+```bash
+sudo yistackctl restart
+sudo yistackctl logs
+```
+
+Each Release includes amd64/arm64 deployment archives, per-archive SHA-256 files, a combined `SHA256SUMS`, SPDX JSON SBOMs, and GitHub build provenance. The tag workflow creates or updates a Release only after the full quality gate and packaged-runtime acceptance pass.
+
+`database/init.sql` remains the clean-install schema source for v1.0.0. It creates the provider catalog but enables no LLM provider by default. Configure and preflight at least one provider in the admin console after startup. Never commit API keys or include them in deployment archives.
+
+## Source Development
+
+Source development requires the following tools; production deployment does not.
 
 | Tool | Supported baseline |
 | --- | --- |
@@ -108,8 +216,6 @@ definition, current boundary, and evolution path.
 | Go | 1.26.6 or a newer 1.x release |
 | Podman | 3.4+, rootless |
 | Database | Supabase, or PostgreSQL 15+ for SQL verification |
-
-## Quick Start
 
 ```bash
 git clone https://github.com/NHPT/YiStack.git
@@ -120,18 +226,7 @@ pnpm install --frozen-lockfile
 cp .env.example .env
 ```
 
-Apply the following file to a new Supabase project:
-
-```text
-backend/init.sql
-```
-
-`backend/init.sql` is the single clean-install schema source for v1.0.0. It
-creates the provider catalog but does not enable an LLM
-provider by default. Configure and preflight at least one provider in the admin
-console before starting generation. Never commit API keys.
-
-Start the local development environment:
+Apply `backend/init.sql` to the development database, finish configuring `.env`, and start the development environment:
 
 ```bash
 bash scripts/dev.sh
@@ -142,9 +237,7 @@ Default endpoints:
 - Frontend: <http://localhost:5000>
 - Backend API: <http://localhost:8080/api>
 
-The repository does not publish test credentials suitable for deployment.
-Seed credentials in `backend/init.sql` are only for local initialization and
-must be changed immediately in any shared or production environment.
+The repository does not publish test credentials suitable for deployment. Seed credentials in `backend/init.sql` are only for local initialization and must be changed immediately in any shared or production environment.
 
 ## Validation
 

@@ -84,7 +84,115 @@ YES 使 YiStack 不把文件写入或模型回复视为成功。协议、权限�
 - Runtime: rootless Podman
 - Package manager: pnpm 11.5.2
 
-## 环境要求
+## 生产部署要求
+
+预编译部署包面向 Debian 12，并支持使用 `apt`、systemd 和 rootless Podman 的兼容 Ubuntu 环境。选择与服务器一致的架构：`amd64` 或 `arm64`。安装需要 root 权限和访问系统软件源、Playwright 浏览器下载站及容器镜像仓库的网络连接；Node.js 22 运行时已包含在包内，生产服务器无需安装 Go、pnpm 或前端构建工具。
+
+## 生产快速部署
+
+从 [GitHub Releases](https://github.com/NHPT/YiStack/releases) 下载对应版本的部署包和同名 `.sha256` 文件，例如：
+
+```text
+yistack-vX.Y.Z-linux-amd64.tar.gz
+yistack-vX.Y.Z-linux-amd64.tar.gz.sha256
+```
+
+校验、解压并安装：
+
+```bash
+sha256sum --check yistack-vX.Y.Z-linux-amd64.tar.gz.sha256
+tar -xzf yistack-vX.Y.Z-linux-amd64.tar.gz
+cd yistack-vX.Y.Z-linux-amd64
+sudo ./install.sh
+```
+
+安装器会校验包内 `MANIFEST.sha256`，创建 `yistack` 系统用户，配置 rootless Podman，安装 systemd 单元和 Playwright Chromium，并使用以下稳定目录：
+
+```text
+/opt/yistack/current   当前发布版本
+/etc/yistack           配置
+/var/lib/yistack       项目、容器数据和浏览器运行时
+/var/log/yistack       日志目录
+/var/cache/yistack     缓存目录
+```
+
+### 使用外部 Supabase
+
+1. 在新的 Supabase 项目中执行部署包内的 `database/init.sql`。
+2. 编辑 `/etc/yistack/yistack.env`，至少配置 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY` 和 `SUPABASE_DB_PASSWORD`。完整功能需要数据库直连密码。
+3. 配置 `CORS_ALLOWED_ORIGINS`、公网回调 URL 及其他部署所需密钥。
+4. 启动并检查服务：
+
+```bash
+sudo systemctl start yistack.target
+sudo yistackctl health
+sudo yistackctl status
+```
+
+### 使用 PostgreSQL 16 容器
+
+如不使用 Supabase 承载 YiStack 控制面数据库，可由安装器创建受 CPU、内存和进程数限制的 PostgreSQL 16 rootless Podman 容器：
+
+```bash
+sudo ./install.sh --with-postgres --start
+sudo yistackctl postgres status
+sudo yistackctl health
+```
+
+安装器会生成数据库密码，写入 `/etc/yistack/postgres.env`，并依次执行 Supabase SQL 兼容层和 `database/init.sql`。此模式提供 YiStack 自身的 PostgreSQL 数据库和传统 JWT 认证，不提供 Supabase Auth、Storage 或其他托管服务；生成的应用若依赖 Supabase，仍需单独配置 Supabase 项目。
+
+### 可选演示环境维护
+
+公开体验环境继续使用上述标准 PostgreSQL 生产部署，不需要维护专用应用分支。部署包提供默认关闭的运维层，可按日恢复演示基线，并按小时执行 TTL、缓存、日志和磁盘水位治理。该功能只支持安装器管理的本地 PostgreSQL；检测到外部 Supabase 时会拒绝执行，避免对外部数据库进行不完整或不可逆的重置。
+
+先完成 Provider、演示账号和演示项目配置，再显式安装配置并采集基线：
+
+```bash
+sudo install -m 0640 -o root -g yistack \
+  /opt/yistack/current/config/yistack-demo-maintenance.env.example \
+  /etc/yistack/demo-maintenance.env
+sudo sed -i 's/^DEMO_MAINTENANCE_ENABLED=false$/DEMO_MAINTENANCE_ENABLED=true/' \
+  /etc/yistack/demo-maintenance.env
+sudo yistackctl demo snapshot
+sudo systemctl enable --now \
+  yistack-demo-reset.timer \
+  yistack-demo-cleanup.timer
+sudo yistackctl demo status
+```
+
+`snapshot` 会在短暂停止应用和项目容器后保存 PostgreSQL dump、项目工作区、基线项目列表、Release commit 和 SHA-256 清单。它不会复制 `/etc/yistack` 中的密钥。默认策略为：
+
+- 每天 04:00 后随机延迟最多 10 分钟恢复基线；
+- 每小时清理过期的非基线项目、已停止项目容器、生成证据和缓存；
+- 磁盘达到 80% 时，从最旧的非基线项目开始清理，直至降到 70%；
+- 始终保留基线项目、`runtime/templates`、`ms-playwright`、配置目录和已安装 Release；
+- 仅删除带精确 `yistack.project_id` 标签的 Podman 容器和网络，不执行全局 `podman system prune`。
+
+可在 `/etc/yistack/demo-maintenance.env` 调整 TTL 和水位。升级 YiStack 后，旧基线因 `SOURCE_COMMIT` 不匹配而拒绝恢复，必须在新版本验证完成后重新执行 `snapshot`。手动操作和停用命令如下：
+
+```bash
+sudo yistackctl demo cleanup
+sudo yistackctl demo reset
+sudo systemctl list-timers 'yistack-demo-*'
+sudo systemctl disable --now \
+  yistack-demo-reset.timer \
+  yistack-demo-cleanup.timer
+```
+
+前端默认仅监听 `127.0.0.1:5000`，后端默认监听 `127.0.0.1:8080`。公网部署应在前端之前配置带 TLS 的 Caddy、Nginx 或等效反向代理。更新 `/etc/yistack/yistack.env` 后执行：
+
+```bash
+sudo yistackctl restart
+sudo yistackctl logs
+```
+
+Release 同时发布 amd64/arm64 部署包、独立 SHA-256、合并 `SHA256SUMS`、SPDX JSON SBOM 和 GitHub 构建来源证明。Tag 发布工作流仅在完整质量门禁和部署包运行时验收通过后创建或更新 Release。
+
+`database/init.sql` 是 v1.0.0 的全新安装真源。它会创建 Provider catalog，但默认不启用任何 LLM Provider。启动后应在管理端配置并预检至少一个 Provider；不要把 API Key 写入仓库或部署包。
+
+## 源码开发
+
+源码开发需要以下工具；生产部署不需要这些构建依赖。
 
 | 工具 | 支持基线 |
 | --- | --- |
@@ -93,8 +201,6 @@ YES 使 YiStack 不把文件写入或模型回复视为成功。协议、权限�
 | Go | 1.26.6 或更高的 1.x 版本 |
 | Podman | 3.4+，rootless |
 | Database | Supabase，或用于 SQL 验证的 PostgreSQL 15+ |
-
-## 快速开始
 
 ```bash
 git clone https://github.com/NHPT/YiStack.git
@@ -105,15 +211,7 @@ pnpm install --frozen-lockfile
 cp .env.example .env
 ```
 
-在新的 Supabase 项目中执行：
-
-```text
-backend/init.sql
-```
-
-`backend/init.sql` 是 v1.0.0 的全新安装真源。它会创建 Provider catalog，但默认不启用任何 LLM Provider。启动前应在管理端配置并预检至少一个 Provider；不要把 API Key 写入仓库。
-
-启动本地开发环境：
+在开发数据库中执行 `backend/init.sql`，完成 `.env` 配置后启动：
 
 ```bash
 bash scripts/dev.sh

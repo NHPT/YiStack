@@ -1,0 +1,26 @@
+[Unit]
+Description=YiStack browser acceptance worker
+After=network-online.target
+Wants=network-online.target
+PartOf=yistack.target
+
+[Service]
+Type=simple
+User=yistack
+Group=yistack
+Environment=HOME=/var/lib/yistack
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/yistack/ms-playwright
+Environment=BROWSER_ACCEPTANCE_WORKER_PORT=43120
+WorkingDirectory=/opt/yistack/current
+ExecStart=/opt/yistack/current/runtime/node/bin/node /opt/yistack/current/browser-worker/browser-acceptance-worker.mjs
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/yistack /var/log/yistack /var/cache/yistack
+
+[Install]
+WantedBy=yistack.target

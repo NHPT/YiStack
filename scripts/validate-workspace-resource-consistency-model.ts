@@ -12411,18 +12411,18 @@ assert.match(
 );
 assert.match(
   projectServerMain,
-  /func migrateDatabase\(db \*gorm\.DB\) error \{[\s\S]*db\.AutoMigrate\([\s\S]*&model\.ProjectEngineeringState\{\}[\s\S]*&model\.ProjectCapabilityExecutionAudit\{\}[\s\S]*&model\.ProjectResourceAlertEvent\{\}[\s\S]*return nil/,
-  'database startup should rely on the current model set and backend/init.sql as the single first-release schema source',
+  /const databaseBaselineVersion = "000000000000_contributor_alpha"[\s\S]*func migrateDatabase\(db \*gorm\.DB, autoMigrate bool\) error \{[\s\S]*if !autoMigrate \{[\s\S]*SELECT count\(\*\) FROM public\.schema_migrations WHERE version = \?[\s\S]*databaseBaselineVersion[\s\S]*db\.AutoMigrate\([\s\S]*&model\.ProjectEngineeringState\{\}[\s\S]*&model\.ProjectCapabilityExecutionAudit\{\}[\s\S]*&model\.ProjectResourceAlertEvent\{\}[\s\S]*return nil/,
+  'database startup should verify the production SQL baseline while retaining explicit development AutoMigrate',
 );
 assert.match(
   projectServerBootstrap,
-  /func bootstrapApplication\(cfg \*config\.Config\) \(\*appBootstrap, error\) \{[\s\S]*db, supabaseClient, err := initDatabase\(cfg\)[\s\S]*return nil, fmt\.Errorf\("initialize database: %w", err\)[\s\S]*repositories, err := initRepositories\(db, supabaseClient\)[\s\S]*return nil, err/,
+  /func bootstrapApplication\(cfg \*config\.Config\) \(\*appBootstrap, error\) \{[\s\S]*db, supabaseClient, err := initDatabase\(cfg\)[\s\S]*return nil, fmt\.Errorf\("initialize database: %w", err\)[\s\S]*repositories, err := initRepositories\(db, supabaseClient, cfg\.Database\.AutoMigrate\)[\s\S]*return nil, err/,
   'server bootstrap should return database initialization errors instead of continuing without a database',
 );
 assert.match(
   projectServerBootstrap,
-  /func initRepositories\(db database\.Database, supabaseClient \*supabase\.Client\) \(repositorySet, error\) \{[\s\S]*if db != nil && db\.GetDB\(\) != nil \{[\s\S]*if err := migrateDatabase\(db\.GetDB\(\)\); err != nil \{[\s\S]*return repositories, fmt\.Errorf\("migrate database: %w", err\)/,
-  'server bootstrap should block startup when AutoMigrate fails',
+  /func initRepositories\(db database\.Database, supabaseClient \*supabase\.Client, autoMigrate bool\) \(repositorySet, error\) \{[\s\S]*if db != nil && db\.GetDB\(\) != nil \{[\s\S]*if err := migrateDatabase\(db\.GetDB\(\), autoMigrate\); err != nil \{[\s\S]*return repositories, fmt\.Errorf\("migrate database: %w", err\)/,
+  'server bootstrap should block startup when schema migration or baseline validation fails',
 );
 assert.match(
   projectServerBootstrap,

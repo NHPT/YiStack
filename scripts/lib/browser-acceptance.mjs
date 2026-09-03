@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { chromium } from '@playwright/test';
+import { chromium } from 'playwright';
 
 export const browserAcceptanceSchemaVersion = 'browser_acceptance.v1';
 

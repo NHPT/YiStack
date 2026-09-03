@@ -31,6 +31,8 @@ The repository check `bash scripts/verify-supabase-baseline.sh` performs this
 flow against an isolated PostgreSQL container with Supabase-compatible auth
 roles and functions.
 
+Prebuilt production packages default to `DB_AUTO_MIGRATE=false`. At startup, the backend verifies that the baseline above exists instead of allowing GORM to mutate the production schema implicitly. Source-development environments may retain `DB_AUTO_MIGRATE=true`, but it is not a substitute for a versioned migration.
+
 ## Migration Contract
 
 Future upgrade migrations use:

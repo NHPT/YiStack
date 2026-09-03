@@ -84,6 +84,10 @@ baseline_count="$(
   podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
     -c "SELECT count(*) FROM public.schema_migrations WHERE version = '000000000000_contributor_alpha';"
 )"
+user_schema_contract="$(
+  podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
+    -c "SELECT data_type || ':' || is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'instance_id';"
+)"
 provider_contract="$(
   podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
     -c "SELECT count(*) || ':' || count(*) FILTER (WHERE enabled) || ':' || max(base_url) FILTER (WHERE name = 'ollama-cloud') FROM public.llm_providers;"
@@ -95,6 +99,10 @@ admin_auth_contract="$(
 
 if [ "$baseline_count" != "1" ]; then
   echo "[R7] Expected exactly one Contributor Alpha baseline row, got $baseline_count." >&2
+  exit 1
+fi
+if [ "$user_schema_contract" != "uuid:YES" ]; then
+  echo "[R7] Unexpected users.instance_id contract: $user_schema_contract" >&2
   exit 1
 fi
 if [ "$provider_contract" != "7:0:https://ollama.com" ]; then

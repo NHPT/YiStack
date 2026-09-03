@@ -163,8 +163,25 @@ func buildPreviewListenAddr(cfg *config.Config) string {
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
 }
 
-// migrateDatabase 迁移数据库表结构
-func migrateDatabase(db *gorm.DB) error {
+const databaseBaselineVersion = "000000000000_contributor_alpha"
+
+// migrateDatabase 迁移数据库表结构，或在生产 baseline 模式下验证已安装版本。
+func migrateDatabase(db *gorm.DB, autoMigrate bool) error {
+	if !autoMigrate {
+		var baselineCount int64
+		if err := db.Raw(
+			"SELECT count(*) FROM public.schema_migrations WHERE version = ?",
+			databaseBaselineVersion,
+		).Scan(&baselineCount).Error; err != nil {
+			return fmt.Errorf("validate database baseline %s: %w", databaseBaselineVersion, err)
+		}
+		if baselineCount != 1 {
+			return fmt.Errorf("database baseline %s is not installed", databaseBaselineVersion)
+		}
+		log.Printf("Database baseline %s verified; startup AutoMigrate is disabled", databaseBaselineVersion)
+		return nil
+	}
+
 	if err := db.AutoMigrate(
 		// 用户相关
 		&model.User{},

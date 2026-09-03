@@ -460,7 +460,7 @@ func mapToModelUser(m map[string]interface{}) model.User {
 		user.LLMMaxTokens = int(tokens)
 	}
 	if instanceID, ok := m["instance_id"].(string); ok {
-		user.InstanceID = instanceID
+		user.InstanceID = &instanceID
 	}
 
 	return user

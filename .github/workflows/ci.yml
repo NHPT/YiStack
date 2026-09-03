@@ -54,9 +54,29 @@ jobs:
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           printf 'Documentation-only change: %s\n' "$docs_only"
 
+  repository_contract:
+    name: Repository contract
+    needs: change_scope
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Validate repository contract
+        run: |
+          bash scripts/verify-repository-integrity.sh
+          node scripts/validate-contributor-alpha.mjs
+
   quality:
     name: Quality gate
-    needs: change_scope
+    needs: [change_scope, repository_contract]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -64,9 +84,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Verify repository integrity
-        run: bash scripts/verify-repository-integrity.sh
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
@@ -104,10 +121,6 @@ jobs:
       - name: Public release audit
         run: GITLEAKS_BIN="$(go env GOPATH)/bin/gitleaks" pnpm release:audit
 
-      - name: Documentation contract
-        if: needs.change_scope.outputs.docs_only == 'true'
-        run: node scripts/validate-contributor-alpha.mjs
-
       - name: ESLint
         if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm lint
@@ -115,6 +128,26 @@ jobs:
       - name: Production build
         if: needs.change_scope.outputs.docs_only != 'true'
         run: pnpm build
+
+      - name: Install Podman for deployment acceptance
+        if: needs.change_scope.outputs.docs_only != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+
+      - name: Deployment package acceptance
+        if: needs.change_scope.outputs.docs_only != 'true'
+        env:
+          SKIP_FRONTEND_BUILD: "true"
+          TARGET_ARCH: amd64
+          VERSION: v0.0.0
+        run: |
+          pnpm validate:release:demo
+          pnpm build:release
+          scripts/validate-release-package.sh \
+            dist/release/yistack-v0.0.0-linux-amd64.tar.gz amd64
+          scripts/validate-release-postgres-runtime.sh \
+            dist/release/yistack-v0.0.0-linux-amd64
 
       - name: VIS-001 browser acceptance
         if: needs.change_scope.outputs.docs_only != 'true'
@@ -137,7 +170,8 @@ jobs:
 
   clean-checkout:
     name: Clean checkout reproducibility
-    needs: change_scope
+    needs: [change_scope, repository_contract]
+    if: needs.change_scope.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -174,9 +208,3 @@ jobs:
         env:
           YISTACK_REQUIRE_CLEAN_TREE: "true"
         run: bash scripts/verify-clean-checkout.sh
-
-      - name: Verify documentation checkout
-        if: needs.change_scope.outputs.docs_only == 'true'
-        run: |
-          bash scripts/verify-repository-integrity.sh
-          node scripts/validate-contributor-alpha.mjs
