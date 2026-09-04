@@ -270,7 +270,7 @@ assert.doesNotMatch(
 for (const command of [
   'bash scripts/verify-repository-integrity.sh',
   'pnpm install --frozen-lockfile',
-  'pnpm audit --audit-level high',
+  'pnpm audit --audit-level high --ignore-registry-errors',
   'pnpm exec playwright install --with-deps chromium',
   'pnpm lint',
   'pnpm build',
@@ -288,6 +288,19 @@ assert.match(
   /repository_contract:[\s\S]*name: Repository contract[\s\S]*bash scripts\/verify-repository-integrity\.sh[\s\S]*node scripts\/validate-contributor-alpha\.mjs/,
 );
 assert.match(workflow, /name: Quality gate[\s\S]*needs: \[change_scope, repository_contract\]/);
+assert.equal(
+  (workflow.match(/if: \$\{\{ always\(\) \}\}/g) ?? []).length,
+  2,
+  'Both required downstream checks must run even when a prerequisite fails.',
+);
+assert.equal(
+  (workflow.match(/name: Enforce prerequisite jobs/g) ?? []).length,
+  2,
+  'Both required downstream checks must propagate prerequisite failures.',
+);
+for (const result of ['needs.change_scope.result', 'needs.repository_contract.result']) {
+  assert.ok(workflow.includes(result), `CI must enforce prerequisite result: ${result}`);
+}
 assert.match(
   workflow,
   /name: Deployment package acceptance[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh/,
@@ -295,6 +308,11 @@ assert.match(
 assert.match(
   workflow,
   /name: Install dependencies[\s\S]*needs\.change_scope\.outputs\.docs_only != 'true'[\s\S]*pnpm install --frozen-lockfile/,
+);
+assert.match(
+  workflow,
+  /name: Dependency audit[\s\S]*pnpm audit --audit-level high --ignore-registry-errors/,
+  'dependency audit must fail on high-severity advisories without failing on registry transport errors',
 );
 assert.match(
   workflow,
@@ -392,6 +410,35 @@ const cleanCheckoutScript = read('scripts/verify-clean-checkout.sh');
 assert.ok(
   cleanCheckoutScript.includes('bash "$ROOT_DIR/scripts/verify-repository-integrity.sh"'),
   'clean checkout must reject unresolved merge conflicts before installing dependencies',
+);
+
+const postgresLauncher = read('deploy/bin/yistack-postgres');
+assert.match(
+  postgresLauncher,
+  /PostgreSQL init process complete; ready for start up\./,
+  'new PostgreSQL containers must finish temporary initialization before validation',
+);
+assert.match(
+  postgresLauncher,
+  /psql --quiet -At -v ON_ERROR_STOP=1[\s\S]*-c 'SELECT 1;'/,
+  'PostgreSQL readiness must execute a query against the configured database',
+);
+
+const postgresRuntimeValidation = read('scripts/validate-release-postgres-runtime.sh');
+assert.match(
+  postgresRuntimeValidation,
+  /UPDATE public\.system_config SET value = 'false' WHERE key = 'container\.enabled'/,
+  'release validation must disable the database-backed application container runtime',
+);
+assert.match(
+  postgresRuntimeValidation,
+  /CONTAINER_ENABLED=false[\s\S]*CONTAINER_PREVIEW_PORT=0/,
+  'release validation must isolate application container and preview listeners',
+);
+assert.match(
+  postgresRuntimeValidation,
+  /print_backend_log\(\)[\s\S]*tail -n 220 "\$backend_log"/,
+  'release validation must retain the final backend startup error',
 );
 
 const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');

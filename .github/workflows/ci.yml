@@ -77,9 +77,21 @@ jobs:
   quality:
     name: Quality gate
     needs: [change_scope, repository_contract]
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
+      - name: Enforce prerequisite jobs
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change_scope.result }}
+          REPOSITORY_CONTRACT_RESULT: ${{ needs.repository_contract.result }}
+        run: |
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ] ||
+             [ "$REPOSITORY_CONTRACT_RESULT" != "success" ]; then
+            echo "Required CI prerequisite failed." >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -112,7 +124,7 @@ jobs:
 
       - name: Dependency audit
         if: needs.change_scope.outputs.docs_only != 'true'
-        run: pnpm audit --audit-level high
+        run: pnpm audit --audit-level high --ignore-registry-errors
 
       - name: Install Playwright Chromium
         if: needs.change_scope.outputs.docs_only != 'true'
@@ -171,10 +183,21 @@ jobs:
   clean-checkout:
     name: Clean checkout reproducibility
     needs: [change_scope, repository_contract]
-    if: needs.change_scope.outputs.docs_only != 'true'
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Enforce prerequisite jobs
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change_scope.result }}
+          REPOSITORY_CONTRACT_RESULT: ${{ needs.repository_contract.result }}
+        run: |
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ] ||
+             [ "$REPOSITORY_CONTRACT_RESULT" != "success" ]; then
+            echo "Required CI prerequisite failed." >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
 
