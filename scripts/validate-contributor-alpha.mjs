@@ -407,6 +407,18 @@ assert.ok(
   'clean checkout must reject unresolved merge conflicts before installing dependencies',
 );
 
+const postgresLauncher = read('deploy/bin/yistack-postgres');
+assert.match(
+  postgresLauncher,
+  /PostgreSQL init process complete; ready for start up\./,
+  'new PostgreSQL containers must finish temporary initialization before validation',
+);
+assert.match(
+  postgresLauncher,
+  /psql --quiet -At -v ON_ERROR_STOP=1[\s\S]*-c 'SELECT 1;'/,
+  'PostgreSQL readiness must execute a query against the configured database',
+);
+
 const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');
 assert.ok(liveEvalWorkflow.includes('pnpm eval:smoke'));
 assert.ok(liveEvalWorkflow.includes('YISTACK_EVAL_TOKEN'));
