@@ -146,6 +146,13 @@ if [ "$memory_limit" != "1073741824" ] || [ "$pids_limit" != "256" ]; then
   echo "Unexpected PostgreSQL resource limits: memory=$memory_limit pids=$pids_limit" >&2
   exit 1
 fi
+postgres_image_id_before="$(
+  podman image inspect --format '{{.Id}}' docker.io/library/postgres:16-alpine
+)"
+[ -n "$postgres_image_id_before" ] || {
+  echo "Unable to identify the reusable PostgreSQL image." >&2
+  exit 1
+}
 
 demo_data="$demo_root/data"
 demo_config="$demo_root/config"
@@ -153,12 +160,12 @@ demo_log="$demo_root/log"
 demo_cache="$demo_root/cache"
 demo_install="$demo_root/install"
 demo_baseline="$demo_data/demo-baseline"
-demo_project_id="demo-baseline-project"
+demo_project_id="demo-user-project"
 real_podman="$(command -v podman)"
 mkdir -p \
   "$demo_root/bin" \
   "$demo_config" \
-  "$demo_data/runtime/projects/$demo_project_id" \
+  "$demo_data/runtime/projects" \
   "$demo_data/runtime/templates/protected-template" \
   "$demo_data/runtime/container-data" \
   "$demo_data/runtime/generation-evidence" \
@@ -168,7 +175,6 @@ mkdir -p \
   "$demo_install"
 printf 'runtime-template\n' > "$demo_data/runtime/templates/protected-template/template.txt"
 printf 'browser-runtime\n' > "$demo_data/ms-playwright/protected-browser/browser.txt"
-printf 'baseline-workspace\n' > "$demo_data/runtime/projects/$demo_project_id/app.txt"
 printf 'v0.0.0\n' > "$demo_install/VERSION"
 printf '0000000000000000000000000000000000000000\n' > "$demo_install/SOURCE_COMMIT"
 ln -s "$PACKAGE_ROOT/bin/yistack-postgres" "$demo_install/yistack-postgres"
@@ -201,8 +207,6 @@ if ! [[ "$demo_user_id" =~ ^[0-9a-fA-F-]{36}$ ]]; then
   cat "$register_body" >&2
   exit 1
 fi
-podman exec "$container_name" psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
-  -c "INSERT INTO public.projects (user_id, project_id, name, directory_path) VALUES ('$demo_user_id', '$demo_project_id', 'Demo baseline', '$demo_data/runtime/projects/$demo_project_id');"
 
 cat > "$demo_config/yistack.env" <<EOF
 DB_TYPE=postgres
@@ -245,43 +249,65 @@ kill "$backend_pid"
 wait "$backend_pid" || true
 backend_pid=""
 
-run_demo_maintenance snapshot
-printf 'changed-workspace\n' > "$demo_data/runtime/projects/$demo_project_id/app.txt"
-mkdir -p "$demo_data/runtime/projects/demo-transient-project"
-printf 'transient-workspace\n' > "$demo_data/runtime/projects/demo-transient-project/app.txt"
-printf 'expired-evidence\n' > "$demo_data/runtime/generation-evidence/expired.txt"
-printf 'expired-cache\n' > "$demo_cache/expired.txt"
-podman exec "$container_name" psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
-  -c "UPDATE public.projects SET name = 'Changed demo' WHERE project_id = '$demo_project_id'; INSERT INTO public.projects (user_id, project_id, name, directory_path) VALUES ('$demo_user_id', 'demo-transient-project', 'Transient demo', '$demo_data/runtime/projects/demo-transient-project');"
-run_demo_maintenance reset
-
-[ "$(cat "$demo_data/runtime/projects/$demo_project_id/app.txt")" = "baseline-workspace" ] || {
-  echo "Demo reset did not restore the project workspace." >&2
+if run_demo_maintenance snapshot > "$demo_root/dirty-baseline.out" 2>&1; then
+  echo "Ephemeral trial snapshot accepted registered user data." >&2
+  exit 1
+fi
+grep -q 'database contains user data' "$demo_root/dirty-baseline.out" || {
+  echo "Ephemeral trial snapshot did not explain the clean-baseline requirement." >&2
+  cat "$demo_root/dirty-baseline.out" >&2
   exit 1
 }
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "DELETE FROM public.users WHERE id = '$demo_user_id';"
+run_demo_maintenance snapshot
+
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "INSERT INTO public.users (id, email, username, password_hash) VALUES ('$demo_user_id', 'ephemeral-user@example.test', 'ephemeral-user', 'runtime-test-hash'); INSERT INTO public.projects (user_id, project_id, name, directory_path) VALUES ('$demo_user_id', '$demo_project_id', 'Ephemeral user project', '$demo_data/runtime/projects/$demo_project_id');"
+mkdir -p "$demo_data/runtime/projects/$demo_project_id"
+printf 'user-workspace\n' > "$demo_data/runtime/projects/$demo_project_id/app.txt"
+printf 'container-state\n' > "$demo_data/runtime/container-data/state.json"
+printf 'generation-evidence\n' > "$demo_data/runtime/generation-evidence/evidence.txt"
+printf 'cache-data\n' > "$demo_cache/cache.txt"
+printf 'managed-log\n' > "$demo_log/application.log"
+podman exec "$container_name" psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "INSERT INTO public.chat_messages (project_id, user_id, role, content) VALUES ('$demo_project_id', '$demo_user_id', 'user', 'ephemeral user content');"
+run_demo_maintenance reset
+
 [ "$(cat "$demo_data/runtime/templates/protected-template/template.txt")" = "runtime-template" ] || {
-  echo "Demo reset modified runtime templates." >&2
+  echo "Ephemeral trial reset modified runtime templates." >&2
   exit 1
 }
 [ "$(cat "$demo_data/ms-playwright/protected-browser/browser.txt")" = "browser-runtime" ] || {
-  echo "Demo reset modified the Playwright runtime." >&2
+  echo "Ephemeral trial reset modified the Playwright runtime." >&2
   exit 1
 }
-[ ! -e "$demo_data/runtime/generation-evidence/expired.txt" ] || {
-  echo "Demo reset retained generation evidence." >&2
+for cleared_path in \
+  "$demo_data/runtime/projects/$demo_project_id" \
+  "$demo_data/runtime/container-data/state.json" \
+  "$demo_data/runtime/generation-evidence/evidence.txt" \
+  "$demo_cache/cache.txt" \
+  "$demo_log/application.log"; do
+  [ ! -e "$cleared_path" ] || {
+    echo "Ephemeral trial reset retained managed user data: $cleared_path" >&2
+    exit 1
+  }
+done
+restored_user_data_contract="$(
+  podman exec "$container_name" psql -At -U postgres -d yistack \
+    -c "SELECT (SELECT count(*) FROM public.users) || ':' || (SELECT count(*) FROM public.projects) || ':' || (SELECT count(*) FROM public.chat_messages);"
+)"
+[ "$restored_user_data_contract" = "0:0:0" ] || {
+  echo "Ephemeral trial reset retained database user data: $restored_user_data_contract" >&2
   exit 1
 }
-[ ! -e "$demo_cache/expired.txt" ] || {
-  echo "Demo reset retained cache data." >&2
-  exit 1
-}
-[ ! -e "$demo_data/runtime/projects/demo-transient-project" ] || {
-  echo "Demo reset retained a transient project workspace." >&2
-  exit 1
-}
-restored_project_contract="$(podman exec "$container_name" psql -At -U postgres -d yistack -c "SELECT count(*) || ':' || min(name) || ':' || min(container_status) FROM public.projects;")"
-[ "$restored_project_contract" = "1:Demo baseline:stopped" ] || {
-  echo "Demo reset did not restore PostgreSQL state: $restored_project_contract" >&2
+postgres_image_id_after="$(
+  podman image inspect --format '{{.Id}}' docker.io/library/postgres:16-alpine
+)"
+[ "$postgres_image_id_after" = "$postgres_image_id_before" ] || {
+  echo "Ephemeral trial reset removed or replaced the reusable PostgreSQL image." >&2
   exit 1
 }
 

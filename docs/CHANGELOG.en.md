@@ -16,9 +16,9 @@ starting with v1.0.0.
 
 ### Added
 
-- Added a prebuilt Debian 12 production package containing the Go backend, Next.js standalone output, Node.js 22, the browser-acceptance worker, systemd units, and an optional PostgreSQL 16 rootless Podman control-plane database.
+- Added official prebuilt Linux amd64/arm64 production packages, fully validated on Debian 12, containing the Go backend, Next.js standalone output, Node.js 22, the browser-acceptance worker, systemd units, and an optional PostgreSQL 16 rootless Podman control-plane database; the web client remains cross-platform.
 - Added a tag-triggered Release workflow that builds and validates packages on amd64 and native arm64 runners, then publishes SHA-256 files, SPDX JSON SBOMs, and GitHub build provenance.
-- Added a disabled-by-default demo maintenance layer for local PostgreSQL deployments, with checksummed baseline snapshots, daily restoration, project and container TTLs, cache and evidence cleanup, and disk high/low watermarks.
+- Added a disabled-by-default ephemeral trial mode for local PostgreSQL deployments, with a user-data-free baseline, configurable daily restoration, complete user/project data cleanup, project and container TTLs, disk watermarks, and reusable image retention.
 - VIS-001 visual context loop: chat accepts pasted or uploaded PNG/JPEG references, and only models declaring the `vision` capability may receive images.
 - The backend validates MIME type, size, dimensions, pixel count, and actual decoding before re-encoding images; multimodal analysis must return strict `visual_context.v1`.
 - Visual context is bound to messages, candidate plans, and durable Generation Jobs, survives live SSE and refresh replay, and constrains layout, components, color, typography, spacing, responsive behavior, and interactions during planning and generation.

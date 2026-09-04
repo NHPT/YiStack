@@ -14,9 +14,9 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 ### 新增
 
-- 新增 Debian 12 预编译生产部署包，内置 Go 后端、Next.js standalone、Node.js 22、浏览器验收 worker、systemd 单元和可选 PostgreSQL 16 rootless Podman 控制面数据库。
+- 新增官方 Linux amd64/arm64 预编译生产部署包，以 Debian 12 为完整验收基线，内置 Go 后端、Next.js standalone、Node.js 22、浏览器验收 worker、systemd 单元和可选 PostgreSQL 16 rootless Podman 控制面数据库；Web 客户端保持跨平台。
 - 新增 Tag Release 工作流，在 amd64 和原生 arm64 runner 上构建并验收部署包，发布 SHA-256、SPDX JSON SBOM 和 GitHub 构建来源证明。
-- 新增默认关闭的演示环境维护层，为本地 PostgreSQL 部署提供带校验和的基线快照、每日恢复、项目与容器 TTL、缓存与证据清理以及磁盘高低水位保护。
+- 新增默认关闭的临时体验模式，为本地 PostgreSQL 部署提供无用户数据基线、可配置的每日自动还原、完整用户/项目数据清理、项目与容器 TTL 以及磁盘水位保护，同时保留可复用镜像。
 - VIS-001 视觉上下文闭环：聊天支持上传或粘贴 PNG/JPEG 参考图，只有声明 `vision` 能力的模型可接收图片。
 - 图片会在服务端执行 MIME、大小、尺寸、像素与真实解码校验，并重新编码净化；多模态分析严格输出 `visual_context.v1`。
 - 视觉上下文绑定消息、候选方案与持久 Generation Job，SSE 实时流和刷新重放均可恢复；方案与代码生成消费布局、组件、颜色、字体、间距、响应式和交互约束。
