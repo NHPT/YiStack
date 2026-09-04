@@ -34,9 +34,18 @@ container_running() {
 }
 
 wait_until_ready() {
+  local require_init_complete="${1:-false}"
   for _ in $(seq 1 90); do
+    if [ "$require_init_complete" = "true" ] &&
+      ! grep -Fq 'PostgreSQL init process complete; ready for start up.' \
+        < <(podman logs "$POSTGRES_CONTAINER_NAME" 2>&1); then
+      sleep 1
+      continue
+    fi
     if podman exec "$POSTGRES_CONTAINER_NAME" \
-      pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"; then
+      psql --quiet -At -v ON_ERROR_STOP=1 \
+      -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'SELECT 1;' \
+      >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -47,6 +56,7 @@ wait_until_ready() {
 }
 
 start_database() {
+  local created=false
   mkdir -p "$POSTGRES_DATA_DIR"
   if container_exists; then
     if ! container_running; then
@@ -66,8 +76,9 @@ start_database() {
       --publish "127.0.0.1:${POSTGRES_PORT}:5432" \
       --volume "$POSTGRES_DATA_DIR:/var/lib/postgresql/data:Z,U" \
       "$POSTGRES_IMAGE" >/dev/null
+    created=true
   fi
-  wait_until_ready
+  wait_until_ready "$created"
 }
 
 initialize_database() {
