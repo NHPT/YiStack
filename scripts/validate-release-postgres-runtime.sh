@@ -65,6 +65,16 @@ for _ in 1 2; do
     "$PACKAGE_ROOT/bin/yistack-postgres" init
 done
 
+container_runtime_config="$(
+  podman exec "$container_name" \
+    psql --quiet -At -v ON_ERROR_STOP=1 -U postgres -d yistack \
+    -c "UPDATE public.system_config SET value = 'false' WHERE key = 'container.enabled' RETURNING key || ':' || value;"
+)"
+if [ "$container_runtime_config" != "container.enabled:false" ]; then
+  echo "Unable to disable the application container runtime for release validation: $container_runtime_config" >&2
+  exit 1
+fi
+
 APP_ENV=production \
 APP_HOST=127.0.0.1 \
 APP_PORT="$backend_port" \
@@ -78,9 +88,14 @@ DB_NAME=yistack \
 DB_SSL_MODE=disable \
 JWT_SECRET=release-runtime-jwt-secret-0123456789abcdef \
 CONTAINER_ENABLED=false \
+CONTAINER_PREVIEW_PORT=0 \
 YISTACK_SKIP_DOTENV=true \
   "$PACKAGE_ROOT/bin/yistack-server" >"$backend_log" 2>&1 &
 backend_pid=$!
+
+print_backend_log() {
+  tail -n 220 "$backend_log" >&2
+}
 
 ready=false
 for _ in $(seq 1 45); do
@@ -90,13 +105,13 @@ for _ in $(seq 1 45); do
     break
   fi
   if ! kill -0 "$backend_pid" >/dev/null 2>&1; then
-    sed -n '1,220p' "$backend_log" >&2
+    print_backend_log
     exit 1
   fi
   sleep 1
 done
 if [ "$ready" != "true" ]; then
-  sed -n '1,220p' "$backend_log" >&2
+  print_backend_log
   exit 1
 fi
 if ! grep -q '"status":"ok"' "$health_body"; then
