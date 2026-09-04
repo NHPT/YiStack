@@ -288,6 +288,19 @@ assert.match(
   /repository_contract:[\s\S]*name: Repository contract[\s\S]*bash scripts\/verify-repository-integrity\.sh[\s\S]*node scripts\/validate-contributor-alpha\.mjs/,
 );
 assert.match(workflow, /name: Quality gate[\s\S]*needs: \[change_scope, repository_contract\]/);
+assert.equal(
+  (workflow.match(/if: \$\{\{ always\(\) \}\}/g) ?? []).length,
+  2,
+  'Both required downstream checks must run even when a prerequisite fails.',
+);
+assert.equal(
+  (workflow.match(/name: Enforce prerequisite jobs/g) ?? []).length,
+  2,
+  'Both required downstream checks must propagate prerequisite failures.',
+);
+for (const result of ['needs.change_scope.result', 'needs.repository_contract.result']) {
+  assert.ok(workflow.includes(result), `CI must enforce prerequisite result: ${result}`);
+}
 assert.match(
   workflow,
   /name: Deployment package acceptance[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh/,
