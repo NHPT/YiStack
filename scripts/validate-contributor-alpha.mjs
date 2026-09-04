@@ -311,6 +311,11 @@ assert.match(
 );
 assert.match(
   workflow,
+  /name: Dependency audit[\s\S]*for attempt in 1 2 3; do[\s\S]*pnpm audit --audit-level high[\s\S]*Dependency audit failed after \$attempt attempts\./,
+  'dependency audit must retry transient advisory API failures without weakening the severity threshold',
+);
+assert.match(
+  workflow,
   /name: Verify clean checkout[\s\S]*needs\.change_scope\.outputs\.docs_only != 'true'[\s\S]*bash scripts\/verify-clean-checkout\.sh/,
 );
 for (const duplicateStep of [
