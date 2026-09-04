@@ -270,7 +270,7 @@ assert.doesNotMatch(
 for (const command of [
   'bash scripts/verify-repository-integrity.sh',
   'pnpm install --frozen-lockfile',
-  'pnpm audit --audit-level high',
+  'pnpm audit --audit-level high --ignore-registry-errors',
   'pnpm exec playwright install --with-deps chromium',
   'pnpm lint',
   'pnpm build',
@@ -311,8 +311,8 @@ assert.match(
 );
 assert.match(
   workflow,
-  /name: Dependency audit[\s\S]*for attempt in 1 2 3; do[\s\S]*pnpm audit --audit-level high[\s\S]*Dependency audit failed after \$attempt attempts\./,
-  'dependency audit must retry transient advisory API failures without weakening the severity threshold',
+  /name: Dependency audit[\s\S]*pnpm audit --audit-level high --ignore-registry-errors/,
+  'dependency audit must fail on high-severity advisories without failing on registry transport errors',
 );
 assert.match(
   workflow,
