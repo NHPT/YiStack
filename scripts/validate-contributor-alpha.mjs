@@ -424,6 +424,23 @@ assert.match(
   'PostgreSQL readiness must execute a query against the configured database',
 );
 
+const postgresRuntimeValidation = read('scripts/validate-release-postgres-runtime.sh');
+assert.match(
+  postgresRuntimeValidation,
+  /UPDATE public\.system_config SET value = 'false' WHERE key = 'container\.enabled'/,
+  'release validation must disable the database-backed application container runtime',
+);
+assert.match(
+  postgresRuntimeValidation,
+  /CONTAINER_ENABLED=false[\s\S]*CONTAINER_PREVIEW_PORT=0/,
+  'release validation must isolate application container and preview listeners',
+);
+assert.match(
+  postgresRuntimeValidation,
+  /print_backend_log\(\)[\s\S]*tail -n 220 "\$backend_log"/,
+  'release validation must retain the final backend startup error',
+);
+
 const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');
 assert.ok(liveEvalWorkflow.includes('pnpm eval:smoke'));
 assert.ok(liveEvalWorkflow.includes('YISTACK_EVAL_TOKEN'));
