@@ -84,9 +84,9 @@ YES 使 YiStack 不把文件写入或模型回复视为成功。协议、权限�
 - Runtime: rootless Podman
 - Package manager: pnpm 11.5.2
 
-## 生产部署要求
+## 官方预编译部署包要求
 
-预编译部署包面向 Debian 12，并支持使用 `apt`、systemd 和 rootless Podman 的兼容 Ubuntu 环境。选择与服务器一致的架构：`amd64` 或 `arm64`。安装需要 root 权限和访问系统软件源、Playwright 浏览器下载站及容器镜像仓库的网络连接；Node.js 22 运行时已包含在包内，生产服务器无需安装 Go、pnpm 或前端构建工具。
+YiStack 的 Web 使用界面可通过现代浏览器跨平台访问，项目源码也不限定客户端操作系统。当前官方预编译服务端部署包提供 Linux `amd64` 和 `arm64` 构建，并以 Debian 12 作为完整生产验收基线；安装器依赖 `apt`、systemd 和 rootless Podman，满足这些依赖的兼容 Ubuntu 环境也可使用，但不代表 Windows 或 macOS 服务端已经完成生产验收。安装需要 root 权限和访问系统软件源、Playwright 浏览器下载站及容器镜像仓库的网络连接；Node.js 22 运行时已包含在包内，生产服务器无需安装 Go、pnpm 或前端构建工具。
 
 ## 生产快速部署
 
@@ -141,11 +141,11 @@ sudo yistackctl health
 
 安装器会生成数据库密码，写入 `/etc/yistack/postgres.env`，并依次执行 Supabase SQL 兼容层和 `database/init.sql`。此模式提供 YiStack 自身的 PostgreSQL 数据库和传统 JWT 认证，不提供 Supabase Auth、Storage 或其他托管服务；生成的应用若依赖 Supabase，仍需单独配置 Supabase 项目。
 
-### 可选演示环境维护
+### 可选临时体验模式（每日自动还原）
 
-公开体验环境继续使用上述标准 PostgreSQL 生产部署，不需要维护专用应用分支。部署包提供默认关闭的运维层，可按日恢复演示基线，并按小时执行 TTL、缓存、日志和磁盘水位治理。该功能只支持安装器管理的本地 PostgreSQL；检测到外部 Supabase 时会拒绝执行，避免对外部数据库进行不完整或不可逆的重置。
+面向公众开放试用时，可在上述标准 PostgreSQL 生产部署上启用“临时体验模式”，不需要维护专用应用分支。它类似可定时还原的体验沙箱：访问期间的数据仍会正常持久化，直到下一次计划重置才会删除，因此不应把它理解为浏览器隐私意义上的即时“无痕模式”，也不要在公开实例中输入密钥或其他敏感数据。
 
-先完成 Provider、演示账号和演示项目配置，再显式安装配置并采集基线：
+该模式只支持安装器管理的本地 PostgreSQL；检测到外部 Supabase 时会拒绝执行，避免对外部数据库进行不完整或不可逆的重置。先完成管理员、Provider 和系统策略配置，确认尚未创建普通用户或项目，再安装配置并采集干净基线：
 
 ```bash
 sudo install -m 0640 -o root -g yistack \
@@ -154,21 +154,31 @@ sudo install -m 0640 -o root -g yistack \
 sudo sed -i 's/^DEMO_MAINTENANCE_ENABLED=false$/DEMO_MAINTENANCE_ENABLED=true/' \
   /etc/yistack/demo-maintenance.env
 sudo yistackctl demo snapshot
-sudo systemctl enable --now \
-  yistack-demo-reset.timer \
-  yistack-demo-cleanup.timer
+sudo yistackctl demo apply-schedule
 sudo yistackctl demo status
 ```
 
-`snapshot` 会在短暂停止应用和项目容器后保存 PostgreSQL dump、项目工作区、基线项目列表、Release commit 和 SHA-256 清单。它不会复制 `/etc/yistack` 中的密钥。默认策略为：
+`snapshot` 会在短暂停止应用和项目容器后保存 PostgreSQL dump、空项目工作区、Release commit 和 SHA-256 清单。若数据库中仍有普通用户、项目或关联业务记录，或项目工作区非空，它会拒绝创建基线。它不会复制 `/etc/yistack` 中的密钥。
 
-- 每天 04:00 后随机延迟最多 10 分钟恢复基线；
-- 每小时清理过期的非基线项目、已停止项目容器、生成证据和缓存；
-- 磁盘达到 80% 时，从最旧的非基线项目开始清理，直至降到 70%；
-- 始终保留基线项目、`runtime/templates`、`ms-playwright`、配置目录和已安装 Release；
-- 仅删除带精确 `yistack.project_id` 标签的 Podman 容器和网络，不执行全局 `podman system prune`。
+默认策略为：
 
-可在 `/etc/yistack/demo-maintenance.env` 调整 TTL 和水位。升级 YiStack 后，旧基线因 `SOURCE_COMMIT` 不匹配而拒绝恢复，必须在新版本验证完成后重新执行 `snapshot`。手动操作和停用命令如下：
+- 每天 04:00 后随机延迟最多 10 分钟恢复干净基线；
+- 每次每日重置删除全部普通用户及其关联数据库记录、项目工作区、带 `yistack.project_id` 标签的容器和网络、容器状态、生成证据、缓存和受管文件日志；
+- 每小时按 TTL 清理过期项目、已停止项目容器、生成证据、缓存和日志，作为每日重置之间的容量保护；
+- 磁盘达到 80% 时，从最旧的项目开始清理，直至降到 70%；
+- 始终保留 Podman 基础镜像、`runtime/templates`、`ms-playwright`、管理员与 Provider 配置、配置目录和已安装 Release；
+- 不执行全局 `podman system prune`，不会删除供后续用户复用的镜像。
+
+重置时间、随机延迟、小时级清理时间、TTL 和磁盘水位都可在 `/etc/yistack/demo-maintenance.env` 中配置。例如：
+
+```bash
+DEMO_RESET_ON_CALENDAR="*-*-* 04:00:00"
+DEMO_RESET_RANDOMIZED_DELAY_SEC=10min
+DEMO_CLEANUP_ON_CALENDAR="*-*-* *:30:00"
+DEMO_CLEANUP_RANDOMIZED_DELAY_SEC=5min
+```
+
+时间表达式遵循 systemd calendar 语法并使用服务器时区。修改后执行 `sudo yistackctl demo apply-schedule` 进行校验并原子更新 timer override。升级 YiStack 后，旧基线因 schema 或 `SOURCE_COMMIT` 不匹配而拒绝恢复，必须在新版本验证完成且没有普通用户和项目时重新执行 `snapshot`。手动操作和停用命令如下：
 
 ```bash
 sudo yistackctl demo cleanup
