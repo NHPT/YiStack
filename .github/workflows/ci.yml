@@ -152,15 +152,17 @@ jobs:
         env:
           SKIP_FRONTEND_BUILD: "true"
           TARGET_ARCH: amd64
-          VERSION: v0.0.0
+          VERSION: v1.1.0
         run: |
           pnpm validate:database:migrations
           pnpm validate:release:demo
           pnpm build:release
           scripts/validate-release-package.sh \
-            dist/release/yistack-v0.0.0-linux-amd64.tar.gz amd64
+            dist/release/yistack-v1.1.0-linux-amd64.tar.gz amd64
           scripts/validate-release-postgres-runtime.sh \
-            dist/release/yistack-v0.0.0-linux-amd64
+            dist/release/yistack-v1.1.0-linux-amd64
+          scripts/validate-release-upgrade.sh \
+            dist/release/yistack-v1.1.0-linux-amd64
 
       - name: VIS-001 browser acceptance
         if: needs.change_scope.outputs.docs_only != 'true'

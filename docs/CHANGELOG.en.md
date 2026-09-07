@@ -21,6 +21,7 @@ starting with v1.0.0.
 - Added a disabled-by-default ephemeral trial mode for local PostgreSQL deployments, with a user-data-free baseline, configurable daily restoration, complete user/project data cleanup, project and container TTLs, disk watermarks, and reusable image retention.
 - Added an explicit database migration runner with manifest ordering, SHA-256 integrity, a PostgreSQL advisory lock, upgrades from the known v1.0.0 baseline, and one-step rollback.
 - VIS-001 visual context loop: chat accepts pasted or uploaded PNG/JPEG references, and only models declaring the `vision` capability may receive images.
+- Added safe one-command upgrades: v1.0.0 runs the new Release's `upgrade.sh`, while later versions use `yistackctl upgrade`; the command automates backup, migration, verification, running-state restoration, and failure recovery of the database, configuration, systemd units, and Release pointer.
 - The backend validates MIME type, size, dimensions, pixel count, and actual decoding before re-encoding images; multimodal analysis must return strict `visual_context.v1`.
 - Visual context is bound to messages, candidate plans, and durable Generation Jobs, survives live SSE and refresh replay, and constrains layout, components, color, typography, spacing, responsive behavior, and interactions during planning and generation.
 - VIS-002 visual-editing loop: owners and editors can select real page elements in internal project previews and submit change instructions; viewers, public shares, and external URLs cannot enable the inspector.
@@ -41,6 +42,7 @@ starting with v1.0.0.
 - Visual context carries a server-issued HMAC integrity proof. Clients cannot forge analysis results by changing both the request and project `plan_data`, while valid context remains reusable across discussion and replanning.
 - The Preview inspector validates iframe `source/origin` and never reads cookies, storage, HTML, form values, or URL query parameters. The backend revalidates paths, selectors, rectangles, and the computed-style allowlist, while permission lookup failures fail closed.
 - systemd exposes the complete secret configuration only to the backend. The frontend reads an allowlist of non-sensitive runtime settings, while the browser worker receives only its browser path and listen port.
+- Upgrade backups use PostgreSQL custom format and a filename-bound SHA-256 for the YiStack-managed `public` schema only. Recovery cleans and restores backed-up objects in one transaction and leaves services stopped when automatic recovery is incomplete.
 - Demo maintenance accepts only the installer-managed local PostgreSQL database, operates only on Podman resources labeled with `yistack.project_id`, and protects templates, browser runtimes, configuration, and Release directories.
 - The database runner rejects tampered SQL, checksum drift, history gaps, and unknown or newer versions; production startup fails closed until pending migrations are applied explicitly.
 - Collaboration resource events are backend-owned file or generation transaction evidence; clients cannot forge mutation audit events.

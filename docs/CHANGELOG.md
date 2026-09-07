@@ -19,6 +19,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - 新增默认关闭的临时体验模式，为本地 PostgreSQL 部署提供无用户数据基线、可配置的每日自动还原、完整用户/项目数据清理、项目与容器 TTL 以及磁盘水位保护，同时保留可复用镜像。
 - 新增显式数据库 migration runner，支持 manifest 顺序、SHA-256 完整性、PostgreSQL advisory lock、已知 v1.0.0 baseline 升级和单步 rollback。
 - VIS-001 视觉上下文闭环：聊天支持上传或粘贴 PNG/JPEG 参考图，只有声明 `vision` 能力的模型可接收图片。
+- 新增一键安全升级：v1.0.0 可从新 Release 执行 `upgrade.sh`，后续版本使用 `yistackctl upgrade`；命令自动完成备份、migration、验证、运行状态恢复，并在失败时回退数据库、配置、systemd 单元和 Release 指针。
 - 图片会在服务端执行 MIME、大小、尺寸、像素与真实解码校验，并重新编码净化；多模态分析严格输出 `visual_context.v1`。
 - 视觉上下文绑定消息、候选方案与持久 Generation Job，SSE 实时流和刷新重放均可恢复；方案与代码生成消费布局、组件、颜色、字体、间距、响应式和交互约束。
 - VIS-002 可视化编辑闭环：owner/editor 可在内部项目 Preview 中选择真实页面元素并提交修改要求，viewer、公共分享和外部地址不可启用。
@@ -41,6 +42,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - systemd 仅向后端注入完整密钥配置；前端按 allowlist 读取非敏感运行参数，浏览器 worker 只接收浏览器目录和监听端口。
 - 演示维护只接受安装器管理的本地 PostgreSQL，只操作带 `yistack.project_id` 标签的 Podman 资源，并保护模板、浏览器运行时、配置和 Release 目录。
 - 数据库 runner 拒绝被篡改的 SQL、checksum 漂移、版本断层、未知或过新历史；生产启动在数据库未显式升级时关闭失败。
+- 升级备份使用 PostgreSQL custom format 和绑定文件名的 SHA-256，只覆盖 YiStack 管理的 `public` schema；恢复会在单事务中清理并恢复备份内对象，自动恢复不完整时保持服务停止。
 - 协作资源事件只能由后端文件或生成事务写入，客户端不能伪造 mutation audit。
 - `express@5.2.1` 的传递依赖 `body-parser` 固定升级至 2.3.0，High/Critical 依赖审计保持为零。
 

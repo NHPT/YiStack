@@ -45,7 +45,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | 可视化编辑 | 已实现 | 在内部项目 Preview 中选择真实元素，生成脱敏 `visual_edit.v1` 并由 owner/editor 提交源码修改；viewer、公共分享和外部地址关闭失败 |
 | 容器运行 | 已实现 | 每项目 rootless Podman 运行边界和资源策略 |
 | 生产部署发行 | 已实现 | Web 客户端跨平台；官方 Linux amd64/arm64 服务端包以 Debian 12 为生产验收基线，包含 systemd、内置 Node.js 22、可选 PostgreSQL 16 容器、SHA-256、SBOM 和构建来源证明 |
-| 数据库升级 | 已实现 | 已知 v1.0.0 baseline 到当前版本的显式 runner、advisory lock、SHA-256 完整性、单步 rollback 和 PostgreSQL 16 验收；未知版本关闭失败 |
+| 数据库升级 | 已实现 | 已知 v1.0.0 baseline 支持一键安全升级；自动完成 custom-format 备份、显式 migration、健康检查及失败恢复，runner 保留 advisory lock、SHA-256 完整性和未知版本关闭失败 |
 | 临时体验模式 | 已实现 | 本地 PostgreSQL 部署可选的无用户数据基线、可配置每日还原、完整用户/项目数据清理、TTL 和磁盘水位治理；保留复用镜像，外部 Supabase 明确不支持自动重置 |
 | Supabase 应用预设 | 已实现 | Auth、CRUD RLS、私有 Storage、类型、migration 和 rollback |
 | GitHub 集成 | 已实现 | OAuth PKCE、token 加密、import、pull/push 冲突防护、webhook |
@@ -115,6 +115,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 - `backend/migrations/manifest.json` 固定迁移顺序、来源版本和 SQL checksum
 - 生产启动只验证当前数据库版本，schema 变更必须显式运行 migration runner
 - v1.0.0 仍只支持全新安装；后续 Release 仅支持兼容矩阵列出的来源版本
+- Release 升级使用 `upgrade.sh` / `yistackctl upgrade`，自动备份 `public` schema，并在失败时恢复数据库、配置、systemd 单元和旧 Release
 
 ## 7. 外部集成边界
 

@@ -9,6 +9,7 @@ if [ -z "$PACKAGE_ROOT" ]; then
 fi
 PACKAGE_ROOT="$(realpath "$PACKAGE_ROOT")"
 for required_file in \
+  bin/yistack-database-backup \
   bin/yistack-demo-maintenance \
   bin/yistack-postgres \
   bin/yistack-server \
@@ -127,6 +128,73 @@ fi
 podman exec "$container_name" \
   psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
   -c "DELETE FROM public.users WHERE email = 'migration-preserved@example.test';" \
+  >/dev/null
+
+backup_config="$demo_root/backup.env"
+backup_dir="$demo_root/database-backups"
+cat > "$backup_config" <<EOF
+DB_TYPE=postgres
+DB_HOST=127.0.0.1
+DB_PORT=$postgres_port
+DB_USER=postgres
+DB_PASSWORD=release-runtime-test-password
+DB_NAME=yistack
+DB_SSL_MODE=disable
+POSTGRES_IMAGE=docker.io/library/postgres:16-alpine
+EOF
+run_database_backup() {
+  YISTACK_ENV_FILE="$backup_config" \
+  YISTACK_POSTGRES_ENV_FILE="$demo_root/missing-postgres.env" \
+  YISTACK_DATABASE_BACKUP_DIR="$backup_dir" \
+    "$PACKAGE_ROOT/bin/yistack-database-backup" "$@"
+}
+
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "INSERT INTO public.users (id, email, username, password_hash)
+      VALUES (
+        '10000000-0000-0000-0000-000000000097',
+        'backup-original@example.test',
+        'Backup Original',
+        'test-only'
+      );" >/dev/null
+run_database_backup create release-runtime >/dev/null
+run_database_backup verify release-runtime >/dev/null
+cp "$backup_dir/release-runtime.dump" "$backup_dir/corrupt.dump"
+backup_checksum="$(sha256sum "$backup_dir/release-runtime.dump")"
+backup_checksum="${backup_checksum%% *}"
+printf '%s  corrupt.dump\n' "$backup_checksum" > "$backup_dir/corrupt.dump.sha256"
+printf 'corruption' >> "$backup_dir/corrupt.dump"
+if run_database_backup verify corrupt > "$demo_root/corrupt-backup.out" 2>&1; then
+  echo "Database backup verification accepted a corrupted archive." >&2
+  exit 1
+fi
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "ALTER TABLE public.users ADD COLUMN upgrade_restore_probe text;
+      UPDATE public.users
+      SET email = 'backup-mutated@example.test'
+      WHERE id = '10000000-0000-0000-0000-000000000097';" >/dev/null
+run_database_backup restore release-runtime >/dev/null
+backup_restore_contract="$(
+  podman exec "$container_name" \
+    psql -At -v ON_ERROR_STOP=1 -U postgres -d yistack \
+    -c "SELECT
+          (SELECT email FROM public.users
+           WHERE id = '10000000-0000-0000-0000-000000000097') || ':' ||
+          (SELECT count(*) FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'users'
+             AND column_name = 'upgrade_restore_probe') || ':' ||
+          (SELECT count(*) FROM public.schema_migrations);"
+)"
+if [ "$backup_restore_contract" != "backup-original@example.test:0:2" ]; then
+  echo "Unexpected database backup restore contract: $backup_restore_contract" >&2
+  exit 1
+fi
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "DELETE FROM public.users WHERE email = 'backup-original@example.test';" \
   >/dev/null
 
 container_runtime_config="$(

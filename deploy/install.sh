@@ -119,6 +119,7 @@ install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" \
   "$DATA_DIR/runtime/templates" \
   "$DATA_DIR/runtime/container-data" \
   "$DATA_DIR/runtime/generation-evidence" \
+  "$DATA_DIR/database-backups" \
   "$DATA_DIR/ms-playwright" \
   "$LOG_DIR" \
   "$CACHE_DIR"
@@ -159,6 +160,10 @@ if ! grep -q '^DB_AUTO_MIGRATE=' "$CONFIG_DIR/yistack.env"; then
 fi
 set_env_value "$CONFIG_DIR/yistack.env" \
   YISTACK_MIGRATIONS_DIR "$INSTALL_ROOT/current/database/migrations"
+if ! grep -q '^YISTACK_DATABASE_BACKUP_DIR=' "$CONFIG_DIR/yistack.env"; then
+  set_env_value "$CONFIG_DIR/yistack.env" \
+    YISTACK_DATABASE_BACKUP_DIR "$DATA_DIR/database-backups"
+fi
 
 if ! grep -Eq '^JWT_SECRET=.{32,}$' "$CONFIG_DIR/yistack.env"; then
   set_env_value "$CONFIG_DIR/yistack.env" JWT_SECRET "$(openssl rand -hex 32)"

@@ -28,6 +28,7 @@ const requiredFiles = [
   '.github/ISSUE_TEMPLATE/config.yml',
   '.github/workflows/ci.yml',
   '.github/workflows/release.yml',
+  'deploy/bin/yistack-database-backup',
   'deploy/bin/yistack-frontend',
   'deploy/bin/yistack-postgres',
   'deploy/bin/yistackctl',
@@ -35,6 +36,7 @@ const requiredFiles = [
   'deploy/config/yistack.env.example',
   'deploy/database/postgres-auth-compat.sql',
   'deploy/install.sh',
+  'deploy/upgrade.sh',
   'deploy/systemd/yistack-backend.service',
   'deploy/systemd/yistack-browser-worker.service',
   'deploy/systemd/yistack-frontend.service',
@@ -43,6 +45,7 @@ const requiredFiles = [
   'scripts/build-release-package.sh',
   'scripts/validate-release-package.sh',
   'scripts/validate-release-postgres-runtime.sh',
+  'scripts/validate-release-upgrade.sh',
   'scripts/validate-database-migrations.sh',
   '.github/workflows/codeql.yml',
   '.github/codeql/codeql-config.yml',
@@ -108,6 +111,7 @@ for (const script of [
   'eval:smoke:ci',
   'validate:release',
   'validate:release:postgres',
+  'validate:release:upgrade',
 ]) {
   assert.equal(typeof packageJSON.scripts[script], 'string', `missing package script ${script}`);
 }
@@ -165,6 +169,12 @@ assert.match(
   readmeEnglish,
   /\[YES Engineering System\]\(docs\/engineering\/YES\.en\.md\)/,
 );
+assert.match(readme, /sudo \.\/upgrade\.sh/);
+assert.match(readme, /sudo yistackctl upgrade \.\/yistack-vX\.Y\.Z-linux-amd64\.tar\.gz/);
+assert.match(readme, /\/var\/lib\/yistack\/database-backups/);
+assert.match(readmeEnglish, /sudo \.\/upgrade\.sh/);
+assert.match(readmeEnglish, /sudo yistackctl upgrade \.\/yistack-vX\.Y\.Z-linux-amd64\.tar\.gz/);
+assert.match(readmeEnglish, /\/var\/lib\/yistack\/database-backups/);
 assert.match(product, /已实现，待云端验收/);
 assert.doesNotMatch(product, /合同已实现/);
 assert.match(productEnglish, /Implemented; live acceptance pending/);
@@ -287,6 +297,7 @@ for (const command of [
   'pnpm exec playwright install --with-deps chromium',
   'pnpm validate:database:migrations',
   'pnpm lint',
+  'scripts/validate-release-upgrade.sh',
   'pnpm build',
   'pnpm yes:validate',
   'bash scripts/verify-clean-checkout.sh',
@@ -317,7 +328,7 @@ for (const result of ['needs.change_scope.result', 'needs.repository_contract.re
 }
 assert.match(
   workflow,
-  /name: Deployment package acceptance[\s\S]*pnpm validate:database:migrations[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh/,
+  /name: Deployment package acceptance[\s\S]*pnpm validate:database:migrations[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh[\s\S]*scripts\/validate-release-upgrade\.sh/,
 );
 assert.match(
   workflow,
@@ -376,6 +387,7 @@ assert.match(releaseWorkflow, /pnpm build:release/);
 assert.match(releaseWorkflow, /scripts\/validate-release-package\.sh/);
 assert.match(releaseWorkflow, /scripts\/validate-release-postgres-runtime\.sh/);
 assert.match(releaseWorkflow, /format: spdx-json/);
+assert.match(releaseWorkflow, /scripts\/validate-release-upgrade\.sh/);
 assert.match(releaseWorkflow, /actions\/attest-build-provenance@v3/);
 assert.match(releaseWorkflow, /gh release (create|upload)/);
 
@@ -467,6 +479,16 @@ assert.match(
 
 const demoMaintenance = read('deploy/bin/yistack-demo-maintenance');
 const demoMaintenanceConfig = read('deploy/config/yistack-demo-maintenance.env.example');
+assert.match(
+  postgresRuntimeValidation,
+  /yistack-database-backup[\s\S]*create release-runtime[\s\S]*verify release-runtime[\s\S]*restore release-runtime/,
+  'release validation must prove that upgrade backups can be created, verified, and restored',
+);
+assert.match(
+  postgresRuntimeValidation,
+  /corrupt\.dump[\s\S]*Database backup verification accepted a corrupted archive/,
+  'release validation must reject corrupted database backups',
+);
 assert.match(
   demoMaintenance,
   /schema=ephemeral-trial-baseline\.v1[\s\S]*user_data_policy=empty/,
@@ -596,18 +618,30 @@ for (const entry of migrationManifest.migrations) {
 
 const migrationRunner = read('backend/internal/migration/runner.go');
 const databaseCommand = read('backend/cmd/server/database_command.go');
+const databaseBackup = read('deploy/bin/yistack-database-backup');
 const serverMain = read('backend/cmd/server/main.go');
 const releaseBuilder = read('scripts/build-release-package.sh');
 const releaseValidation = read('scripts/validate-release-package.sh');
 const yistackctl = read('deploy/bin/yistackctl');
 const migrationValidation = read('scripts/validate-database-migrations.sh');
 assert.match(migrationRunner, /pg_try_advisory_lock[\s\S]*pg_advisory_unlock/, 'migration writes must hold a PostgreSQL advisory lock');
+assert.match(releaseValidation, /bin\/yistack-database-backup[\s\S]*upgrade\.sh/, 'Release validation must require the upgrade entrypoints');
+const upgradeValidation = read('scripts/validate-release-upgrade.sh');
+const upgradeScript = read('deploy/upgrade.sh');
 const installer = read('deploy/install.sh');
 assert.match(migrationRunner, /checksum_sha256[\s\S]*database checksum mismatch/, 'migration history must verify recorded checksums');
+assert.match(databaseBackup, /SCHEMA - public[\s\S]*--single-transaction[\s\S]*--use-list/, 'database recovery must use a filtered custom-archive TOC in one transaction');
+assert.doesNotMatch(databaseBackup, /DROP SCHEMA[^\n]*public/i, 'database recovery must not cascade-drop the public schema');
+assert.match(yistackctl, /checksum_line[\s\S]*BASH_REMATCH\[2\][\s\S]*actual_checksum/, 'archive upgrades must bind the checksum sidecar to the selected archive');
+assert.match(upgradeScript, /file inventory does not match MANIFEST\.sha256/, 'upgrades must reject incomplete Release manifests');
 assert.match(databaseCommand, /status\|plan\|migrate\|verify\|rollback/, 'database CLI must expose lifecycle commands');
 assert.match(databaseCommand, /case "supabase"[\s\S]*buildSupabaseDirectDatabaseConfig/, 'Supabase migrations must use direct PostgreSQL access');
 assert.match(serverMain, /if !autoMigrate \{[\s\S]*runner\.VerifyCurrent/, 'production startup must verify the latest manifest version');
 assert.match(releaseBuilder, /cp -a "\$ROOT_DIR\/backend\/migrations"/, 'Release packages must include migrations');
+assert.match(yistackctl, /upgrade\)[\s\S]*run_release_upgrade/, 'yistackctl must dispatch one-command upgrades');
+assert.match(upgradeScript, /flock -n[\s\S]*run_backup_command create[\s\S]*run_database_command "\$INSTALL_ROOT\/current" migrate[\s\S]*run_database_command "\$INSTALL_ROOT\/current" verify/, 'one-command upgrades must lock, back up, migrate, and verify');
+assert.match(upgradeScript, /recover_failed_upgrade[\s\S]*run_backup_command restore[\s\S]*restore_previous_release_files/, 'failed upgrades must restore the database and previous Release');
+assert.match(upgradeValidation, /Successful upgrade acceptance[\s\S]*MOCK_NEW_HEALTH_FAIL=true[\s\S]*Previous Release v1\.0\.0 restored/, 'Release acceptance must cover successful upgrade and failed-health recovery');
 assert.match(releaseValidation, /database\/migrations\/manifest\.json[\s\S]*rollback\/202609070001_migration_integrity\.sql/, 'Release validation must require the complete migration set');
 assert.match(yistackctl, /database\)[\s\S]*migrate \| rollback\)[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*systemctl is-active --quiet yistack-backend\.service[\s\S]*yistack-server" database/, 'database schema writes must require stopped application services');
 assert.match(migrationValidation, /advisory lock contention[\s\S]*tampered and unknown histories[\s\S]*Rolling back one version/, 'PostgreSQL acceptance must cover locking, integrity boundaries, and rollback');

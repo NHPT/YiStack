@@ -170,25 +170,36 @@ The installer generates the database password in `/etc/yistack/postgres.env`, th
 ### Upgrade an Existing Installation
 
 The next upgrade-capable Release supports the known v1.0.0 database baseline.
-Back up the database, verify that the backup can be restored, then run these
-commands from the extracted new Release directory:
+For the first upgrade from v1.0.0, verify and extract the new Release, then run
+one command from that directory:
 
 ```bash
-sudo yistackctl stop
-sudo ./install.sh
-sudo yistackctl database plan
-sudo yistackctl database migrate
-sudo yistackctl database verify
-sudo yistackctl start
-sudo yistackctl health
+sudo ./upgrade.sh
 ```
 
-Do not pass `--start` to the installer during an upgrade. `migrate` and
-`rollback` refuse to change the schema while the application is active.
-Production startup never migrates automatically and rejects unsupported or
-outdated databases. Supabase upgrades require the direct database password in
-`SUPABASE_DB_PASSWORD`. See the complete compatibility matrix and rollback
-boundary in
+Subsequent upgrades can use the installed control command. Keep the Release
+archive and its matching `.sha256` file in the same directory:
+
+```bash
+sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
+```
+
+The command verifies the Release and forward-only version direction, preflights
+the database, stops the application and ephemeral-trial timers, creates and
+verifies a PostgreSQL custom-format backup, installs the new Release, migrates
+and verifies the database, restores the previous running state, and performs a
+health check. On failure it restores the previous configuration, Release,
+systemd units, and database backup. If automatic recovery is incomplete, the
+services remain stopped and the backup location is reported. Services that were
+already stopped remain stopped.
+
+Backups default to `/var/lib/yistack/database-backups` and cover only the
+YiStack-managed `public` schema. Supabase-managed schemas such as `auth` and
+`storage` are outside this backup. Supabase upgrades require the direct database
+password in `SUPABASE_DB_PASSWORD`. Production startup still never mutates the
+schema automatically, and downgrades or historical databases outside the
+compatibility matrix remain unsupported. See the complete compatibility and
+recovery boundary in
 [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 
 ### Optional Ephemeral Trial Mode

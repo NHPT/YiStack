@@ -57,7 +57,7 @@ Core goals:
 | Visual editing | Implemented | Select real elements in internal project previews, submit sanitized `visual_edit.v1` evidence as owner/editor, and write changes back to source; viewers, public shares, and external URLs fail closed |
 | Container runtime | Implemented | Per-project rootless Podman boundaries and resource policies |
 | Production distribution | Implemented | Cross-platform web client; official Linux amd64/arm64 server packages use Debian 12 as the production acceptance baseline and include systemd, bundled Node.js 22, optional PostgreSQL 16, SHA-256, SBOMs, and provenance |
-| Database upgrades | Implemented | Explicit runner from the known v1.0.0 baseline, advisory locking, SHA-256 integrity, one-step rollback, and PostgreSQL 16 acceptance; unknown versions fail closed |
+| Database upgrades | Implemented | Safe one-command upgrade from the known v1.0.0 baseline, with custom-format backup, explicit migration, health checking, and failure recovery; the runner retains advisory locking, SHA-256 integrity, and fail-closed unknown-version handling |
 | Ephemeral trial mode | Implemented | Optional clean baseline, configurable daily restoration, complete user/project data cleanup, TTLs, and disk-watermark governance for local PostgreSQL deployments; reusable images are retained and external Supabase is excluded |
 | Supabase application preset | Implemented | Auth, CRUD RLS, private Storage, types, migrations, and rollback |
 | GitHub integration | Implemented | OAuth PKCE, encrypted tokens, import, guarded pull/push, and webhooks |
@@ -140,6 +140,8 @@ claim generation succeeded.
   require the explicit migration runner.
 - v1.0.0 remains clean-install only; later Releases support only sources listed
   in the compatibility matrix.
+- Release upgrades use `upgrade.sh` / `yistackctl upgrade`, back up the
+  `public` schema, and restore the database, configuration, systemd units, and old Release on failure.
 
 ## 7. External Integration Boundaries
 

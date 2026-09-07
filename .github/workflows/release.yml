@@ -129,6 +129,8 @@ jobs:
             "${{ matrix.arch }}"
           scripts/validate-release-postgres-runtime.sh \
             "dist/release/yistack-${{ github.ref_name }}-linux-${{ matrix.arch }}"
+          scripts/validate-release-upgrade.sh \
+            "dist/release/yistack-${{ github.ref_name }}-linux-${{ matrix.arch }}"
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
