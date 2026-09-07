@@ -170,13 +170,14 @@ cp "$ROOT_DIR/deploy/config/"* "$stage_root/config/"
 cp "$ROOT_DIR/deploy/systemd/"* "$stage_root/systemd/"
 cp "$ROOT_DIR/deploy/bin/"* "$stage_root/bin/"
 cp "$ROOT_DIR/deploy/install.sh" "$stage_root/install.sh"
+cp "$ROOT_DIR/deploy/upgrade.sh" "$stage_root/upgrade.sh"
 cp "$ROOT_DIR/LICENSE" "$stage_root/LICENSE"
 cp "$ROOT_DIR/README.md" "$stage_root/README.md"
 cp "$ROOT_DIR/README.en.md" "$stage_root/README.en.md"
 printf '%s\n' "$VERSION" > "$stage_root/VERSION"
 printf '%s\n' "$SOURCE_COMMIT" > "$stage_root/SOURCE_COMMIT"
 
-chmod 0755 "$stage_root/install.sh" "$stage_root/bin/"*
+chmod 0755 "$stage_root/install.sh" "$stage_root/upgrade.sh" "$stage_root/bin/"*
 
 (
   cd "$stage_root"

@@ -153,23 +153,30 @@ sudo yistackctl health
 
 ### 升级现有安装
 
-下一个可升级 Release 支持从 v1.0.0 的已知数据库基线升级。先备份数据库并
-实际验证恢复，再在解压后的新 Release 目录中执行：
+下一个可升级 Release 支持从 v1.0.0 的已知数据库基线升级。首次从 v1.0.0
+升级时，校验并解压新 Release，然后在该目录执行一条命令：
 
 ```bash
-sudo yistackctl stop
-sudo ./install.sh
-sudo yistackctl database plan
-sudo yistackctl database migrate
-sudo yistackctl database verify
-sudo yistackctl start
-sudo yistackctl health
+sudo ./upgrade.sh
 ```
 
-不要在升级时向安装器传入 `--start`。`migrate` 和 `rollback` 会在应用仍运行时
-拒绝修改 schema；生产启动不会自动迁移，并会拒绝不受支持或尚未升级的
-数据库。Supabase 升级需要配置直连密码 `SUPABASE_DB_PASSWORD`。完整兼容矩阵
-和 rollback 边界见
+从该版本开始，后续升级可直接使用已安装的控制命令；Release 压缩包和同名
+`.sha256` 文件应位于同一目录：
+
+```bash
+sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
+```
+
+升级命令会校验 Release 和版本方向、预检数据库、停止应用及临时体验模式 timer、
+创建并校验 PostgreSQL custom-format 备份、安装新 Release、执行并验证 migration、
+恢复升级前运行状态并完成健康检查。失败时会自动恢复旧配置、旧 Release、systemd
+单元和数据库备份；若自动恢复不完整，服务保持停止并输出备份位置。原先已停止的
+服务在升级后仍保持停止。
+
+备份默认保存在 `/var/lib/yistack/database-backups`，只覆盖 YiStack 管理的
+`public` schema；Supabase 的 `auth`、`storage` 等托管 schema 不在该备份范围内。
+Supabase 升级必须配置直连密码 `SUPABASE_DB_PASSWORD`。生产启动仍不会自动改表，
+且不支持降级或兼容矩阵之外的历史数据库。完整兼容矩阵和恢复边界见
 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。
 
 ### 可选临时体验模式（每日自动还原）

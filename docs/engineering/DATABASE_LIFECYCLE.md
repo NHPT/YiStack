@@ -61,27 +61,47 @@ backend/migrations/manifest.json
 
 ## 受支持升级流程
 
-安装新 Release 前先备份数据库，并验证备份可以恢复。升级期间不允许应用继续
-写入数据库：
+首次从 v1.0.0 升级时，在已校验并解压的新 Release 目录中执行：
 
 ```bash
-sudo yistackctl stop
-# 安装新的不可变 Release 包
-sudo ./install.sh
-sudo yistackctl database plan
-sudo yistackctl database migrate
-sudo yistackctl database verify
-sudo yistackctl start
-sudo yistackctl health
+sudo ./upgrade.sh
 ```
 
-`migrate` 和 `rollback` 在 `yistack.target` 运行时会拒绝执行。Supabase 模式
-必须配置 `SUPABASE_DB_PASSWORD` 以建立 PostgreSQL 直连；REST-only 模式不能
-执行 schema migration。重复执行 `migrate` 不会重复应用已记录版本。
+从首个可升级 Release 开始，后续版本统一使用：
+
+```bash
+sudo yistackctl upgrade <release-directory|release.tar.gz>
+```
+
+压缩包入口要求同目录存在匹配的 `.sha256` 文件，并在临时目录中校验安全路径和
+symlink 后调用新 Release 的 `upgrade.sh`。升级只允许严格向前的 SemVer 版本，
+同版本重装和降级均关闭失败；`flock` 保证同一主机只有一个升级进程。
+
+一键升级按固定顺序执行：
+
+1. 校验 Release `MANIFEST.sha256`，并用新 runner 执行数据库兼容性预检；
+2. 记录应用服务和临时体验模式 timer 的运行状态，停止所有数据库写入者；
+3. 为 YiStack 管理的 `public` schema 创建 PostgreSQL custom-format 备份，校验
+   SHA-256 和 archive 目录，并保存当前配置与 systemd 单元；
+4. 原子切换新 Release，按 manifest 执行 migration 并运行 `verify`；
+5. 恢复升级前的服务和 timer 状态；原先已停止的服务保持停止；
+6. 对原先运行中的完整应用执行健康检查。
+
+备份默认位于 `/var/lib/yistack/database-backups`。它不包含 Supabase 托管的
+`auth`、`storage` 或其他非 `public` schema，因此不能替代 Supabase 项目级灾备。
+Supabase 模式必须配置 `SUPABASE_DB_PASSWORD` 以建立 PostgreSQL 直连；REST-only
+模式不能备份或执行 schema migration。
+
+升级在安装、migration、verify、服务恢复或健康检查阶段失败时，会停止新服务，
+恢复旧配置；若数据库已尝试变更，则在单事务中清理并恢复备份内由 YiStack 管理的
+`public` 对象；随后恢复旧 Release 指针、旧 systemd 单元和升级前运行状态。旧
+应用还要再次通过健康检查。任一步无法完成时，应用和临时体验 timer 保持停止，
+命令输出已验证备份位置，禁止继续自动启动。
 
 runner 会拒绝 manifest 文件篡改、数据库 checksum 不匹配、版本历史断层、未知
 版本和高于当前 Release 的版本。生产应用也会在这些情况下拒绝启动，并且在
-数据库落后时提示执行 `yistackctl database migrate`。
+数据库落后时提示执行 `yistackctl database migrate`。这些低层数据库命令仍可供
+诊断和受控维护使用，但正常 Release 升级应使用上述一键入口。
 
 ## Rollback 契约
 

@@ -68,30 +68,60 @@ arrives directly at the latest schema.
 
 ## Supported Upgrade Procedure
 
-Back up the database and verify that the backup can be restored before
-installing a new Release. The application must not keep writing during the
-upgrade:
+For the first upgrade from v1.0.0, run this command from the verified and
+extracted new Release directory:
 
 ```bash
-sudo yistackctl stop
-# Install the new immutable Release package.
-sudo yistackctl database plan
-sudo ./install.sh
-sudo yistackctl database migrate
-sudo yistackctl database verify
-sudo yistackctl start
-sudo yistackctl health
+sudo ./upgrade.sh
 ```
 
-`migrate` and `rollback` refuse to run while `yistack.target` is active.
-Supabase mode requires `SUPABASE_DB_PASSWORD` for a direct PostgreSQL
-connection; REST-only mode cannot run schema migrations. Repeating `migrate`
-does not reapply recorded versions.
+Starting with the first upgrade-capable Release, later versions use:
+
+```bash
+sudo yistackctl upgrade <release-directory|release.tar.gz>
+```
+
+The archive entrypoint requires a matching `.sha256` file in the same
+directory, validates archive paths and symlinks in a temporary directory, then
+invokes the new Release's `upgrade.sh`. Upgrades allow only strictly forward
+Semantic Versions; reinstalling the same version and downgrading both fail
+closed. `flock` permits only one host upgrade at a time.
+
+The one-command upgrade follows a fixed sequence:
+
+1. verify the Release `MANIFEST.sha256` and preflight database compatibility
+   with the new runner;
+2. record application-service and ephemeral-trial timer state, then stop every
+   database writer;
+3. create a PostgreSQL custom-format backup of the YiStack-managed `public`
+   schema, verify its SHA-256 and archive directory, and preserve the current
+   configuration and systemd units;
+4. switch the immutable Release, apply manifest migrations, and run `verify`;
+5. restore the previous service and timer state, leaving previously stopped
+   services stopped;
+6. health-check a complete application stack that was previously running.
+
+Backups default to `/var/lib/yistack/database-backups`. They exclude
+Supabase-managed `auth`, `storage`, and every other non-`public` schema, so they
+do not replace project-level Supabase disaster recovery. Supabase mode requires
+`SUPABASE_DB_PASSWORD` for direct PostgreSQL access; REST-only mode cannot be
+backed up or migrated.
+
+If installation, migration, verification, service restoration, or health
+checking fails, the command stops the new services and restores the old
+configuration. After any attempted database mutation, it cleans and restores
+the YiStack-managed `public` objects in one transaction. It then restores
+the old Release pointer, old systemd units, and previous running state, followed
+by another health check of the old application. If any recovery step fails, the
+application and ephemeral-trial timers remain stopped and the command reports
+the verified backup location.
 
 The runner rejects tampered manifest files, database checksum mismatches,
 history gaps, unknown versions, and versions newer than the current Release.
 Production startup rejects the same states and instructs operators to run
-`yistackctl database migrate` when the database is behind.
+`yistackctl database migrate` when the database is behind. These lower-level
+database commands remain available for diagnostics and controlled maintenance,
+but normal Release upgrades should use the one-command entrypoints above.
 
 ## Rollback Contract
 

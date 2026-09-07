@@ -16,6 +16,7 @@
     "validate:release:demo": "bash ./scripts/validate-demo-maintenance.sh",
     "validate:release": "bash ./scripts/validate-release-package.sh",
     "validate:release:postgres": "bash ./scripts/validate-release-postgres-runtime.sh",
+    "validate:release:upgrade": "bash ./scripts/validate-release-upgrade.sh",
     "check:admin-runtime-readiness": "pnpm exec tsx scripts/validate-admin-runtime-health-diagnostics-model.ts",
     "checkout:verify": "bash ./scripts/verify-clean-checkout.sh",
     "contributor:validate": "node scripts/validate-contributor-alpha.mjs",

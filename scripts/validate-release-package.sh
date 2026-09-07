@@ -31,12 +31,22 @@ for command in bash curl file find grep realpath sed seq sha256sum tar; do
   }
 done
 
-if [ -f "$ARCHIVE_PATH.sha256" ]; then
-  (
-    cd "$(dirname "$ARCHIVE_PATH")"
-    sha256sum --check "$(basename "$ARCHIVE_PATH").sha256"
-  )
+[ -f "$ARCHIVE_PATH.sha256" ] || {
+  echo "Release archive checksum is missing: $ARCHIVE_PATH.sha256" >&2
+  exit 1
+}
+checksum_line="$(< "$ARCHIVE_PATH.sha256")"
+if [[ ! "$checksum_line" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] ||
+  [ "${BASH_REMATCH[2]:-}" != "$archive_name" ]; then
+  echo "Release archive checksum file is invalid: $ARCHIVE_PATH.sha256" >&2
+  exit 1
 fi
+actual_checksum="$(sha256sum "$ARCHIVE_PATH")"
+actual_checksum="${actual_checksum%% *}"
+[ "$actual_checksum" = "${BASH_REMATCH[1]}" ] || {
+  echo "Release archive checksum verification failed: $ARCHIVE_PATH" >&2
+  exit 1
+}
 
 while IFS= read -r entry; do
   case "$entry" in
@@ -79,6 +89,7 @@ required_files=(
   "README.md"
   "SOURCE_COMMIT"
   "VERSION"
+  "bin/yistack-database-backup"
   "bin/yistack-demo-maintenance"
   "bin/yistack-frontend"
   "bin/yistack-postgres"
@@ -102,6 +113,7 @@ required_files=(
   "frontend/.next/static"
   "frontend/server.js"
   "install.sh"
+  "upgrade.sh"
   "runtime/node/bin/node"
   "systemd/yistack-backend.service"
   "systemd/yistack-browser-worker.service"
@@ -152,6 +164,8 @@ done < <(find "$package_root" -type l -print)
 
 for script in \
   "$package_root/install.sh" \
+  "$package_root/upgrade.sh" \
+  "$package_root/bin/yistack-database-backup" \
   "$package_root/bin/yistack-demo-maintenance" \
   "$package_root/bin/yistack-frontend" \
   "$package_root/bin/yistack-postgres" \
@@ -163,6 +177,7 @@ for script in \
   bash -n "$script"
 done
 "$package_root/install.sh" --help >/dev/null
+"$package_root/upgrade.sh" --help >/dev/null
 "$package_root/bin/yistack-demo-maintenance" --help >/dev/null
 
 backend_description="$(file -b "$package_root/bin/yistack-server")"
