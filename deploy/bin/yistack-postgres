@@ -34,29 +34,21 @@ container_running() {
 }
 
 wait_until_ready() {
-  local require_init_complete="${1:-false}"
   for _ in $(seq 1 90); do
-    if [ "$require_init_complete" = "true" ] &&
-      ! grep -Fq 'PostgreSQL init process complete; ready for start up.' \
-        < <(podman logs "$POSTGRES_CONTAINER_NAME" 2>&1); then
-      sleep 1
-      continue
-    fi
     if podman exec "$POSTGRES_CONTAINER_NAME" \
       psql --quiet -At -v ON_ERROR_STOP=1 \
-      -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'SELECT 1;' \
+      -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'SELECT 1;' \
       >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
   done
-  podman logs "$POSTGRES_CONTAINER_NAME" >&2 || true
+  timeout 10s podman logs --tail 100 "$POSTGRES_CONTAINER_NAME" >&2 || true
   echo "PostgreSQL did not become ready" >&2
   return 1
 }
 
 start_database() {
-  local created=false
   mkdir -p "$POSTGRES_DATA_DIR"
   if container_exists; then
     if ! container_running; then
@@ -76,9 +68,8 @@ start_database() {
       --publish "127.0.0.1:${POSTGRES_PORT}:5432" \
       --volume "$POSTGRES_DATA_DIR:/var/lib/postgresql/data:Z,U" \
       "$POSTGRES_IMAGE" >/dev/null
-    created=true
   fi
-  wait_until_ready "$created"
+  wait_until_ready
 }
 
 initialize_database() {
@@ -87,6 +78,40 @@ initialize_database() {
     "$POSTGRES_CONTAINER_NAME" \
     psql --quiet -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     < "$PACKAGE_ROOT/database/postgres-auth-compat.sql"
+  migration_table="$(
+    podman exec "$POSTGRES_CONTAINER_NAME" \
+      psql --quiet -At -v ON_ERROR_STOP=1 \
+      -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -c "SELECT COALESCE(to_regclass('public.schema_migrations')::text, '');"
+  )"
+  if [ -z "$migration_table" ]; then
+    baseline_state=missing
+  else
+    baseline_count="$(
+      podman exec "$POSTGRES_CONTAINER_NAME" \
+        psql --quiet -At -v ON_ERROR_STOP=1 \
+        -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -c "SELECT count(*) FROM public.schema_migrations
+            WHERE version = '000000000000_contributor_alpha';"
+    )"
+    if [ "$baseline_count" = "1" ]; then
+      baseline_state=installed
+    else
+      baseline_state=invalid
+    fi
+  fi
+  case "$baseline_state" in
+    missing)
+      ;;
+    installed)
+      echo "YiStack database is already initialized; use 'yistackctl database migrate' for upgrades."
+      return 0
+      ;;
+    *)
+      echo "Existing database has an invalid YiStack migration baseline; refusing init.sql." >&2
+      return 1
+      ;;
+  esac
   podman exec -i --env PGOPTIONS=--client-min-messages=warning \
     "$POSTGRES_CONTAINER_NAME" \
     psql --quiet -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \

@@ -110,16 +110,18 @@ func buildSupabaseDirectDatabaseConfig(cfg *config.Config, usePooler bool) (*con
 
 	host := fmt.Sprintf("aws-0-%s.pooler.supabase.com", region)
 	port := 6543
+	user := fmt.Sprintf("postgres.%s", projectRef)
 	if !usePooler {
 		host = fmt.Sprintf("db.%s.supabase.com", projectRef)
 		port = 5432
+		user = "postgres"
 	}
 
 	return &config.DatabaseConfig{
 		Type:         "postgres",
 		Host:         host,
 		Port:         port,
-		User:         fmt.Sprintf("postgres.%s", projectRef),
+		User:         user,
 		Password:     cfg.Database.SupabaseDBPassword,
 		Database:     "postgres",
 		SSLMode:      "require",

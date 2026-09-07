@@ -164,6 +164,7 @@ install -m 0755 "$node_extract_dir/bin/node" "$stage_root/runtime/node/bin/node"
 cp "$node_extract_dir/LICENSE" "$stage_root/runtime/node/LICENSE"
 
 cp "$ROOT_DIR/backend/init.sql" "$stage_root/database/init.sql"
+cp -a "$ROOT_DIR/backend/migrations" "$stage_root/database/migrations"
 cp "$ROOT_DIR/deploy/database/postgres-auth-compat.sql" "$stage_root/database/"
 cp "$ROOT_DIR/deploy/config/"* "$stage_root/config/"
 cp "$ROOT_DIR/deploy/systemd/"* "$stage_root/systemd/"

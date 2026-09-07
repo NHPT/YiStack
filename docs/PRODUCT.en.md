@@ -57,6 +57,7 @@ Core goals:
 | Visual editing | Implemented | Select real elements in internal project previews, submit sanitized `visual_edit.v1` evidence as owner/editor, and write changes back to source; viewers, public shares, and external URLs fail closed |
 | Container runtime | Implemented | Per-project rootless Podman boundaries and resource policies |
 | Production distribution | Implemented | Cross-platform web client; official Linux amd64/arm64 server packages use Debian 12 as the production acceptance baseline and include systemd, bundled Node.js 22, optional PostgreSQL 16, SHA-256, SBOMs, and provenance |
+| Database upgrades | Implemented | Explicit runner from the known v1.0.0 baseline, advisory locking, SHA-256 integrity, one-step rollback, and PostgreSQL 16 acceptance; unknown versions fail closed |
 | Ephemeral trial mode | Implemented | Optional clean baseline, configurable daily restoration, complete user/project data cleanup, TTLs, and disk-watermark governance for local PostgreSQL deployments; reusable images are retained and external Supabase is excluded |
 | Supabase application preset | Implemented | Auth, CRUD RLS, private Storage, types, migrations, and rollback |
 | GitHub integration | Implemented | OAuth PKCE, encrypted tokens, import, guarded pull/push, and webhooks |
@@ -75,7 +76,7 @@ as currently available:
 - a complete production lifecycle across multiple cloud providers;
 - end-to-end enterprise SSO, highly available Kubernetes, or a formal SLA;
 - released Professional or Enterprise editions, pricing, or paid entitlements;
-- automatic in-place upgrades from arbitrary historical database versions;
+- upgrades from historical database versions absent from the compatibility matrix, or automatic startup schema mutation;
 - automatic merging of community code without human review.
 
 These items may be marked implemented only after their implementation, tests,
@@ -133,9 +134,12 @@ claim generation succeeded.
 
 - The default integration is Supabase/PostgreSQL.
 - `backend/init.sql` is the single source of truth for clean installation.
-- `public.schema_migrations` records the known baseline and later upgrades.
-- v1.0.0 does not promise upgrade compatibility for unknown
-  historical databases.
+- `backend/migrations/manifest.json` fixes migration order, source versions,
+  and SQL checksums.
+- Production startup only verifies the current database version; schema changes
+  require the explicit migration runner.
+- v1.0.0 remains clean-install only; later Releases support only sources listed
+  in the compatibility matrix.
 
 ## 7. External Integration Boundaries
 

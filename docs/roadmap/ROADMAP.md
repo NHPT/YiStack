@@ -29,7 +29,7 @@
 2. `VIS-001` 已完成：截图/参考图经真实多模态模型提取 `visual_context.v1`，并贯穿方案、消息、持久 Job、SSE 恢复和代码生成
 3. `COLLAB-001` 已完成：共享工作区具备持久 presence、SSE cursor replay、后端资源事件审计、SHA-256 并发保护和 dirty buffer 冲突提示
 4. GitHub remote、required Actions checks 与 branch protection 已启用；v1.0.0 后继续通过受控 pull request 接受社区贡献
-5. 多部署 Provider 真实云端 lifecycle 与首个存量升级 tag 的 migration runner 按既定边界集中验收
+5. 首个存量升级 tag 的 migration runner 已完成 manifest/checksum、advisory lock、rollback 和 PostgreSQL 16 验收；发布新的不可变 tag 后，继续推进多部署 Provider 真实云端 lifecycle
 6. `VIS-002` 已完成：内部项目 Preview 支持真实元素选择、脱敏 `visual_edit.v1`、owner/editor 权限、持久 Job 源码写回和完整质量门禁
 
 `LT-02R` 是对 LT-02 / LT-03 / LT-06 的返修，不新增 `LT-09`，也不改变原 8 个产品阶段编号。

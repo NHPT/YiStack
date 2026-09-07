@@ -131,6 +131,17 @@ The installer verifies the internal `MANIFEST.sha256`, creates the `yistack` sys
 /var/cache/yistack     caches
 ```
 
+Database initialization and upgrade are mutually exclusive:
+
+- Clean installation: apply `database/init.sql` once for external Supabase;
+  installer-managed PostgreSQL initializes automatically. Do not run migrations
+  after a clean installation.
+- Existing installation upgrade: do not reapply `database/init.sql`; use only
+  the `yistackctl database` commands below.
+
+Incremental SQL files in the package are internal migration-runner assets.
+Operators do not need to inspect, modify, or execute them individually.
+
 ### External Supabase
 
 1. Apply `database/init.sql` from the extracted package to a new Supabase project.
@@ -155,6 +166,30 @@ sudo yistackctl health
 ```
 
 The installer generates the database password in `/etc/yistack/postgres.env`, then applies the Supabase SQL compatibility layer and `database/init.sql`. This mode provides YiStack's own PostgreSQL database and traditional JWT authentication. It does not provide Supabase Auth, Storage, or other managed services; generated applications that depend on Supabase still need a separate Supabase project.
+
+### Upgrade an Existing Installation
+
+The next upgrade-capable Release supports the known v1.0.0 database baseline.
+Back up the database, verify that the backup can be restored, then run these
+commands from the extracted new Release directory:
+
+```bash
+sudo yistackctl stop
+sudo ./install.sh
+sudo yistackctl database plan
+sudo yistackctl database migrate
+sudo yistackctl database verify
+sudo yistackctl start
+sudo yistackctl health
+```
+
+Do not pass `--start` to the installer during an upgrade. `migrate` and
+`rollback` refuse to change the schema while the application is active.
+Production startup never migrates automatically and rejects unsupported or
+outdated databases. Supabase upgrades require the direct database password in
+`SUPABASE_DB_PASSWORD`. See the complete compatibility matrix and rollback
+boundary in
+[`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 
 ### Optional Ephemeral Trial Mode
 
@@ -213,7 +248,7 @@ sudo yistackctl logs
 
 Each Release includes amd64/arm64 deployment archives, per-archive SHA-256 files, a combined `SHA256SUMS`, SPDX JSON SBOMs, and GitHub build provenance. The tag workflow creates or updates a Release only after the full quality gate and packaged-runtime acceptance pass.
 
-`database/init.sql` remains the clean-install schema source for v1.0.0. It creates the provider catalog but enables no LLM provider by default. Configure and preflight at least one provider in the admin console after startup. Never commit API keys or include them in deployment archives.
+The `database/init.sql` in each Release is the clean-install schema source for that version. It creates the provider catalog but enables no LLM provider by default. Configure and preflight at least one provider in the admin console after startup. Never commit API keys or include them in deployment archives.
 
 ## Source Development
 
@@ -282,12 +317,11 @@ pnpm eval:smoke
 
 ## Database Upgrade Boundary
 
-v1.0.0 guarantees only clean installation through `backend/init.sql`.
-Baselines, future migration naming, compatibility scope, and rollback
-requirements are documented in
+v1.0.0 still guarantees clean installation only. The next immutable Release
+will support in-place upgrades from that known version. Clean installation and
+upgrade must not be chained together. Historical databases not listed in the
+compatibility matrix remain unsupported. See
 [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
-YiStack does not claim support for upgrading arbitrary existing databases until
-the migration runner and compatibility matrix are complete.
 
 ## Repository Layout
 

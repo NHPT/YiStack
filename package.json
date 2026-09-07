@@ -12,6 +12,7 @@
   "scripts": {
     "build": "bash ./scripts/build.sh",
     "build:release": "bash ./scripts/build-release-package.sh",
+    "validate:database:migrations": "bash ./scripts/validate-database-migrations.sh",
     "validate:release:demo": "bash ./scripts/validate-demo-maintenance.sh",
     "validate:release": "bash ./scripts/validate-release-package.sh",
     "validate:release:postgres": "bash ./scripts/validate-release-postgres-runtime.sh",

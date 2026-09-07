@@ -75,7 +75,9 @@ func TestBuildSupabaseDirectDatabaseConfigUsesPoolerAndDirectTargets(t *testing.
 	if err != nil {
 		t.Fatalf("unexpected direct config error: %v", err)
 	}
-	if direct.Host != "db.projectref.supabase.com" || direct.Port != 5432 {
+	if direct.Host != "db.projectref.supabase.com" ||
+		direct.Port != 5432 ||
+		direct.User != "postgres" {
 		t.Fatalf("unexpected direct config: %#v", direct)
 	}
 }

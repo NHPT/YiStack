@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +43,7 @@ const requiredFiles = [
   'scripts/build-release-package.sh',
   'scripts/validate-release-package.sh',
   'scripts/validate-release-postgres-runtime.sh',
+  'scripts/validate-database-migrations.sh',
   '.github/workflows/codeql.yml',
   '.github/codeql/codeql-config.yml',
   '.github/workflows/canonical-eval.yml',
@@ -63,6 +65,10 @@ const requiredFiles = [
   'scripts/verify-supabase-baseline.sh',
   'backend/migrations/000000000000_contributor_alpha.sql',
   'backend/migrations/rollback/000000000000_contributor_alpha.sql',
+  'backend/migrations/202609070001_migration_integrity.sql',
+  'backend/migrations/manifest.json',
+  'backend/migrations/rollback/202609070001_migration_integrity.sql',
+  'backend/internal/migration/runner.go',
 ];
 
 for (const relativePath of requiredFiles) {
@@ -98,6 +104,7 @@ for (const script of [
   'build:release',
   'checkout:verify',
   'db:verify',
+  'validate:database:migrations',
   'eval:smoke:ci',
   'validate:release',
   'validate:release:postgres',
@@ -175,7 +182,7 @@ const capabilityReport = read(
 assert.match(capabilityReport, /VIS-001 与 COLLAB-001 差异化闭环已完成/);
 assert.match(capabilityReport, /visual_context\.v1/);
 assert.match(capabilityReport, /Presence\/SSE\/CAS/);
-assert.match(capabilityReport, /Figma\/画布\/直接可视化编辑/);
+assert.match(capabilityReport, /Figma 与 Canvas 深度集成/);
 assert.match(capabilityReport, /适配器完成，待验收/);
 assert.doesNotMatch(capabilityReport, /视觉输入仍是后续产品缺口/);
 
@@ -278,6 +285,7 @@ for (const command of [
   'pnpm install --frozen-lockfile',
   'pnpm audit --audit-level high --ignore-registry-errors',
   'pnpm exec playwright install --with-deps chromium',
+  'pnpm validate:database:migrations',
   'pnpm lint',
   'pnpm build',
   'pnpm yes:validate',
@@ -309,7 +317,7 @@ for (const result of ['needs.change_scope.result', 'needs.repository_contract.re
 }
 assert.match(
   workflow,
-  /name: Deployment package acceptance[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh/,
+  /name: Deployment package acceptance[\s\S]*pnpm validate:database:migrations[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh/,
 );
 assert.match(
   workflow,
@@ -419,15 +427,15 @@ assert.ok(
 );
 
 const postgresLauncher = read('deploy/bin/yistack-postgres');
-assert.match(
+assert.doesNotMatch(
   postgresLauncher,
-  /PostgreSQL init process complete; ready for start up\./,
-  'new PostgreSQL containers must finish temporary initialization before validation',
+  /< <\(podman logs/,
+  'database readiness must not block on Podman log streaming',
 );
 assert.match(
   postgresLauncher,
-  /psql --quiet -At -v ON_ERROR_STOP=1[\s\S]*-c 'SELECT 1;'/,
-  'PostgreSQL readiness must execute a query against the configured database',
+  /psql --quiet -At -v ON_ERROR_STOP=1[\s\S]*-h 127\.0\.0\.1[\s\S]*-c 'SELECT 1;'/,
+  'PostgreSQL readiness must use TCP so the temporary Unix-socket server cannot satisfy it',
 );
 
 const postgresRuntimeValidation = read('scripts/validate-release-postgres-runtime.sh');
@@ -553,6 +561,57 @@ for (const source of [initSQL, forwardBaseline]) {
 }
 assert.ok(rollbackBaseline.includes('cannot remove baseline while later migrations are recorded'));
 assert.ok(rollbackBaseline.includes('DELETE FROM public.schema_migrations'));
+
+const migrationManifest = JSON.parse(read('backend/migrations/manifest.json'));
+assert.equal(migrationManifest.schema, 'yistack.database-migrations.v1');
+assert.equal(migrationManifest.baseline_version, '000000000000_contributor_alpha');
+assert.equal(migrationManifest.latest_version, '202609070001_migration_integrity');
+assert.deepEqual(
+  migrationManifest.migrations.map((entry) => entry.version),
+  [
+    '000000000000_contributor_alpha',
+    '202609070001_migration_integrity',
+  ],
+);
+for (const entry of migrationManifest.migrations) {
+  const forwardSource = fs.readFileSync(path.join(rootDir, 'backend/migrations', entry.file));
+  assert.equal(
+    crypto.createHash('sha256').update(forwardSource).digest('hex'),
+    entry.sha256,
+    `forward migration checksum mismatch: ${entry.version}`,
+  );
+  if (entry.reversible) {
+    const rollbackSource = fs.readFileSync(
+      path.join(rootDir, 'backend/migrations', entry.rollback_file),
+    );
+    assert.equal(
+      crypto.createHash('sha256').update(rollbackSource).digest('hex'),
+      entry.rollback_sha256,
+      `rollback migration checksum mismatch: ${entry.version}`,
+    );
+  } else {
+    assert.ok(entry.irreversible_recovery, `missing recovery steps: ${entry.version}`);
+  }
+}
+
+const migrationRunner = read('backend/internal/migration/runner.go');
+const databaseCommand = read('backend/cmd/server/database_command.go');
+const serverMain = read('backend/cmd/server/main.go');
+const releaseBuilder = read('scripts/build-release-package.sh');
+const releaseValidation = read('scripts/validate-release-package.sh');
+const yistackctl = read('deploy/bin/yistackctl');
+const migrationValidation = read('scripts/validate-database-migrations.sh');
+assert.match(migrationRunner, /pg_try_advisory_lock[\s\S]*pg_advisory_unlock/, 'migration writes must hold a PostgreSQL advisory lock');
+const installer = read('deploy/install.sh');
+assert.match(migrationRunner, /checksum_sha256[\s\S]*database checksum mismatch/, 'migration history must verify recorded checksums');
+assert.match(databaseCommand, /status\|plan\|migrate\|verify\|rollback/, 'database CLI must expose lifecycle commands');
+assert.match(databaseCommand, /case "supabase"[\s\S]*buildSupabaseDirectDatabaseConfig/, 'Supabase migrations must use direct PostgreSQL access');
+assert.match(serverMain, /if !autoMigrate \{[\s\S]*runner\.VerifyCurrent/, 'production startup must verify the latest manifest version');
+assert.match(releaseBuilder, /cp -a "\$ROOT_DIR\/backend\/migrations"/, 'Release packages must include migrations');
+assert.match(releaseValidation, /database\/migrations\/manifest\.json[\s\S]*rollback\/202609070001_migration_integrity\.sql/, 'Release validation must require the complete migration set');
+assert.match(yistackctl, /database\)[\s\S]*migrate \| rollback\)[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*systemctl is-active --quiet yistack-backend\.service[\s\S]*yistack-server" database/, 'database schema writes must require stopped application services');
+assert.match(migrationValidation, /advisory lock contention[\s\S]*tampered and unknown histories[\s\S]*Rolling back one version/, 'PostgreSQL acceptance must cover locking, integrity boundaries, and rollback');
+assert.match(installer, /systemctl is-active --quiet yistack\.target[\s\S]*Stop YiStack before installing or upgrading/, 'Release installation must reject a running application stack');
 
 const envExample = read('.env.example');
 for (const key of [

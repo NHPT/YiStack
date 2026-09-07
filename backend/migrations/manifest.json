@@ -1,0 +1,29 @@
+{
+  "schema": "yistack.database-migrations.v1",
+  "baseline_version": "000000000000_contributor_alpha",
+  "latest_version": "202609070001_migration_integrity",
+  "migrations": [
+    {
+      "version": "000000000000_contributor_alpha",
+      "description": "YiStack Contributor Alpha baseline",
+      "file": "000000000000_contributor_alpha.sql",
+      "sha256": "a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871",
+      "minimum_source_version": "",
+      "reversible": true,
+      "rollback_file": "rollback/000000000000_contributor_alpha.sql",
+      "rollback_sha256": "6e19ccf115cc0ee957a03b8c984d9c0e949082c8a9888995c5d222b6aba7c42b",
+      "irreversible_recovery": ""
+    },
+    {
+      "version": "202609070001_migration_integrity",
+      "description": "Add migration checksum integrity metadata",
+      "file": "202609070001_migration_integrity.sql",
+      "sha256": "aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113",
+      "minimum_source_version": "000000000000_contributor_alpha",
+      "reversible": true,
+      "rollback_file": "rollback/202609070001_migration_integrity.sql",
+      "rollback_sha256": "50554d283229affa22b54537ea8a6f70aea2f612b5903102d290d01cd2421874",
+      "irreversible_recovery": ""
+    }
+  ]
+}

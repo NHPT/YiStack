@@ -13,6 +13,9 @@ for required_file in \
   bin/yistack-postgres \
   bin/yistack-server \
   database/init.sql \
+  database/migrations/manifest.json \
+  database/migrations/202609070001_migration_integrity.sql \
+  database/migrations/rollback/202609070001_migration_integrity.sql \
   database/postgres-auth-compat.sql; do
   if [ ! -f "$PACKAGE_ROOT/$required_file" ]; then
     echo "Release directory is missing $required_file" >&2
@@ -65,6 +68,67 @@ for _ in 1 2; do
     "$PACKAGE_ROOT/bin/yistack-postgres" init
 done
 
+run_package_database() {
+  YISTACK_SKIP_DOTENV=true \
+  YISTACK_MIGRATIONS_DIR="$PACKAGE_ROOT/database/migrations" \
+  DB_TYPE=postgres \
+  DB_HOST=127.0.0.1 \
+  DB_PORT="$postgres_port" \
+  DB_USER=postgres \
+  DB_PASSWORD=release-runtime-test-password \
+  DB_NAME=yistack \
+  DB_SSL_MODE=disable \
+    "$PACKAGE_ROOT/bin/yistack-server" database "$@"
+}
+
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "DELETE FROM public.schema_migrations WHERE version = '202609070001_migration_integrity';" \
+  >/dev/null
+podman exec -i "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  < "$PACKAGE_ROOT/database/migrations/rollback/202609070001_migration_integrity.sql" \
+  >/dev/null
+if run_package_database verify > "$demo_root/pre-migration.out" 2>&1; then
+  echo "Packaged startup verification accepted the v1.0.0 database baseline." >&2
+  exit 1
+fi
+grep -q 'run yistackctl database migrate' "$demo_root/pre-migration.out" || {
+  echo "Packaged startup verification did not provide migration recovery." >&2
+  cat "$demo_root/pre-migration.out" >&2
+  exit 1
+}
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "INSERT INTO public.users (id, email, username, password_hash)
+      VALUES (
+        '10000000-0000-0000-0000-000000000098',
+        'migration-preserved@example.test',
+        'Migration Preserved',
+        'test-only'
+      );" >/dev/null
+run_package_database migrate > "$demo_root/migrate.out"
+run_package_database verify > "$demo_root/migration-verify.out"
+migration_contract="$(
+  podman exec "$container_name" \
+    psql -At -U postgres -d yistack \
+    -c "SELECT
+          (SELECT count(*) FROM public.schema_migrations) || ':' ||
+          (SELECT count(*) FROM public.users WHERE email = 'migration-preserved@example.test') || ':' ||
+          (SELECT count(*) FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'schema_migrations'
+             AND column_name = 'checksum_sha256');"
+)"
+if [ "$migration_contract" != "2:1:1" ]; then
+  echo "Unexpected packaged migration contract: $migration_contract" >&2
+  exit 1
+fi
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "DELETE FROM public.users WHERE email = 'migration-preserved@example.test';" \
+  >/dev/null
+
 container_runtime_config="$(
   podman exec "$container_name" \
     psql --quiet -At -v ON_ERROR_STOP=1 -U postgres -d yistack \
@@ -89,6 +153,7 @@ DB_SSL_MODE=disable \
 JWT_SECRET=release-runtime-jwt-secret-0123456789abcdef \
 CONTAINER_ENABLED=false \
 CONTAINER_PREVIEW_PORT=0 \
+YISTACK_MIGRATIONS_DIR="$PACKAGE_ROOT/database/migrations" \
 YISTACK_SKIP_DOTENV=true \
   "$PACKAGE_ROOT/bin/yistack-server" >"$backend_log" 2>&1 &
 backend_pid=$!
@@ -134,8 +199,8 @@ fi
 
 schema_contract="$(podman exec "$container_name" \
   psql -At -U postgres -d yistack \
-  -c "SELECT (SELECT count(*) FROM public.schema_migrations WHERE version = '000000000000_contributor_alpha') || ':' || (SELECT data_type || ':' || is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'instance_id');")"
-if [ "$schema_contract" != "1:uuid:YES" ]; then
+  -c "SELECT (SELECT count(*) FROM public.schema_migrations) || ':' || (SELECT data_type || ':' || is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'instance_id');")"
+if [ "$schema_contract" != "2:uuid:YES" ]; then
   echo "Unexpected release database contract: $schema_contract" >&2
   exit 1
 fi

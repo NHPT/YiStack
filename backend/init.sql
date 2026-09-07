@@ -1884,14 +1884,33 @@ GRANT EXECUTE ON FUNCTION public.rollback_official_project_template_version(uuid
 CREATE TABLE IF NOT EXISTS public.schema_migrations (
     version character varying(80) PRIMARY KEY,
     description text NOT NULL,
+    checksum_sha256 character varying(64) NOT NULL,
     applied_at timestamp with time zone NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.schema_migrations
+    ADD COLUMN IF NOT EXISTS checksum_sha256 character varying(64);
 
 ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Service role full access on schema_migrations" ON public.schema_migrations;
 CREATE POLICY "Service role full access on schema_migrations" ON public.schema_migrations
     FOR ALL USING (auth.role() = 'service_role');
 
-INSERT INTO public.schema_migrations (version, description)
-VALUES ('000000000000_contributor_alpha', 'YiStack Contributor Alpha baseline')
-ON CONFLICT (version) DO NOTHING;
+INSERT INTO public.schema_migrations (version, description, checksum_sha256)
+VALUES
+    (
+        '000000000000_contributor_alpha',
+        'YiStack Contributor Alpha baseline',
+        'a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871'
+    ),
+    (
+        '202609070001_migration_integrity',
+        'Add migration checksum integrity metadata',
+        'aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113'
+    )
+ON CONFLICT (version) DO UPDATE
+SET description = EXCLUDED.description,
+    checksum_sha256 = EXCLUDED.checksum_sha256;
+
+ALTER TABLE public.schema_migrations
+    ALTER COLUMN checksum_sha256 SET NOT NULL;

@@ -54,12 +54,43 @@ case "${1:-status}" in
     shift
     exec /opt/yistack/current/bin/yistack-postgres "${1:-status}"
     ;;
+  database)
+    shift
+    database_command="${1:-status}"
+    case "$database_command" in
+      migrate | rollback)
+        if systemctl is-active --quiet yistack.target ||
+          systemctl is-active --quiet yistack-backend.service; then
+          echo "Stop YiStack before changing the database schema: sudo yistackctl stop" >&2
+          exit 1
+        fi
+        ;;
+      status | plan | verify)
+        ;;
+      *)
+        echo "Usage: yistackctl database {status|plan|migrate|verify|rollback}" >&2
+        exit 2
+        ;;
+    esac
+    if [ ! -r "$CONFIG_FILE" ]; then
+      echo "YiStack configuration is missing: $CONFIG_FILE" >&2
+      exit 1
+    fi
+    set -a
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+    set +a
+    export YISTACK_SKIP_DOTENV=true
+    export YISTACK_INSTALL_DIR="${YISTACK_INSTALL_DIR:-/opt/yistack/current}"
+    export YISTACK_MIGRATIONS_DIR="${YISTACK_MIGRATIONS_DIR:-$YISTACK_INSTALL_DIR/database/migrations}"
+    exec "$YISTACK_INSTALL_DIR/bin/yistack-server" database "$database_command"
+    ;;
   demo)
     shift
     exec /opt/yistack/current/bin/yistack-demo-maintenance "${1:-status}"
     ;;
   *)
-    echo "Usage: yistackctl {start|stop|restart|status|logs|health|postgres|demo}" >&2
+    echo "Usage: yistackctl {start|stop|restart|status|logs|health|postgres|database|demo}" >&2
     exit 2
     ;;
 esac

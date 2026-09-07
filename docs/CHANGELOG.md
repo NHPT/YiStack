@@ -17,6 +17,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - 新增官方 Linux amd64/arm64 预编译生产部署包，以 Debian 12 为完整验收基线，内置 Go 后端、Next.js standalone、Node.js 22、浏览器验收 worker、systemd 单元和可选 PostgreSQL 16 rootless Podman 控制面数据库；Web 客户端保持跨平台。
 - 新增 Tag Release 工作流，在 amd64 和原生 arm64 runner 上构建并验收部署包，发布 SHA-256、SPDX JSON SBOM 和 GitHub 构建来源证明。
 - 新增默认关闭的临时体验模式，为本地 PostgreSQL 部署提供无用户数据基线、可配置的每日自动还原、完整用户/项目数据清理、项目与容器 TTL 以及磁盘水位保护，同时保留可复用镜像。
+- 新增显式数据库 migration runner，支持 manifest 顺序、SHA-256 完整性、PostgreSQL advisory lock、已知 v1.0.0 baseline 升级和单步 rollback。
 - VIS-001 视觉上下文闭环：聊天支持上传或粘贴 PNG/JPEG 参考图，只有声明 `vision` 能力的模型可接收图片。
 - 图片会在服务端执行 MIME、大小、尺寸、像素与真实解码校验，并重新编码净化；多模态分析严格输出 `visual_context.v1`。
 - 视觉上下文绑定消息、候选方案与持久 Generation Job，SSE 实时流和刷新重放均可恢复；方案与代码生成消费布局、组件、颜色、字体、间距、响应式和交互约束。
@@ -29,7 +30,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 - README 的首要快速开始改为下载 Release 部署包并配置生产数据库；源码 clone、依赖安装和 `scripts/dev.sh` 移至源码开发流程。
 - PR CI 将轻量仓库合同前置，合同失败时不再先运行完整构建和浏览器验收，并新增部署包运行时验收。
-- 生产配置关闭 GORM 启动时隐式改表并验证已安装 SQL baseline；补齐可空 `users.instance_id`，使本地 PostgreSQL 的注册链路与 Supabase 模型一致。
+- 生产配置关闭 GORM 启动时隐式改表并验证 Release 要求的最新数据库版本；Release 包携带完整 migration 目录和 v1.0.0 升级运行时验收。补齐可空 `users.instance_id`，使本地 PostgreSQL 的注册链路与 Supabase 模型一致。
 - README 首屏新增一句话生成完整应用、YES 工程体系、高性能隔离运行、持久恢复、视觉上下文与实时协作等核心优势说明。
 - 新增 YES 工程体系英文文档，并更新产品差距与开源准备度报告，使 VIS-001、COLLAB-001 和后续真实缺口与当前实现保持一致。
 
@@ -39,6 +40,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - Preview inspector 校验 iframe `source/origin`，不读取 Cookie、Storage、HTML、表单值或 URL 查询参数；服务端再次校验路径、选择器、矩形和 computed-style allowlist，权限读取失败时关闭失败。
 - systemd 仅向后端注入完整密钥配置；前端按 allowlist 读取非敏感运行参数，浏览器 worker 只接收浏览器目录和监听端口。
 - 演示维护只接受安装器管理的本地 PostgreSQL，只操作带 `yistack.project_id` 标签的 Podman 资源，并保护模板、浏览器运行时、配置和 Release 目录。
+- 数据库 runner 拒绝被篡改的 SQL、checksum 漂移、版本断层、未知或过新历史；生产启动在数据库未显式升级时关闭失败。
 - 协作资源事件只能由后端文件或生成事务写入，客户端不能伪造 mutation audit。
 - `express@5.2.1` 的传递依赖 `body-parser` 固定升级至 2.3.0，High/Critical 依赖审计保持为零。
 

@@ -21,6 +21,7 @@ import (
 	"yistack/config"
 	"yistack/internal/handler"
 	"yistack/internal/middleware"
+	dbmigration "yistack/internal/migration"
 	"yistack/internal/model"
 	"yistack/internal/service"
 	"yistack/pkg/container"
@@ -39,6 +40,12 @@ func main() {
 	}
 	// 加载配置
 	cfg := config.Load()
+	if len(os.Args) > 1 && os.Args[1] == "database" {
+		if err := runDatabaseCommand(context.Background(), cfg, os.Args[2:]); err != nil {
+			log.Fatalf("Database command failed: %v", err)
+		}
+		return
+	}
 
 	bootstrap, err := bootstrapApplication(cfg)
 	if err != nil {
@@ -163,22 +170,28 @@ func buildPreviewListenAddr(cfg *config.Config) string {
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
 }
 
-const databaseBaselineVersion = "000000000000_contributor_alpha"
-
-// migrateDatabase 迁移数据库表结构，或在生产 baseline 模式下验证已安装版本。
+// migrateDatabase 迁移开发数据库，或在生产模式下验证已安装版本。
 func migrateDatabase(db *gorm.DB, autoMigrate bool) error {
 	if !autoMigrate {
-		var baselineCount int64
-		if err := db.Raw(
-			"SELECT count(*) FROM public.schema_migrations WHERE version = ?",
-			databaseBaselineVersion,
-		).Scan(&baselineCount).Error; err != nil {
-			return fmt.Errorf("validate database baseline %s: %w", databaseBaselineVersion, err)
+		manifest, err := dbmigration.LoadManifest(resolveMigrationDirectory())
+		if err != nil {
+			return fmt.Errorf("load database migration manifest: %w", err)
 		}
-		if baselineCount != 1 {
-			return fmt.Errorf("database baseline %s is not installed", databaseBaselineVersion)
+		sqlDatabase, err := db.DB()
+		if err != nil {
+			return fmt.Errorf("open database migration verification connection: %w", err)
 		}
-		log.Printf("Database baseline %s verified; startup AutoMigrate is disabled", databaseBaselineVersion)
+		runner, err := dbmigration.NewRunner(sqlDatabase, manifest)
+		if err != nil {
+			return err
+		}
+		if err := runner.VerifyCurrent(context.Background()); err != nil {
+			return fmt.Errorf("verify production database version: %w", err)
+		}
+		log.Printf(
+			"Database migration version %s verified; startup AutoMigrate is disabled",
+			manifest.LatestVersion,
+		)
 		return nil
 	}
 
