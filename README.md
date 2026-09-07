@@ -141,6 +141,28 @@ sudo yistackctl health
 
 安装器会生成数据库密码，写入 `/etc/yistack/postgres.env`，并依次执行 Supabase SQL 兼容层和 `database/init.sql`。此模式提供 YiStack 自身的 PostgreSQL 数据库和传统 JWT 认证，不提供 Supabase Auth、Storage 或其他托管服务；生成的应用若依赖 Supabase，仍需单独配置 Supabase 项目。
 
+### 升级现有安装
+
+下一个可升级 Release 支持从 v1.0.0 的
+`000000000000_contributor_alpha` baseline 升级。先备份数据库并实际验证恢复，
+再在解压后的新 Release 目录中执行：
+
+```bash
+sudo yistackctl stop
+sudo ./install.sh
+sudo yistackctl database plan
+sudo yistackctl database migrate
+sudo yistackctl database verify
+sudo yistackctl start
+sudo yistackctl health
+```
+
+不要在升级时向安装器传入 `--start`。`migrate` 和 `rollback` 会在应用仍运行时
+拒绝修改 schema；生产启动不会自动迁移，并会拒绝 checksum 不匹配、历史断层、
+未知版本、过新版本或尚未升级的数据库。Supabase 升级需要配置直连密码
+`SUPABASE_DB_PASSWORD`。完整兼容矩阵和 rollback 边界见
+[`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。
+
 ### 可选临时体验模式（每日自动还原）
 
 面向公众开放试用时，可在上述标准 PostgreSQL 生产部署上启用“临时体验模式”，不需要维护专用应用分支。它类似可定时还原的体验沙箱：访问期间的数据仍会正常持久化，直到下一次计划重置才会删除，因此不应把它理解为浏览器隐私意义上的即时“无痕模式”，也不要在公开实例中输入密钥或其他敏感数据。
@@ -198,7 +220,7 @@ sudo yistackctl logs
 
 Release 同时发布 amd64/arm64 部署包、独立 SHA-256、合并 `SHA256SUMS`、SPDX JSON SBOM 和 GitHub 构建来源证明。Tag 发布工作流仅在完整质量门禁和部署包运行时验收通过后创建或更新 Release。
 
-`database/init.sql` 是 v1.0.0 的全新安装真源。它会创建 Provider catalog，但默认不启用任何 LLM Provider。启动后应在管理端配置并预检至少一个 Provider；不要把 API Key 写入仓库或部署包。
+每个 Release 中的 `database/init.sql` 是该版本的全新安装真源。它会创建 Provider catalog，但默认不启用任何 LLM Provider。启动后应在管理端配置并预检至少一个 Provider；不要把 API Key 写入仓库或部署包。
 
 ## 源码开发
 
@@ -264,7 +286,7 @@ pnpm eval:smoke
 
 ## 数据库升级边界
 
-v1.0.0 只承诺从空数据库执行 `backend/init.sql`。baseline、未来 migration 命名、兼容范围和 rollback 要求见 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。在 migration runner 和版本兼容矩阵完成前，不声明支持任意存量数据库原地升级。
+v1.0.0 仍只承诺全新安装；下一个不可变 Release 将支持从该已知 baseline 原地升级。runner、checksum、advisory lock、兼容矩阵和 rollback 要求见 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。未列入矩阵的历史数据库仍不受支持。
 
 ## 项目结构
 

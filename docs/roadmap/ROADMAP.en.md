@@ -36,9 +36,10 @@ The main sequence is:
    protection, and dirty-buffer conflict feedback.
 4. The GitHub remote, required Actions checks, and branch protection are enabled.
    Continue accepting community contributions through controlled pull requests.
-5. Validate real cloud lifecycles for multiple deployment providers and the
-   migration runner for the first upgrade-capable tag within their established
-   boundaries.
+5. The migration runner for the first upgrade-capable tag now has manifest and
+   checksum integrity, advisory locking, rollback, and PostgreSQL 16 acceptance.
+   Publish the next immutable tag, then continue real multi-provider cloud
+   lifecycle acceptance.
 6. `VIS-002` is complete: internal project previews support real-element
    selection, sanitized `visual_edit.v1` evidence, owner/editor authorization,
    durable-Job source writeback, and the complete quality gate.

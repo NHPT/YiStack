@@ -80,9 +80,10 @@ for _ in 1 2; do
     < "$ROOT_DIR/backend/init.sql" >/dev/null
 done
 
-baseline_count="$(
+migration_contract="$(
   podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
-    -c "SELECT count(*) FROM public.schema_migrations WHERE version = '000000000000_contributor_alpha';"
+    -c "SELECT count(*) || ':' || string_agg(version || ':' || checksum_sha256, ',' ORDER BY version)
+        FROM public.schema_migrations;"
 )"
 user_schema_contract="$(
   podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
@@ -97,8 +98,9 @@ admin_auth_contract="$(
     -c "SELECT must_change_password::text || ':' || auth_version || ':' || (crypt('admin123', password_hash) = password_hash)::text FROM public.admins WHERE email = 'admin@yistack.com';"
 )"
 
-if [ "$baseline_count" != "1" ]; then
-  echo "[R7] Expected exactly one Contributor Alpha baseline row, got $baseline_count." >&2
+expected_migrations="2:000000000000_contributor_alpha:a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871,202609070001_migration_integrity:aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113"
+if [ "$migration_contract" != "$expected_migrations" ]; then
+  echo "[R7] Unexpected migration ledger: $migration_contract." >&2
   exit 1
 fi
 if [ "$user_schema_contract" != "uuid:YES" ]; then
@@ -174,7 +176,13 @@ if [ "$collaboration_contract" != "expired:2:true" ]; then
   exit 1
 fi
 
-echo "[R7] Verifying baseline rollback and re-apply..."
+echo "[R7] Verifying ordered rollback and re-apply..."
+podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  -c "DELETE FROM public.schema_migrations WHERE version = '202609070001_migration_integrity';" \
+  >/dev/null
+podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
+  psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  < "$ROOT_DIR/backend/migrations/rollback/202609070001_migration_integrity.sql" >/dev/null
 podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
   psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
   < "$ROOT_DIR/backend/migrations/rollback/000000000000_contributor_alpha.sql" >/dev/null
@@ -182,11 +190,22 @@ podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
   psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
   < "$ROOT_DIR/backend/migrations/000000000000_contributor_alpha.sql" >/dev/null
 
-baseline_count="$(
+podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
+  psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  < "$ROOT_DIR/backend/migrations/202609070001_migration_integrity.sql" >/dev/null
+podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  -c "INSERT INTO public.schema_migrations (version, description, checksum_sha256)
+      VALUES (
+        '202609070001_migration_integrity',
+        'Add migration checksum integrity metadata',
+        'aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113'
+      );" >/dev/null
+
+migration_count="$(
   podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
-    -c "SELECT count(*) FROM public.schema_migrations WHERE version = '000000000000_contributor_alpha';"
+    -c "SELECT count(*) FROM public.schema_migrations;"
 )"
-if [ "$baseline_count" != "1" ]; then
+if [ "$migration_count" != "2" ]; then
   echo "[R7] Baseline re-apply failed." >&2
   exit 1
 fi

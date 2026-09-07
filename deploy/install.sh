@@ -61,6 +61,11 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "The deployment installer must run as root." >&2
   exit 1
 fi
+if systemctl is-active --quiet yistack.target ||
+  systemctl is-active --quiet yistack-backend.service; then
+  echo "Stop YiStack before installing or upgrading: sudo yistackctl stop" >&2
+  exit 1
+fi
 
 if [ ! -f "$PACKAGE_ROOT/MANIFEST.sha256" ]; then
   echo "Deployment manifest is missing." >&2
@@ -152,6 +157,8 @@ set_env_value() {
 if ! grep -q '^DB_AUTO_MIGRATE=' "$CONFIG_DIR/yistack.env"; then
   set_env_value "$CONFIG_DIR/yistack.env" DB_AUTO_MIGRATE false
 fi
+set_env_value "$CONFIG_DIR/yistack.env" \
+  YISTACK_MIGRATIONS_DIR "$INSTALL_ROOT/current/database/migrations"
 
 if ! grep -Eq '^JWT_SECRET=.{32,}$' "$CONFIG_DIR/yistack.env"; then
   set_env_value "$CONFIG_DIR/yistack.env" JWT_SECRET "$(openssl rand -hex 32)"

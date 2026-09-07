@@ -156,6 +156,31 @@ sudo yistackctl health
 
 The installer generates the database password in `/etc/yistack/postgres.env`, then applies the Supabase SQL compatibility layer and `database/init.sql`. This mode provides YiStack's own PostgreSQL database and traditional JWT authentication. It does not provide Supabase Auth, Storage, or other managed services; generated applications that depend on Supabase still need a separate Supabase project.
 
+### Upgrade an Existing Installation
+
+The next upgrade-capable Release supports the v1.0.0
+`000000000000_contributor_alpha` baseline. Back up the database, verify that
+the backup can be restored, then run these commands from the extracted new
+Release directory:
+
+```bash
+sudo yistackctl stop
+sudo ./install.sh
+sudo yistackctl database plan
+sudo yistackctl database migrate
+sudo yistackctl database verify
+sudo yistackctl start
+sudo yistackctl health
+```
+
+Do not pass `--start` to the installer during an upgrade. `migrate` and
+`rollback` refuse to change the schema while the application is active.
+Production startup never migrates automatically and rejects checksum drift,
+history gaps, unknown or newer versions, and databases that are still behind.
+Supabase upgrades require the direct database password in
+`SUPABASE_DB_PASSWORD`. See the complete compatibility matrix and rollback
+boundary in [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
+
 ### Optional Ephemeral Trial Mode
 
 A public trial instance can enable ephemeral trial mode on the standard PostgreSQL production deployment without maintaining a separate application branch. It behaves like a scheduled restore sandbox: data remains persisted during a visitor's session and is deleted at the next scheduled reset. It is therefore not an immediate browser-style private mode, and visitors should not enter secrets or other sensitive data.
@@ -213,7 +238,7 @@ sudo yistackctl logs
 
 Each Release includes amd64/arm64 deployment archives, per-archive SHA-256 files, a combined `SHA256SUMS`, SPDX JSON SBOMs, and GitHub build provenance. The tag workflow creates or updates a Release only after the full quality gate and packaged-runtime acceptance pass.
 
-`database/init.sql` remains the clean-install schema source for v1.0.0. It creates the provider catalog but enables no LLM provider by default. Configure and preflight at least one provider in the admin console after startup. Never commit API keys or include them in deployment archives.
+The `database/init.sql` in each Release is the clean-install schema source for that version. It creates the provider catalog but enables no LLM provider by default. Configure and preflight at least one provider in the admin console after startup. Never commit API keys or include them in deployment archives.
 
 ## Source Development
 
@@ -282,12 +307,11 @@ pnpm eval:smoke
 
 ## Database Upgrade Boundary
 
-v1.0.0 guarantees only clean installation through `backend/init.sql`.
-Baselines, future migration naming, compatibility scope, and rollback
-requirements are documented in
-[`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
-YiStack does not claim support for upgrading arbitrary existing databases until
-the migration runner and compatibility matrix are complete.
+v1.0.0 still guarantees clean installation only. The next immutable Release
+will support in-place upgrades from that known baseline. The runner, checksums,
+advisory lock, compatibility matrix, and rollback requirements are documented
+in [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
+Historical databases not listed in the matrix remain unsupported.
 
 ## Repository Layout
 

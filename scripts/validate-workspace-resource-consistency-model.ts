@@ -12411,8 +12411,8 @@ assert.match(
 );
 assert.match(
   projectServerMain,
-  /const databaseBaselineVersion = "000000000000_contributor_alpha"[\s\S]*func migrateDatabase\(db \*gorm\.DB, autoMigrate bool\) error \{[\s\S]*if !autoMigrate \{[\s\S]*SELECT count\(\*\) FROM public\.schema_migrations WHERE version = \?[\s\S]*databaseBaselineVersion[\s\S]*db\.AutoMigrate\([\s\S]*&model\.ProjectEngineeringState\{\}[\s\S]*&model\.ProjectCapabilityExecutionAudit\{\}[\s\S]*&model\.ProjectResourceAlertEvent\{\}[\s\S]*return nil/,
-  'database startup should verify the production SQL baseline while retaining explicit development AutoMigrate',
+  /func migrateDatabase\(db \*gorm\.DB, autoMigrate bool\) error \{[\s\S]*if !autoMigrate \{[\s\S]*dbmigration\.LoadManifest\(resolveMigrationDirectory\(\)\)[\s\S]*dbmigration\.NewRunner\(sqlDatabase, manifest\)[\s\S]*runner\.VerifyCurrent\(context\.Background\(\)\)[\s\S]*db\.AutoMigrate\([\s\S]*&model\.ProjectEngineeringState\{\}[\s\S]*&model\.ProjectCapabilityExecutionAudit\{\}[\s\S]*&model\.ProjectResourceAlertEvent\{\}[\s\S]*return nil/,
+  'database startup should verify the production migration manifest while retaining explicit development AutoMigrate',
 );
 assert.match(
   projectServerBootstrap,

@@ -8,9 +8,13 @@
 
 ## Scope
 
-YiStack v1.0.0 uses `backend/init.sql` as the single source of truth for a
-clean Supabase database. The baseline version is
-`000000000000_contributor_alpha`.
+The Contributor Alpha database baseline is
+`000000000000_contributor_alpha`. The `backend/init.sql` shipped by each
+Release is the single source of truth for a clean installation of that
+Release.
+
+The latest version on the current main branch is
+`202609070001_migration_integrity`.
 
 The baseline marker does not claim that arbitrary historical databases are
 upgradeable. Existing databases are supported only when their last recorded
@@ -23,7 +27,7 @@ For a new Supabase project:
 1. create an empty project;
 2. apply `backend/init.sql` with `ON_ERROR_STOP`;
 3. apply it a second time to verify idempotency;
-4. verify the baseline row in `public.schema_migrations`;
+4. verify that `public.schema_migrations` records the complete manifest chain and checksums;
 5. replace seed credentials and configure at least one provider before
    exposing the service.
 
@@ -31,7 +35,12 @@ The repository check `bash scripts/verify-supabase-baseline.sh` performs this
 flow against an isolated PostgreSQL container with Supabase-compatible auth
 roles and functions.
 
-Prebuilt production packages default to `DB_AUTO_MIGRATE=false`. At startup, the backend verifies that the baseline above exists instead of allowing GORM to mutate the production schema implicitly. Source-development environments may retain `DB_AUTO_MIGRATE=true`, but it is not a substitute for a versioned migration.
+Prebuilt production packages default to `DB_AUTO_MIGRATE=false`. At startup,
+the backend reads the packaged `manifest.json` and requires the database to be
+at that Release's latest version with matching recorded checksums. Startup
+never runs migrations or lets GORM mutate the production schema implicitly.
+Source-development environments may retain `DB_AUTO_MIGRATE=true`, but it is
+not a substitute for a versioned migration.
 
 ## Migration Contract
 
@@ -40,20 +49,49 @@ Future upgrade migrations use:
 ```text
 backend/migrations/<UTC timestamp>_<name>.sql
 backend/migrations/rollback/<UTC timestamp>_<name>.sql
+backend/migrations/manifest.json
 ```
 
 Every forward migration must:
 
-- run in a transaction unless PostgreSQL forbids it;
-- be safe to retry or fail before recording its version;
-- lock or use compare-and-set semantics for conflicting state changes;
+- omit `BEGIN`, `COMMIT`, and `ROLLBACK`; the runner owns each version transaction;
+- run in manifest order under a global PostgreSQL advisory lock;
+- be safe to retry or fail in the same transaction as its ledger entry;
 - preserve data by default;
-- insert exactly one matching `public.schema_migrations` row;
-- state the oldest source version it accepts;
+- let the runner insert exactly one SHA-256 ledger row after successful SQL;
+- declare the immediately preceding version as its only accepted source;
+- keep published forward and rollback files immutable with matching manifest checksums;
 - include tests for clean install and supported upgrade paths.
 
 `backend/init.sql` must be updated in the same change so a clean installation
 arrives directly at the latest schema.
+
+## Supported Upgrade Procedure
+
+Back up the database and verify that the backup can be restored before
+installing a new Release. The application must not keep writing during the
+upgrade:
+
+```bash
+sudo yistackctl stop
+# Install the new immutable Release package.
+sudo yistackctl database plan
+sudo ./install.sh
+sudo yistackctl database migrate
+sudo yistackctl database verify
+sudo yistackctl start
+sudo yistackctl health
+```
+
+`migrate` and `rollback` refuse to run while `yistack.target` is active.
+Supabase mode requires `SUPABASE_DB_PASSWORD` for a direct PostgreSQL
+connection; REST-only mode cannot run schema migrations. Repeating `migrate`
+does not reapply recorded versions.
+
+The runner rejects tampered manifest files, database checksum mismatches,
+history gaps, unknown versions, and versions newer than the current Release.
+Production startup rejects the same states and instructs operators to run
+`yistackctl database migrate` when the database is behind.
 
 ## Rollback Contract
 
@@ -71,15 +109,34 @@ The baseline rollback only removes the baseline marker when no later
 migration exists. It does not drop application tables or user data. Full
 baseline rollback requires restoring the pre-install database snapshot.
 
-## Release Gate
+`yistackctl database rollback` rolls back only the latest version and only when
+the manifest marks it reversible. After rollback, install an application
+Release compatible with the target database version before restarting; do not
+bypass version verification with a newer binary.
 
-Before the first tag that supports upgrading an existing installation:
+## Version Compatibility Matrix
 
-- freeze the baseline checksum in release notes;
-- add a migration runner with locking and checksum validation;
-- test upgrade and rollback from every declared supported source version;
-- publish the application/database compatibility matrix;
-- reject startup on unknown or newer database versions.
+| Application version | Required database version | Supported install/source | Rollback boundary |
+| --- | --- | --- | --- |
+| v1.0.0 | `000000000000_contributor_alpha` | Clean install only | Removes only the baseline marker; does not drop application tables |
+| Unreleased (next upgrade-capable tag) | `202609070001_migration_integrity` | Clean install, or in-place upgrade from the v1.0.0 baseline | One-step rollback to the v1.0.0 baseline while preserving application data |
 
-Until that gate is complete, YiStack supports clean installation only and
-must not claim in-place upgrade compatibility.
+## Integrity and Release Gate
+
+Current frozen checksums:
+
+| Database version | Forward SHA-256 |
+| --- | --- |
+| `000000000000_contributor_alpha` | `a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871` |
+| `202609070001_migration_integrity` | `aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113` |
+
+The repository now provides a locking and checksum-validating runner,
+upgrade/rollback tests for supported sources, a compatibility matrix, and
+startup rejection for unknown or newer versions. Release packages must carry
+the complete migration directory and run PostgreSQL 16 acceptance from every
+declared source version to the target.
+
+Only after a new immutable tag completes the Release workflow may
+`Unreleased` in the table be replaced with the actual version and that tag
+claim in-place upgrades from v1.0.0. Sources not listed in the matrix remain
+unsupported.
