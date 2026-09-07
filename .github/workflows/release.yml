@@ -45,6 +45,20 @@ jobs:
           node-version: 22.23.2
           cache: pnpm
 
+      - name: Verify release metadata
+        env:
+          VERSION: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          expected_version="${VERSION#v}"
+          [ "$package_version" = "$expected_version" ] || {
+            echo "package.json version $package_version does not match tag $VERSION." >&2
+            exit 1
+          }
+          grep -Fq "## [$expected_version] - " docs/CHANGELOG.md
+          grep -Fq "## [$expected_version] - " docs/CHANGELOG.en.md
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:

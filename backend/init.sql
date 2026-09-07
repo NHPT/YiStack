@@ -1394,7 +1394,7 @@ WHERE COALESCE(provider.model, '') <> ''
 -- 默认系统配置
 INSERT INTO public.system_config (key, value, value_type, description) VALUES
     ('app_name', 'YiStack', 'string', '应用名称'),
-    ('app_version', '1.0.0', 'string', '应用版本'),
+    ('app_version', '1.1.0', 'string', '应用版本'),
     ('max_projects_per_user', '10', 'number', '每用户最大项目数'),
     ('max_file_size_mb', '50', 'number', '单文件最大大小(MB)'),
     ('container_idle_timeout_min', '30', 'number', '容器空闲超时(分钟)'),
@@ -1905,8 +1905,8 @@ VALUES
     ),
     (
         '202609070001_migration_integrity',
-        'Add migration checksum integrity metadata',
-        'aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113'
+        'Add migration checksum integrity and v1.1.0 release metadata',
+        '82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf'
     )
 ON CONFLICT (version) DO UPDATE
 SET description = EXCLUDED.description,

@@ -1,4 +1,4 @@
--- Add immutable migration checksums to the schema version ledger.
+-- Add immutable migration checksums and v1.1.0 release metadata.
 -- Minimum source version: 000000000000_contributor_alpha
 
 ALTER TABLE public.schema_migrations
@@ -31,3 +31,11 @@ $$;
 
 ALTER TABLE public.schema_migrations
     ALTER COLUMN checksum_sha256 SET NOT NULL;
+
+INSERT INTO public.system_config (key, value, value_type, description)
+VALUES ('app_version', '1.1.0', 'string', '应用版本')
+ON CONFLICT (key) DO UPDATE
+SET value = EXCLUDED.value,
+    value_type = EXCLUDED.value_type,
+    description = EXCLUDED.description,
+    updated_at = now();

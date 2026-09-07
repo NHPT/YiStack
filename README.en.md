@@ -12,10 +12,12 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.0.0**, YiStack's first stable open-source release. Its
-> stability scope is limited to the capabilities documented in this README and
-> [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Only clean database installation
-> is guaranteed; arbitrary in-place upgrades from historical versions are not.
+> Current release: **v1.1.0**, YiStack's first stable release with a safe
+> in-place upgrade from v1.0.0. Its stability scope is limited to the
+> capabilities documented in this README and
+> [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the
+> current Release's `database/init.sql`; existing v1.0.0 installations use the
+> one-command upgrade.
 
 ## Why YiStack
 
@@ -44,9 +46,17 @@ and Git delivery into a truthful, traceable, and recoverable engineering loop.
     <td align="center">Live runtime preview and browser acceptance</td>
     <td align="center">Git commits, file diffs, and delivery traceability</td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/terminal-session.png" alt="YiStack project container terminal and command output"></td>
+    <td width="50%"><img src="docs/assets/screenshots/mobile-preview.png" alt="YiStack Preview switched to a mobile viewport"></td>
+  </tr>
+  <tr>
+    <td align="center">Project container terminal with real command output</td>
+    <td align="center">Desktop, tablet, and mobile Preview viewport switching</td>
+  </tr>
 </table>
 
-> Screenshots are captured from the real YiStack interface with a sanitized demo project and deterministic demo data.
+> Screenshots are captured from the real YiStack interface with a sanitized demo project and deterministic demo data. Run `pnpm docs:screenshots` to regenerate the terminal and mobile Preview images.
 
 ## Current Capabilities
 
@@ -169,16 +179,16 @@ The installer generates the database password in `/etc/yistack/postgres.env`, th
 
 ### Upgrade an Existing Installation
 
-The next upgrade-capable Release supports the known v1.0.0 database baseline.
-For the first upgrade from v1.0.0, verify and extract the new Release, then run
-one command from that directory:
+v1.1.0 supports the known v1.0.0 database baseline. For the first upgrade from
+v1.0.0, verify and extract the new Release, then run one command from that
+directory:
 
 ```bash
 sudo ./upgrade.sh
 ```
 
-Subsequent upgrades can use the installed control command. Keep the Release
-archive and its matching `.sha256` file in the same directory:
+Starting with v1.1.0, subsequent upgrades can use the installed control command.
+Keep the Release archive and its matching `.sha256` file in the same directory:
 
 ```bash
 sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
@@ -202,9 +212,9 @@ compatibility matrix remain unsupported. See the complete compatibility and
 recovery boundary in
 [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 
-### Optional Ephemeral Trial Mode
+### Ephemeral Experience Mode (Daily Reset)
 
-A public trial instance can enable ephemeral trial mode on the standard PostgreSQL production deployment without maintaining a separate application branch. It behaves like a scheduled restore sandbox: data remains persisted during a visitor's session and is deleted at the next scheduled reset. It is therefore not an immediate browser-style private mode, and visitors should not enter secrets or other sensitive data.
+This mode runs on the standard PostgreSQL production deployment without a separate application branch. On schedule, it restores a clean baseline and removes regular users, projects, containers, caches, and managed logs while retaining base images, administrator accounts, and Provider configuration. Data remains persisted until the next reset, so do not enter secrets or other sensitive information.
 
 This mode supports only the installer-managed local PostgreSQL database and fails closed when external Supabase is configured, avoiding partial or irreversible resets of an external database. Configure administrators, providers, and system policy first, verify that no regular users or projects exist, then install the configuration and capture a clean baseline:
 
@@ -328,10 +338,10 @@ pnpm eval:smoke
 
 ## Database Upgrade Boundary
 
-v1.0.0 still guarantees clean installation only. The next immutable Release
-will support in-place upgrades from that known version. Clean installation and
-upgrade must not be chained together. Historical databases not listed in the
-compatibility matrix remain unsupported. See
+v1.0.0 guarantees clean installation only; v1.1.0 supports a safe in-place
+upgrade from that known version. Clean installation and upgrade must not be
+chained together. Historical databases not listed in the compatibility matrix
+remain unsupported. See
 [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 
 ## Repository Layout

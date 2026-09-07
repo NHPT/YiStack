@@ -16,13 +16,13 @@
     },
     {
       "version": "202609070001_migration_integrity",
-      "description": "Add migration checksum integrity metadata",
+      "description": "Add migration checksum integrity and v1.1.0 release metadata",
       "file": "202609070001_migration_integrity.sql",
-      "sha256": "aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113",
+      "sha256": "82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf",
       "minimum_source_version": "000000000000_contributor_alpha",
       "reversible": true,
       "rollback_file": "rollback/202609070001_migration_integrity.sql",
-      "rollback_sha256": "50554d283229affa22b54537ea8a6f70aea2f612b5903102d290d01cd2421874",
+      "rollback_sha256": "028aaf37b93eaf306601ba2969be30e06f38492c5d0ac1cc11f7b16107eede34",
       "irreversible_recovery": ""
     }
   ]

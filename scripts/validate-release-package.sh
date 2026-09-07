@@ -87,6 +87,11 @@ required_files=(
   "MANIFEST.sha256"
   "README.en.md"
   "README.md"
+  "docs/assets/screenshots/git-delivery.png"
+  "docs/assets/screenshots/mobile-preview.png"
+  "docs/assets/screenshots/terminal-session.png"
+  "docs/assets/screenshots/verified-preview.png"
+  "docs/assets/screenshots/workspace-overview.png"
   "SOURCE_COMMIT"
   "VERSION"
   "bin/yistack-database-backup"
@@ -130,6 +135,17 @@ for relative_path in "${required_files[@]}"; do
     echo "Release package is missing $relative_path" >&2
     exit 1
   fi
+done
+
+for screenshot in "$package_root/docs/assets/screenshots/"*.png; do
+  case "$(file -b "$screenshot")" in
+    "PNG image data, 1600 x 1000"*)
+      ;;
+    *)
+      echo "Release screenshot has an unexpected format or size: $screenshot" >&2
+      exit 1
+      ;;
+  esac
 done
 
 if [ "$(tr -d '[:space:]' < "$package_root/VERSION")" != "$package_version" ]; then

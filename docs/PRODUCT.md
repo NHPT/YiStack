@@ -29,7 +29,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | 已实现，待云端验收 | adapter、失败边界和自动化测试已完成，外部平台真实 lifecycle 仍需凭据验收 |
 | 试验性 | 可使用，但 API 或存储结构可能在稳定版前变化 |
 | 规划中 | 尚未完成，不构成版本承诺 |
-| 不在当前范围 | v1.0.0 不提供 |
+| 不在当前范围 | v1.1.0 不提供 |
 
 ## 3. 当前产品能力
 
@@ -46,7 +46,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 | 容器运行 | 已实现 | 每项目 rootless Podman 运行边界和资源策略 |
 | 生产部署发行 | 已实现 | Web 客户端跨平台；官方 Linux amd64/arm64 服务端包以 Debian 12 为生产验收基线，包含 systemd、内置 Node.js 22、可选 PostgreSQL 16 容器、SHA-256、SBOM 和构建来源证明 |
 | 数据库升级 | 已实现 | 已知 v1.0.0 baseline 支持一键安全升级；自动完成 custom-format 备份、显式 migration、健康检查及失败恢复，runner 保留 advisory lock、SHA-256 完整性和未知版本关闭失败 |
-| 临时体验模式 | 已实现 | 本地 PostgreSQL 部署可选的无用户数据基线、可配置每日还原、完整用户/项目数据清理、TTL 和磁盘水位治理；保留复用镜像，外部 Supabase 明确不支持自动重置 |
+| 无痕体验模式 | 已实现 | 本地 PostgreSQL 部署可选的无用户数据基线、可配置每日还原、完整用户/项目数据清理、TTL 和磁盘水位治理；保留复用镜像，外部 Supabase 明确不支持自动重置 |
 | Supabase 应用预设 | 已实现 | Auth、CRUD RLS、私有 Storage、类型、migration 和 rollback |
 | GitHub 集成 | 已实现 | OAuth PKCE、token 加密、import、pull/push 冲突防护、webhook |
 | Vercel adapter | 已实现，待云端验收 | 发布、日志脱敏、回滚和域名逻辑已有自动化测试；真实 lifecycle 待统一多 Provider 阶段使用外部凭据验收 |
@@ -114,7 +114,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 - `backend/init.sql` 是全新安装的单点真源
 - `backend/migrations/manifest.json` 固定迁移顺序、来源版本和 SQL checksum
 - 生产启动只验证当前数据库版本，schema 变更必须显式运行 migration runner
-- v1.0.0 仍只支持全新安装；后续 Release 仅支持兼容矩阵列出的来源版本
+- v1.0.0 只支持全新安装；v1.1.0 支持从 v1.0.0 原地升级，后续 Release 仍仅支持兼容矩阵列出的来源版本
 - Release 升级使用 `upgrade.sh` / `yistackctl upgrade`，自动备份 `public` schema，并在失败时恢复数据库、配置、systemd 单元和旧 Release
 
 ## 7. 外部集成边界
@@ -130,7 +130,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 
 ## 8. 开源与贡献阶段
 
-v1.0.0 发布门禁、GitHub required checks 与 branch protection 已启用。公开仓库通过受控 pull request 接受贡献：
+v1.0.0 建立的发布门禁、GitHub required checks 与 branch protection 在 v1.1.0 中继续启用。公开仓库通过受控 pull request 接受贡献：
 
 - issue 先确定范围；
 - CODEOWNERS 审查；
@@ -138,7 +138,7 @@ v1.0.0 发布门禁、GitHub required checks 与 branch protection 已启用。�
 - 数据库和安全边界具备迁移/rollback 说明；
 - 用户可见变更具备浏览器验收证据。
 
-v1.0.0 是首个稳定开源版本；稳定范围仅覆盖本文档明确列为已实现的能力和全新数据库安装路径。未实现能力与后续优先级见 `docs/roadmap/ROADMAP.md`。
+v1.0.0 是首个稳定开源版本；v1.1.0 新增从该已知基线安全原地升级的支持。稳定范围仅覆盖本文档明确列为已实现的能力、全新数据库安装路径和兼容矩阵声明的升级路径。未实现能力与后续优先级见 `docs/roadmap/ROADMAP.md`。
 
 ## 9. 商业与版本说明
 

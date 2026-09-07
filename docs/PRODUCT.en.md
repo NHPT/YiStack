@@ -41,7 +41,7 @@ Core goals:
 | Implemented; live acceptance pending | The adapter, failure boundaries, and automated tests are complete; the external platform lifecycle still requires credentialed acceptance |
 | Experimental | Usable, but APIs or storage structures may change before a stable release |
 | Planned | Not complete and not a release commitment |
-| Out of current scope | Not provided in v1.0.0 |
+| Out of current scope | Not provided in v1.1.0 |
 
 ## 3. Current Product Capabilities
 
@@ -58,7 +58,7 @@ Core goals:
 | Container runtime | Implemented | Per-project rootless Podman boundaries and resource policies |
 | Production distribution | Implemented | Cross-platform web client; official Linux amd64/arm64 server packages use Debian 12 as the production acceptance baseline and include systemd, bundled Node.js 22, optional PostgreSQL 16, SHA-256, SBOMs, and provenance |
 | Database upgrades | Implemented | Safe one-command upgrade from the known v1.0.0 baseline, with custom-format backup, explicit migration, health checking, and failure recovery; the runner retains advisory locking, SHA-256 integrity, and fail-closed unknown-version handling |
-| Ephemeral trial mode | Implemented | Optional clean baseline, configurable daily restoration, complete user/project data cleanup, TTLs, and disk-watermark governance for local PostgreSQL deployments; reusable images are retained and external Supabase is excluded |
+| Ephemeral experience mode | Implemented | Optional clean baseline, configurable daily restoration, complete user/project data cleanup, TTLs, and disk-watermark governance for local PostgreSQL deployments; reusable images are retained and external Supabase is excluded |
 | Supabase application preset | Implemented | Auth, CRUD RLS, private Storage, types, migrations, and rollback |
 | GitHub integration | Implemented | OAuth PKCE, encrypted tokens, import, guarded pull/push, and webhooks |
 | Vercel adapter | Implemented; live acceptance pending | Publish, redacted-log, rollback, and domain behavior has automated coverage; credentialed lifecycle acceptance is deferred to the unified multi-provider phase |
@@ -138,8 +138,9 @@ claim generation succeeded.
   and SQL checksums.
 - Production startup only verifies the current database version; schema changes
   require the explicit migration runner.
-- v1.0.0 remains clean-install only; later Releases support only sources listed
-  in the compatibility matrix.
+- v1.0.0 remains clean-install only; v1.1.0 supports an in-place upgrade from
+  v1.0.0, and later Releases support only sources listed in the compatibility
+  matrix.
 - Release upgrades use `upgrade.sh` / `yistackctl upgrade`, back up the
   `public` schema, and restore the database, configuration, systemd units, and old Release on failure.
 
@@ -158,9 +159,9 @@ service.
 
 ## 8. Open-Source and Contribution Stage
 
-The v1.0.0 release gate, required GitHub checks, and branch protection are
-enabled. The public repository accepts controlled pull requests under these
-conditions:
+The release gate, required GitHub checks, and branch protection established for
+v1.0.0 remain enabled in v1.1.0. The public repository accepts controlled pull
+requests under these conditions:
 
 - an issue defines the scope first;
 - CODEOWNERS review is required;
@@ -168,10 +169,11 @@ conditions:
 - database and security changes include migration and rollback boundaries;
 - user-visible changes include browser acceptance evidence.
 
-v1.0.0 is the first stable open-source release. Its stability scope covers only
-the capabilities marked implemented in this document and the clean database
-installation path. See `docs/roadmap/ROADMAP.en.md` for unimplemented
-capabilities and later priorities.
+v1.0.0 is the first stable open-source release. v1.1.0 adds a safe in-place
+upgrade from that known baseline. The stability scope covers only capabilities
+marked implemented in this document, clean database installation, and upgrade
+paths listed in the compatibility matrix. See `docs/roadmap/ROADMAP.en.md` for
+unimplemented capabilities and later priorities.
 
 ## 9. Commercial and Versioning Notes
 

@@ -103,6 +103,7 @@ mkdir -p \
   "$stage_root/browser-worker/lib" \
   "$stage_root/config" \
   "$stage_root/database" \
+  "$stage_root/docs/assets/screenshots" \
   "$stage_root/frontend/.next" \
   "$stage_root/runtime/node" \
   "$stage_root/systemd" \
@@ -174,6 +175,7 @@ cp "$ROOT_DIR/deploy/upgrade.sh" "$stage_root/upgrade.sh"
 cp "$ROOT_DIR/LICENSE" "$stage_root/LICENSE"
 cp "$ROOT_DIR/README.md" "$stage_root/README.md"
 cp "$ROOT_DIR/README.en.md" "$stage_root/README.en.md"
+cp "$ROOT_DIR/docs/assets/screenshots/"*.png "$stage_root/docs/assets/screenshots/"
 printf '%s\n' "$VERSION" > "$stage_root/VERSION"
 printf '%s\n' "$SOURCE_COMMIT" > "$stage_root/SOURCE_COMMIT"
 

@@ -14,11 +14,15 @@ starting with v1.0.0.
 
 ## [Unreleased]
 
+No public changes yet.
+
+## [1.1.0] - 2026-09-07
+
 ### Added
 
 - Added official prebuilt Linux amd64/arm64 production packages, fully validated on Debian 12, containing the Go backend, Next.js standalone output, Node.js 22, the browser-acceptance worker, systemd units, and an optional PostgreSQL 16 rootless Podman control-plane database; the web client remains cross-platform.
 - Added a tag-triggered Release workflow that builds and validates packages on amd64 and native arm64 runners, then publishes SHA-256 files, SPDX JSON SBOMs, and GitHub build provenance.
-- Added a disabled-by-default ephemeral trial mode for local PostgreSQL deployments, with a user-data-free baseline, configurable daily restoration, complete user/project data cleanup, project and container TTLs, disk watermarks, and reusable image retention.
+- Added a disabled-by-default ephemeral experience mode for local PostgreSQL deployments, with a user-data-free baseline, configurable daily restoration, complete user/project data cleanup, project and container TTLs, disk watermarks, and reusable image retention.
 - Added an explicit database migration runner with manifest ordering, SHA-256 integrity, a PostgreSQL advisory lock, upgrades from the known v1.0.0 baseline, and one-step rollback.
 - VIS-001 visual context loop: chat accepts pasted or uploaded PNG/JPEG references, and only models declaring the `vision` capability may receive images.
 - Added safe one-command upgrades: v1.0.0 runs the new Release's `upgrade.sh`, while later versions use `yistackctl upgrade`; the command automates backup, migration, verification, running-state restoration, and failure recovery of the database, configuration, systemd units, and Release pointer.
@@ -28,6 +32,7 @@ starting with v1.0.0.
 - Sanitized `visual_edit.v1` evidence is bound to a durable Generation Job, writes changes back to real source, and continues through `generation_result.v2`, project build/test/lint, bounded repair, browser acceptance, and a Git snapshot.
 - COLLAB-001 shared-workspace loop: owner/editor/viewer sessions expose durable presence, resource changes synchronize through replayable SSE, and leave/expiry transitions retain append-only audit evidence.
 - Remote saves refresh clean buffers automatically. Dirty buffers preserve local content and show a conflict, while SHA-256 revisions and HTTP 409 prevent silent overwrites.
+- Added real-interface README screenshots for the project container terminal and mobile Preview viewport, using sanitized deterministic demo data and a reproducible capture script.
 
 ### Changed
 

@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.0.0**。这是 YiStack 首个稳定开源版本；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。当前仅承诺全新数据库安装，不承诺任意历史数据库版本的原地升级。
+> 当前版本：**v1.1.0**。这是 YiStack 首个支持从 v1.0.0 安全原地升级的稳定版本；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量 v1.0.0 安装使用一键升级命令。
 
 ## 核心优势
 
@@ -35,9 +35,17 @@ YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团�
     <td align="center">真实运行预览与浏览器验收</td>
     <td align="center">Git 提交、文件差异与交付追踪</td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/terminal-session.png" alt="YiStack 项目容器终端与命令输出"></td>
+    <td width="50%"><img src="docs/assets/screenshots/mobile-preview.png" alt="YiStack Preview 移动端视口切换"></td>
+  </tr>
+  <tr>
+    <td align="center">项目容器终端与真实命令输出</td>
+    <td align="center">Preview 桌面、平板与移动端视口切换</td>
+  </tr>
 </table>
 
-> 截图来自真实 YiStack 界面，使用脱敏演示项目和确定性演示数据。
+> 截图来自真实 YiStack 界面，使用脱敏演示项目和确定性演示数据；可通过 `pnpm docs:screenshots` 重新生成终端和移动端 Preview 截图。
 
 ## 当前能力
 
@@ -153,21 +161,21 @@ sudo yistackctl health
 
 ### 升级现有安装
 
-下一个可升级 Release 支持从 v1.0.0 的已知数据库基线升级。首次从 v1.0.0
+v1.1.0 支持从 v1.0.0 的已知数据库基线升级。首次从 v1.0.0
 升级时，校验并解压新 Release，然后在该目录执行一条命令：
 
 ```bash
 sudo ./upgrade.sh
 ```
 
-从该版本开始，后续升级可直接使用已安装的控制命令；Release 压缩包和同名
+从 v1.1.0 开始，后续升级可直接使用已安装的控制命令；Release 压缩包和同名
 `.sha256` 文件应位于同一目录：
 
 ```bash
 sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 ```
 
-升级命令会校验 Release 和版本方向、预检数据库、停止应用及临时体验模式 timer、
+升级命令会校验 Release 和版本方向、预检数据库、停止应用及无痕体验模式 timer、
 创建并校验 PostgreSQL custom-format 备份、安装新 Release、执行并验证 migration、
 恢复升级前运行状态并完成健康检查。失败时会自动恢复旧配置、旧 Release、systemd
 单元和数据库备份；若自动恢复不完整，服务保持停止并输出备份位置。原先已停止的
@@ -179,9 +187,9 @@ Supabase 升级必须配置直连密码 `SUPABASE_DB_PASSWORD`。生产启动仍
 且不支持降级或兼容矩阵之外的历史数据库。完整兼容矩阵和恢复边界见
 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。
 
-### 可选临时体验模式（每日自动还原）
+### 无痕体验模式（每日自动还原）
 
-面向公众开放试用时，可在上述标准 PostgreSQL 生产部署上启用“临时体验模式”，不需要维护专用应用分支。它类似可定时还原的体验沙箱：访问期间的数据仍会正常持久化，直到下一次计划重置才会删除，因此不应把它理解为浏览器隐私意义上的即时“无痕模式”，也不要在公开实例中输入密钥或其他敏感数据。
+该模式运行在上述标准 PostgreSQL 生产部署上，无需维护独立应用分支。系统会按计划恢复至干净基线，清理普通用户、项目、容器、缓存和受管日志，同时保留基础镜像、管理员及 Provider 配置。重置前产生的数据仍会暂时持久化，请勿输入密钥或其他敏感信息。
 
 该模式只支持安装器管理的本地 PostgreSQL；检测到外部 Supabase 时会拒绝执行，避免对外部数据库进行不完整或不可逆的重置。先完成管理员、Provider 和系统策略配置，确认尚未创建普通用户或项目，再安装配置并采集干净基线：
 
@@ -302,8 +310,8 @@ pnpm eval:smoke
 
 ## 数据库升级边界
 
-v1.0.0 仍只承诺全新安装；下一个不可变 Release 将支持从该已知版本原地升级。
-新安装与升级不能串联执行，未列入兼容矩阵的历史数据库仍不受支持。完整边界见
+v1.0.0 只承诺全新安装；v1.1.0 支持从该已知版本安全原地升级。新安装与升级
+不能串联执行，未列入兼容矩阵的历史数据库仍不受支持。完整边界见
 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。
 
 ## 项目结构
