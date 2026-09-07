@@ -131,6 +131,17 @@ The installer verifies the internal `MANIFEST.sha256`, creates the `yistack` sys
 /var/cache/yistack     caches
 ```
 
+Database initialization and upgrade are mutually exclusive:
+
+- Clean installation: apply `database/init.sql` once for external Supabase;
+  installer-managed PostgreSQL initializes automatically. Do not run migrations
+  after a clean installation.
+- Existing installation upgrade: do not reapply `database/init.sql`; use only
+  the `yistackctl database` commands below.
+
+Incremental SQL files in the package are internal migration-runner assets.
+Operators do not need to inspect, modify, or execute them individually.
+
 ### External Supabase
 
 1. Apply `database/init.sql` from the extracted package to a new Supabase project.
@@ -158,10 +169,9 @@ The installer generates the database password in `/etc/yistack/postgres.env`, th
 
 ### Upgrade an Existing Installation
 
-The next upgrade-capable Release supports the v1.0.0
-`000000000000_contributor_alpha` baseline. Back up the database, verify that
-the backup can be restored, then run these commands from the extracted new
-Release directory:
+The next upgrade-capable Release supports the known v1.0.0 database baseline.
+Back up the database, verify that the backup can be restored, then run these
+commands from the extracted new Release directory:
 
 ```bash
 sudo yistackctl stop
@@ -175,11 +185,11 @@ sudo yistackctl health
 
 Do not pass `--start` to the installer during an upgrade. `migrate` and
 `rollback` refuse to change the schema while the application is active.
-Production startup never migrates automatically and rejects checksum drift,
-history gaps, unknown or newer versions, and databases that are still behind.
-Supabase upgrades require the direct database password in
+Production startup never migrates automatically and rejects unsupported or
+outdated databases. Supabase upgrades require the direct database password in
 `SUPABASE_DB_PASSWORD`. See the complete compatibility matrix and rollback
-boundary in [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
+boundary in
+[`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 
 ### Optional Ephemeral Trial Mode
 
@@ -308,10 +318,10 @@ pnpm eval:smoke
 ## Database Upgrade Boundary
 
 v1.0.0 still guarantees clean installation only. The next immutable Release
-will support in-place upgrades from that known baseline. The runner, checksums,
-advisory lock, compatibility matrix, and rollback requirements are documented
-in [`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
-Historical databases not listed in the matrix remain unsupported.
+will support in-place upgrades from that known version. Clean installation and
+upgrade must not be chained together. Historical databases not listed in the
+compatibility matrix remain unsupported. See
+[`docs/engineering/DATABASE_LIFECYCLE.en.md`](docs/engineering/DATABASE_LIFECYCLE.en.md).
 
 ## Repository Layout
 

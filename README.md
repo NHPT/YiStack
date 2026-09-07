@@ -116,6 +116,16 @@ sudo ./install.sh
 /var/cache/yistack     缓存目录
 ```
 
+数据库初始化和升级是两个互斥流程：
+
+- 全新安装：外部 Supabase 只执行一次 `database/init.sql`；安装器管理的
+  PostgreSQL 会自动完成初始化。全新安装后不要再执行 migration。
+- 现有安装升级：不要重新执行 `database/init.sql`，只使用下文的
+  `yistackctl database` 命令。
+
+部署包内的增量 SQL 是 migration runner 的内部资产，用户不需要查看、修改或
+逐个执行。
+
 ### 使用外部 Supabase
 
 1. 在新的 Supabase 项目中执行部署包内的 `database/init.sql`。
@@ -143,9 +153,8 @@ sudo yistackctl health
 
 ### 升级现有安装
 
-下一个可升级 Release 支持从 v1.0.0 的
-`000000000000_contributor_alpha` baseline 升级。先备份数据库并实际验证恢复，
-再在解压后的新 Release 目录中执行：
+下一个可升级 Release 支持从 v1.0.0 的已知数据库基线升级。先备份数据库并
+实际验证恢复，再在解压后的新 Release 目录中执行：
 
 ```bash
 sudo yistackctl stop
@@ -158,9 +167,9 @@ sudo yistackctl health
 ```
 
 不要在升级时向安装器传入 `--start`。`migrate` 和 `rollback` 会在应用仍运行时
-拒绝修改 schema；生产启动不会自动迁移，并会拒绝 checksum 不匹配、历史断层、
-未知版本、过新版本或尚未升级的数据库。Supabase 升级需要配置直连密码
-`SUPABASE_DB_PASSWORD`。完整兼容矩阵和 rollback 边界见
+拒绝修改 schema；生产启动不会自动迁移，并会拒绝不受支持或尚未升级的
+数据库。Supabase 升级需要配置直连密码 `SUPABASE_DB_PASSWORD`。完整兼容矩阵
+和 rollback 边界见
 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。
 
 ### 可选临时体验模式（每日自动还原）
@@ -286,7 +295,9 @@ pnpm eval:smoke
 
 ## 数据库升级边界
 
-v1.0.0 仍只承诺全新安装；下一个不可变 Release 将支持从该已知 baseline 原地升级。runner、checksum、advisory lock、兼容矩阵和 rollback 要求见 [`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。未列入矩阵的历史数据库仍不受支持。
+v1.0.0 仍只承诺全新安装；下一个不可变 Release 将支持从该已知版本原地升级。
+新安装与升级不能串联执行，未列入兼容矩阵的历史数据库仍不受支持。完整边界见
+[`docs/engineering/DATABASE_LIFECYCLE.md`](docs/engineering/DATABASE_LIFECYCLE.md)。
 
 ## 项目结构
 
