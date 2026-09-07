@@ -1,5 +1,5 @@
 [Unit]
-Description=Run YiStack demonstration cleanup each hour
+Description=Run YiStack ephemeral trial cleanup each hour
 
 [Timer]
 OnCalendar=*-*-* *:30:00

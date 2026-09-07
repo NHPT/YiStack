@@ -162,6 +162,12 @@ assert.match(product, /已实现，待云端验收/);
 assert.doesNotMatch(product, /合同已实现/);
 assert.match(productEnglish, /Implemented; live acceptance pending/);
 assert.doesNotMatch(productEnglish, /Contract implemented/);
+assert.match(readme, /Web 使用界面可通过现代浏览器跨平台访问/);
+assert.match(readme, /官方预编译服务端部署包提供 Linux `amd64` 和 `arm64` 构建/);
+assert.match(readme, /可选临时体验模式（每日自动还原）/);
+assert.match(readmeEnglish, /web interface is accessible from modern browsers across platforms/);
+assert.match(readmeEnglish, /official prebuilt server packages provide Linux `amd64` and `arm64` builds/);
+assert.match(readmeEnglish, /Optional Ephemeral Trial Mode/);
 
 const capabilityReport = read(
   'docs/yistack_open_source_progress_and_competitor_matrix.html',
@@ -440,6 +446,60 @@ assert.match(
   /print_backend_log\(\)[\s\S]*tail -n 220 "\$backend_log"/,
   'release validation must retain the final backend startup error',
 );
+assert.match(
+  postgresRuntimeValidation,
+  /snapshot[\s\S]*INSERT INTO public\.users[\s\S]*run_demo_maintenance reset[\s\S]*SELECT count\(\*\) FROM public\.users[\s\S]*SELECT count\(\*\) FROM public\.projects/,
+  'release validation must prove that the clean baseline removes user and project data',
+);
+assert.match(
+  postgresRuntimeValidation,
+  /podman image inspect[\s\S]*postgres_image_id_after[\s\S]*postgres_image_id_before/,
+  'release validation must prove that reusable PostgreSQL images survive a reset',
+);
+
+const demoMaintenance = read('deploy/bin/yistack-demo-maintenance');
+const demoMaintenanceConfig = read('deploy/config/yistack-demo-maintenance.env.example');
+assert.match(
+  demoMaintenance,
+  /schema=ephemeral-trial-baseline\.v1[\s\S]*user_data_policy=empty/,
+  'ephemeral trial baselines must declare the empty user-data policy',
+);
+assert.match(
+  demoMaintenance,
+  /list_user_data_rows\(\)[\s\S]*public\.users[\s\S]*public\.projects[\s\S]*public\.project_collaboration_events/,
+  'ephemeral trial snapshots must inspect all user and project data domains',
+);
+assert.match(
+  demoMaintenance,
+  /reset_to_baseline\(\)[\s\S]*remove_all_project_resources[\s\S]*restore_database[\s\S]*restore_workspaces[\s\S]*clear_directory_contents "\$LOG_DIR"/,
+  'daily restoration must clear project resources, user state, caches, evidence, and managed logs',
+);
+assert.match(
+  demoMaintenance,
+  /validate_timer_setting\(\)[\s\S]*systemd-analyze/,
+  'ephemeral trial timer values must be validated by systemd',
+);
+assert.match(
+  demoMaintenance,
+  /apply_timer_schedule\(\)[\s\S]*validate_timer_setting[\s\S]*write_timer_override[\s\S]*systemctl daemon-reload/,
+  'ephemeral trial timer schedules must be validated and applied through systemd drop-ins',
+);
+assert.doesNotMatch(
+  demoMaintenance,
+  /podman_cmd (?:image rm|rmi)|podman system prune/,
+  'ephemeral trial reset must retain reusable Podman images',
+);
+for (const scheduleKey of [
+  'DEMO_RESET_ON_CALENDAR',
+  'DEMO_RESET_RANDOMIZED_DELAY_SEC',
+  'DEMO_CLEANUP_ON_CALENDAR',
+  'DEMO_CLEANUP_RANDOMIZED_DELAY_SEC',
+]) {
+  assert.ok(
+    demoMaintenanceConfig.includes(scheduleKey),
+    `ephemeral trial configuration must expose ${scheduleKey}`,
+  );
+}
 
 const liveEvalWorkflow = read('.github/workflows/canonical-eval.yml');
 assert.ok(liveEvalWorkflow.includes('pnpm eval:smoke'));

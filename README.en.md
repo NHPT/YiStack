@@ -99,9 +99,9 @@ definition, current boundary, and evolution path.
 - Runtime: rootless Podman
 - Package manager: pnpm 11.5.2
 
-## Production Requirements
+## Official Prebuilt Package Requirements
 
-The prebuilt package targets Debian 12 and compatible Ubuntu systems that use `apt`, systemd, and rootless Podman. Select the package matching the server architecture: `amd64` or `arm64`. Installation requires root privileges and network access to system package repositories, Playwright browser downloads, and container registries. Node.js 22 is bundled; production hosts do not need Go, pnpm, or frontend build tools.
+YiStack's web interface is accessible from modern browsers across platforms, and generated project source is not tied to the client operating system. The current official prebuilt server packages provide Linux `amd64` and `arm64` builds, with Debian 12 as the fully validated production baseline. Compatible Ubuntu environments with `apt`, systemd, and rootless Podman may also use the installer, but Windows and macOS server deployments are not currently production-validated. Installation requires root privileges and network access to system package repositories, Playwright browser downloads, and container registries. Node.js 22 is bundled; production hosts do not need Go, pnpm, or frontend build tools.
 
 ## Production Quick Start
 
@@ -156,11 +156,11 @@ sudo yistackctl health
 
 The installer generates the database password in `/etc/yistack/postgres.env`, then applies the Supabase SQL compatibility layer and `database/init.sql`. This mode provides YiStack's own PostgreSQL database and traditional JWT authentication. It does not provide Supabase Auth, Storage, or other managed services; generated applications that depend on Supabase still need a separate Supabase project.
 
-### Optional Demo Maintenance
+### Optional Ephemeral Trial Mode
 
-A public trial instance can use the standard PostgreSQL production deployment above without maintaining a separate application branch. The package includes a disabled-by-default operations layer for daily baseline restoration and hourly TTL, cache, log, and disk-watermark enforcement. It supports only the installer-managed local PostgreSQL database and fails closed when external Supabase is configured, avoiding partial or irreversible resets of an external database.
+A public trial instance can enable ephemeral trial mode on the standard PostgreSQL production deployment without maintaining a separate application branch. It behaves like a scheduled restore sandbox: data remains persisted during a visitor's session and is deleted at the next scheduled reset. It is therefore not an immediate browser-style private mode, and visitors should not enter secrets or other sensitive data.
 
-After configuring providers, demo accounts, and baseline projects, explicitly install the configuration and capture the baseline:
+This mode supports only the installer-managed local PostgreSQL database and fails closed when external Supabase is configured, avoiding partial or irreversible resets of an external database. Configure administrators, providers, and system policy first, verify that no regular users or projects exist, then install the configuration and capture a clean baseline:
 
 ```bash
 sudo install -m 0640 -o root -g yistack \
@@ -169,21 +169,31 @@ sudo install -m 0640 -o root -g yistack \
 sudo sed -i 's/^DEMO_MAINTENANCE_ENABLED=false$/DEMO_MAINTENANCE_ENABLED=true/' \
   /etc/yistack/demo-maintenance.env
 sudo yistackctl demo snapshot
-sudo systemctl enable --now \
-  yistack-demo-reset.timer \
-  yistack-demo-cleanup.timer
+sudo yistackctl demo apply-schedule
 sudo yistackctl demo status
 ```
 
-`snapshot` briefly stops the application and project containers, then records a PostgreSQL dump, project workspaces, protected baseline project IDs, the Release commit, and SHA-256 checksums. It does not copy secrets from `/etc/yistack`. The defaults are:
+`snapshot` briefly stops the application and project containers, then records a PostgreSQL dump, an empty project workspace, the Release commit, and SHA-256 checksums. It refuses to create a baseline when regular users, projects, related business records, or project workspaces still exist. It does not copy secrets from `/etc/yistack`.
 
-- restore the baseline after 04:00 each day, with up to 10 minutes of randomized delay;
-- remove expired non-baseline projects, stopped project containers, generation evidence, and caches each hour;
-- when disk usage reaches 80%, remove the oldest non-baseline projects until usage reaches 70%;
-- always retain baseline projects, `runtime/templates`, `ms-playwright`, configuration, and installed Releases;
-- remove only Podman containers and networks with an exact `yistack.project_id` label, without running a global `podman system prune`.
+The defaults are:
 
-Adjust TTLs and watermarks in `/etc/yistack/demo-maintenance.env`. After upgrading YiStack, the old baseline is rejected because its `SOURCE_COMMIT` no longer matches; capture a new baseline after validating the new release. Manual operations and timer shutdown are available through:
+- restore the clean baseline after 04:00 each day, with up to 10 minutes of randomized delay;
+- on every daily reset, remove all regular users and related database records, project workspaces, containers and networks labeled with `yistack.project_id`, container state, generation evidence, caches, and managed file logs;
+- use hourly TTL cleanup for expired projects, stopped project containers, generation evidence, caches, and logs as capacity protection between daily resets;
+- when disk usage reaches 80%, remove the oldest projects until usage reaches 70%;
+- always retain Podman base images, `runtime/templates`, `ms-playwright`, administrator and provider configuration, configuration files, and installed Releases;
+- never run a global `podman system prune` or delete reusable images.
+
+The reset time, randomized delay, hourly cleanup time, TTLs, and disk watermarks are configurable in `/etc/yistack/demo-maintenance.env`. For example:
+
+```bash
+DEMO_RESET_ON_CALENDAR="*-*-* 04:00:00"
+DEMO_RESET_RANDOMIZED_DELAY_SEC=10min
+DEMO_CLEANUP_ON_CALENDAR="*-*-* *:30:00"
+DEMO_CLEANUP_RANDOMIZED_DELAY_SEC=5min
+```
+
+Calendar expressions use systemd syntax and the server timezone. After changing them, run `sudo yistackctl demo apply-schedule` to validate the values and atomically update the timer overrides. After upgrading YiStack, an old baseline is rejected when its schema or `SOURCE_COMMIT` no longer matches; capture a new baseline only after validating the new release and confirming that no regular users or projects exist. Manual operations and timer shutdown are available through:
 
 ```bash
 sudo yistackctl demo cleanup

@@ -1,5 +1,5 @@
 [Unit]
-Description=Restore the YiStack demonstration baseline
+Description=Restore the YiStack ephemeral trial baseline
 After=network-online.target yistack-postgres.service
 Wants=network-online.target
 ConditionPathExists=/etc/yistack/demo-maintenance.env

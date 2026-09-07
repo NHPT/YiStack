@@ -1,5 +1,5 @@
 [Unit]
-Description=Enforce YiStack demonstration retention and disk limits
+Description=Enforce YiStack ephemeral trial retention and disk limits
 After=network-online.target yistack-postgres.service
 Wants=network-online.target
 ConditionPathExists=/etc/yistack/demo-maintenance.env
