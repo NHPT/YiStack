@@ -36,9 +36,10 @@ The main sequence is:
    protection, and dirty-buffer conflict feedback.
 4. The GitHub remote, required Actions checks, and branch protection are enabled.
    Continue accepting community contributions through controlled pull requests.
-5. The first upgrade-capable tag now has one-command upgrades, custom-format
-   backups, manifest and checksum integrity, advisory locking, failure recovery,
-   and PostgreSQL 16 acceptance. Publish the next immutable tag, then continue
+5. The first upgrade-capable release, v1.1.0, now has one-command upgrades,
+   custom-format backups, manifest and checksum integrity, advisory locking,
+   failure recovery, and PostgreSQL 16 acceptance. After the immutable v1.1.0
+   Tag Release succeeds, continue
    real multi-provider cloud lifecycle acceptance.
 6. `VIS-002` is complete: internal project previews support real-element
    selection, sanitized `visual_edit.v1` evidence, owner/editor authorization,

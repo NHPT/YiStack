@@ -91,7 +91,7 @@ The one-command upgrade follows a fixed sequence:
 
 1. verify the Release `MANIFEST.sha256` and preflight database compatibility
    with the new runner;
-2. record application-service and ephemeral-trial timer state, then stop every
+2. record application-service and ephemeral-experience timer state, then stop every
    database writer;
 3. create a PostgreSQL custom-format backup of the YiStack-managed `public`
    schema, verify its SHA-256 and archive directory, and preserve the current
@@ -149,7 +149,7 @@ bypass version verification with a newer binary.
 | Application version | Required database version | Supported install/source | Rollback boundary |
 | --- | --- | --- | --- |
 | v1.0.0 | `000000000000_contributor_alpha` | Clean install only | Removes only the baseline marker; does not drop application tables |
-| Unreleased (next upgrade-capable tag) | `202609070001_migration_integrity` | Clean install, or in-place upgrade from the v1.0.0 baseline | One-step rollback to the v1.0.0 baseline while preserving application data |
+| v1.1.0 | `202609070001_migration_integrity` | Clean install, or in-place upgrade from the v1.0.0 baseline | One-step rollback to the v1.0.0 baseline while preserving application data |
 
 ## Integrity and Release Gate
 
@@ -158,7 +158,7 @@ Current frozen checksums:
 | Database version | Forward SHA-256 |
 | --- | --- |
 | `000000000000_contributor_alpha` | `a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871` |
-| `202609070001_migration_integrity` | `aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113` |
+| `202609070001_migration_integrity` | `82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf` |
 
 The repository now provides a locking and checksum-validating runner,
 upgrade/rollback tests for supported sources, a compatibility matrix, and
@@ -166,7 +166,8 @@ startup rejection for unknown or newer versions. Release packages must carry
 the complete migration directory and run PostgreSQL 16 acceptance from every
 declared source version to the target.
 
-Only after a new immutable tag completes the Release workflow may
-`Unreleased` in the table be replaced with the actual version and that tag
-claim in-place upgrades from v1.0.0. Sources not listed in the matrix remain
-unsupported.
+Before creating a new immutable tag, its release-preparation pull request must
+freeze the version compatibility matrix. The Tag Release workflow then verifies
+the tag's complete installation, upgrade, rollback, and runtime assets. Only a
+tag with a successful workflow may be published. Sources not listed in the
+matrix remain unsupported.

@@ -304,8 +304,9 @@ success_contract="$(database_contract "SELECT
   (SELECT count(*) FROM information_schema.columns
    WHERE table_schema = 'public'
      AND table_name = 'schema_migrations'
-     AND column_name = 'checksum_sha256');")"
-[ "$success_contract" = "2:1:1" ] || {
+     AND column_name = 'checksum_sha256') || ':' ||
+  (SELECT value FROM public.system_config WHERE key = 'app_version');")"
+[ "$success_contract" = "2:1:1:1.1.0" ] || {
   echo "Unexpected successful upgrade database contract: $success_contract" >&2
   exit 1
 }
@@ -346,8 +347,9 @@ failure_contract="$(database_contract "SELECT
   (SELECT count(*) FROM information_schema.columns
    WHERE table_schema = 'public'
      AND table_name = 'schema_migrations'
-     AND column_name = 'checksum_sha256');")"
-[ "$failure_contract" = "1:1:0" ] || {
+     AND column_name = 'checksum_sha256') || ':' ||
+  (SELECT value FROM public.system_config WHERE key = 'app_version');")"
+[ "$failure_contract" = "1:1:0:1.0.0" ] || {
   echo "Unexpected recovered database contract: $failure_contract" >&2
   cat "$failure_root/upgrade.out" >&2
   exit 1

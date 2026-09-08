@@ -43,6 +43,7 @@ const requiredFiles = [
   'deploy/systemd/yistack-postgres.service',
   'deploy/systemd/yistack.target',
   'scripts/build-release-package.sh',
+  'scripts/capture-readme-screenshots.mjs',
   'scripts/validate-release-package.sh',
   'scripts/validate-release-postgres-runtime.sh',
   'scripts/validate-release-upgrade.sh',
@@ -52,6 +53,8 @@ const requiredFiles = [
   '.github/workflows/canonical-eval.yml',
   'docs/CHANGELOG.md',
   'docs/CHANGELOG.en.md',
+  'docs/assets/screenshots/mobile-preview.png',
+  'docs/assets/screenshots/terminal-session.png',
   'docs/DEVELOPER_GUIDE.en.md',
   'docs/ARCHITECTURE.en.md',
   'docs/PRODUCT.en.md',
@@ -86,7 +89,7 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
-assert.equal(packageJSON.version, '1.0.0');
+assert.equal(packageJSON.version, '1.1.0');
 assert.match(packageJSON.description, /开源 AI 工程工作台/);
 assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
 assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
@@ -107,6 +110,7 @@ for (const script of [
   'build:release',
   'checkout:verify',
   'db:verify',
+  'docs:screenshots',
   'validate:database:migrations',
   'eval:smoke:ci',
   'validate:release',
@@ -135,8 +139,10 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /当前版本：\*\*v1\.0\.0\*\*/);
-assert.match(readmeEnglish, /Current release: \*\*v1\.0\.0\*\*/);
+assert.match(readme, /当前版本：\*\*v1\.1\.0\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.1\.0\*\*/);
+assert.match(changelog, /## \[1\.1\.0\] - 2026-09-07/);
+assert.match(changelogEnglish, /## \[1\.1\.0\] - 2026-09-07/);
 assert.match(changelog, /## \[1\.0\.0\] - 2026-09-01/);
 assert.match(changelogEnglish, /## \[1\.0\.0\] - 2026-09-01/);
 assert.doesNotMatch(readme, /高级 AI 模型、50\+ 模板|^- \*\*插件系统\*\*：/m);
@@ -181,10 +187,16 @@ assert.match(productEnglish, /Implemented; live acceptance pending/);
 assert.doesNotMatch(productEnglish, /Contract implemented/);
 assert.match(readme, /Web 使用界面可通过现代浏览器跨平台访问/);
 assert.match(readme, /官方预编译服务端部署包提供 Linux `amd64` 和 `arm64` 构建/);
-assert.match(readme, /可选临时体验模式（每日自动还原）/);
+assert.match(readme, /无痕体验模式（每日自动还原）/);
+assert.doesNotMatch(readme, /面向公众开放试用时/);
+assert.match(readme, /docs\/assets\/screenshots\/terminal-session\.png/);
+assert.match(readme, /docs\/assets\/screenshots\/mobile-preview\.png/);
 assert.match(readmeEnglish, /web interface is accessible from modern browsers across platforms/);
 assert.match(readmeEnglish, /official prebuilt server packages provide Linux `amd64` and `arm64` builds/);
-assert.match(readmeEnglish, /Optional Ephemeral Trial Mode/);
+assert.match(readmeEnglish, /Ephemeral Experience Mode \(Daily Reset\)/);
+assert.doesNotMatch(readmeEnglish, /A public trial instance/);
+assert.match(readmeEnglish, /docs\/assets\/screenshots\/terminal-session\.png/);
+assert.match(readmeEnglish, /docs\/assets\/screenshots\/mobile-preview\.png/);
 
 const capabilityReport = read(
   'docs/yistack_open_source_progress_and_competitor_matrix.html',
@@ -382,6 +394,11 @@ for (const action of [
 
 const releaseWorkflow = read('.github/workflows/release.yml');
 assert.match(releaseWorkflow, /^  push:[\s\S]*tags:[\s\S]*"v\*\.\*\.\*"/m);
+assert.match(
+  releaseWorkflow,
+  /name: Verify release metadata[\s\S]*package\.json[\s\S]*docs\/CHANGELOG\.md[\s\S]*docs\/CHANGELOG\.en\.md/,
+  'Release tags must match package and changelog version metadata',
+);
 assert.match(releaseWorkflow, /runner: ubuntu-24\.04-arm/);
 assert.match(releaseWorkflow, /pnpm build:release/);
 assert.match(releaseWorkflow, /scripts\/validate-release-package\.sh/);
@@ -638,6 +655,8 @@ assert.match(databaseCommand, /status\|plan\|migrate\|verify\|rollback/, 'databa
 assert.match(databaseCommand, /case "supabase"[\s\S]*buildSupabaseDirectDatabaseConfig/, 'Supabase migrations must use direct PostgreSQL access');
 assert.match(serverMain, /if !autoMigrate \{[\s\S]*runner\.VerifyCurrent/, 'production startup must verify the latest manifest version');
 assert.match(releaseBuilder, /cp -a "\$ROOT_DIR\/backend\/migrations"/, 'Release packages must include migrations');
+assert.match(releaseBuilder, /docs\/assets\/screenshots/, 'Release packages must include README screenshots');
+assert.match(releaseValidation, /docs\/assets\/screenshots\/mobile-preview\.png[\s\S]*docs\/assets\/screenshots\/workspace-overview\.png/, 'Release validation must require README screenshots');
 assert.match(yistackctl, /upgrade\)[\s\S]*run_release_upgrade/, 'yistackctl must dispatch one-command upgrades');
 assert.match(upgradeScript, /flock -n[\s\S]*run_backup_command create[\s\S]*run_database_command "\$INSTALL_ROOT\/current" migrate[\s\S]*run_database_command "\$INSTALL_ROOT\/current" verify/, 'one-command upgrades must lock, back up, migrate, and verify');
 assert.match(upgradeScript, /recover_failed_upgrade[\s\S]*run_backup_command restore[\s\S]*restore_previous_release_files/, 'failed upgrades must restore the database and previous Release');
@@ -659,4 +678,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] v1.0.0 public release repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.1.0 public release repository contract valid (${requiredFiles.length} required files).`);

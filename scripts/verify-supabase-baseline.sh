@@ -93,12 +93,16 @@ provider_contract="$(
   podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
     -c "SELECT count(*) || ':' || count(*) FILTER (WHERE enabled) || ':' || max(base_url) FILTER (WHERE name = 'ollama-cloud') FROM public.llm_providers;"
 )"
+app_version_contract="$(
+  podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
+    -c "SELECT value FROM public.system_config WHERE key = 'app_version';"
+)"
 admin_auth_contract="$(
   podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
     -c "SELECT must_change_password::text || ':' || auth_version || ':' || (crypt('admin123', password_hash) = password_hash)::text FROM public.admins WHERE email = 'admin@yistack.com';"
 )"
 
-expected_migrations="2:000000000000_contributor_alpha:a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871,202609070001_migration_integrity:aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113"
+expected_migrations="2:000000000000_contributor_alpha:a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871,202609070001_migration_integrity:82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf"
 if [ "$migration_contract" != "$expected_migrations" ]; then
   echo "[R7] Unexpected migration ledger: $migration_contract." >&2
   exit 1
@@ -109,6 +113,10 @@ if [ "$user_schema_contract" != "uuid:YES" ]; then
 fi
 if [ "$provider_contract" != "7:0:https://ollama.com" ]; then
   echo "[R7] Unexpected minimal provider catalog: $provider_contract" >&2
+  exit 1
+fi
+if [ "$app_version_contract" != "1.1.0" ]; then
+  echo "[R7] Unexpected application version: $app_version_contract" >&2
   exit 1
 fi
 if [ "$admin_auth_contract" != "true:1:true" ]; then
@@ -197,8 +205,8 @@ podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yis
   -c "INSERT INTO public.schema_migrations (version, description, checksum_sha256)
       VALUES (
         '202609070001_migration_integrity',
-        'Add migration checksum integrity metadata',
-        'aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113'
+        'Add migration checksum integrity and v1.1.0 release metadata',
+        '82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf'
       );" >/dev/null
 
 migration_count="$(

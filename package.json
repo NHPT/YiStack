@@ -1,6 +1,6 @@
 {
   "name": "yistack",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "YiStack - 从自然语言需求到可运行、可验证、可迭代应用的开源 AI 工程工作台",
   "license": "Apache-2.0",
@@ -22,6 +22,7 @@
     "contributor:validate": "node scripts/validate-contributor-alpha.mjs",
     "db:verify": "bash ./scripts/verify-supabase-baseline.sh",
     "dev": "bash ./scripts/dev.sh",
+    "docs:screenshots": "pnpm build && node scripts/capture-readme-screenshots.mjs",
     "preinstall": "npx only-allow pnpm",
     "lint": "eslint",
     "release:audit": "bash ./scripts/audit-public-release.sh",

@@ -80,7 +80,7 @@ symlink 后调用新 Release 的 `upgrade.sh`。升级只允许严格向前的 S
 一键升级按固定顺序执行：
 
 1. 校验 Release `MANIFEST.sha256`，并用新 runner 执行数据库兼容性预检；
-2. 记录应用服务和临时体验模式 timer 的运行状态，停止所有数据库写入者；
+2. 记录应用服务和无痕体验模式 timer 的运行状态，停止所有数据库写入者；
 3. 为 YiStack 管理的 `public` schema 创建 PostgreSQL custom-format 备份，校验
    SHA-256 和 archive 目录，并保存当前配置与 systemd 单元；
 4. 原子切换新 Release，按 manifest 执行 migration 并运行 `verify`；
@@ -126,7 +126,7 @@ runner 会拒绝 manifest 文件篡改、数据库 checksum 不匹配、版本�
 | 应用版本 | 必需数据库版本 | 支持的安装/来源 | 回退边界 |
 | --- | --- | --- | --- |
 | v1.0.0 | `000000000000_contributor_alpha` | 仅全新安装 | 仅删除 baseline 标记，不删除业务表 |
-| Unreleased（下一个可升级 tag） | `202609070001_migration_integrity` | 全新安装；或从 v1.0.0 baseline 原地升级 | 可单步回退至 v1.0.0 baseline，保留业务数据 |
+| v1.1.0 | `202609070001_migration_integrity` | 全新安装；或从 v1.0.0 baseline 原地升级 | 可单步回退至 v1.0.0 baseline，保留业务数据 |
 
 ## 完整性与发布门禁
 
@@ -135,12 +135,12 @@ runner 会拒绝 manifest 文件篡改、数据库 checksum 不匹配、版本�
 | 数据库版本 | Forward SHA-256 |
 | --- | --- |
 | `000000000000_contributor_alpha` | `a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871` |
-| `202609070001_migration_integrity` | `aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113` |
+| `202609070001_migration_integrity` | `82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf` |
 
 仓库已提供带锁和 checksum 校验的 runner、支持来源的 upgrade/rollback 测试、
 版本兼容矩阵以及未知/更新版本的启动拒绝。Release 包必须携带完整 migration
 目录，并在 PostgreSQL 16 上执行从每个声明来源版本到目标版本的运行时验收。
 
-只有新的不可变 tag 完成 Release 工作流后，表格中的 `Unreleased` 才能替换为
-实际版本，并正式声明该 tag 支持 v1.0.0 存量数据库原地升级。任意未列出的来源
-版本仍不受支持。
+创建新的不可变 tag 前，发布准备 PR 必须先固定版本兼容矩阵；Tag Release 工作流
+随后验证该 tag 的完整安装、升级、回退和运行时资产。只有工作流成功的 tag 才能
+正式发布。任意未列出的来源版本仍不受支持。

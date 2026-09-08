@@ -64,7 +64,7 @@ podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
   < "$ROOT_DIR/backend/init.sql" >/dev/null
 
 # Recreate the v1.0.0 ledger while retaining the current business schema. The
-# first supported upgrade changes only migration integrity metadata.
+# first supported upgrade adds migration integrity and v1.1.0 release metadata.
 podman exec "$CONTAINER_NAME" \
   psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
   -c "DELETE FROM public.schema_migrations WHERE version = '202609070001_migration_integrity';" \
@@ -147,9 +147,16 @@ ledger_contract="$(
     -c "SELECT string_agg(version || ':' || checksum_sha256, ',' ORDER BY version)
         FROM public.schema_migrations;"
 )"
-expected_ledger="000000000000_contributor_alpha:a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871,202609070001_migration_integrity:aa230dafac97ea8e3e1ddcd37c39ca962be8ad6f3beae88f007833728d46d113"
+expected_ledger="000000000000_contributor_alpha:a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871,202609070001_migration_integrity:82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf"
 [ "$ledger_contract" = "$expected_ledger" ] ||
   fail "unexpected migration ledger: $ledger_contract"
+
+app_version="$(
+  podman exec "$CONTAINER_NAME" \
+    psql -At -U postgres -d yistack \
+    -c "SELECT value FROM public.system_config WHERE key = 'app_version';"
+)"
+[ "$app_version" = "1.1.0" ] || fail "migration did not update app_version to 1.1.0"
 
 user_count="$(
   podman exec "$CONTAINER_NAME" \
@@ -237,6 +244,12 @@ checksum_column_count="$(
           AND column_name = 'checksum_sha256';"
 )"
 [ "$checksum_column_count" = "0" ] || fail "rollback retained checksum metadata"
+app_version="$(
+  podman exec "$CONTAINER_NAME" \
+    psql -At -U postgres -d yistack \
+    -c "SELECT value FROM public.system_config WHERE key = 'app_version';"
+)"
+[ "$app_version" = "1.0.0" ] || fail "rollback did not restore app_version to 1.0.0"
 if run_database verify > "$TEMP_ROOT/old-version.out" 2>&1; then
   fail "startup verification accepted a pending database version"
 fi
