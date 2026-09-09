@@ -12,9 +12,9 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.3**, an upgrade compatibility fix for the v1.1
-> series. It lets the `yistack` service user complete database backups even when
-> an older controller extracted the Release. Its stability scope is limited to
+> Current release: **v1.1.4**, a deployment lifecycle update for the v1.1
+> series. Successful upgrades remove historical Releases, and uninstall commands
+> support either preserving or purging local data. Its stability scope is limited to
 > the capabilities documented in this README and
 > [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the current
 > Release's `database/init.sql`; existing installations use the one-command
@@ -170,6 +170,8 @@ commands are only needed when diagnosing a specific unit:
 | `sudo yistackctl postgres {start\|init\|stop\|status\|logs}` | Manage the installer-provided PostgreSQL container |
 | `sudo yistackctl database {status\|plan\|migrate\|verify\|rollback}` | Manage database migrations |
 | `sudo yistackctl upgrade <release-directory\|release.tar.gz>` | Run a verified one-command upgrade |
+| `sudo yistackctl uninstall` | Remove application files and services while preserving configuration and data |
+| `sudo yistackctl uninstall --purge` | Remove all managed local data, containers, and the service account |
 | `sudo yistackctl ephemeral {snapshot\|reset\|cleanup\|enforce\|apply-schedule\|status}` | Manage Ephemeral Experience Mode |
 | `yistackctl help` | Show complete command help |
 
@@ -201,6 +203,26 @@ source /usr/share/bash-completion/completions/yistackctl
 # Or load it dynamically for this shell only:
 source <(yistackctl completion bash)
 ```
+
+### Uninstall
+
+Remove application files and systemd units while preserving configuration, data,
+logs, cache, and the `yistack` service account:
+
+```bash
+sudo yistackctl uninstall
+```
+
+Remove all YiStack-managed local containers, configuration, database data, project
+data, logs, cache, and the service account:
+
+```bash
+sudo yistackctl uninstall --purge
+```
+
+`--purge` is irreversible; export any required data first. Neither mode deletes
+data from external Supabase or PostgreSQL services, and the uninstaller does not
+remove system packages that may be shared with other applications.
 
 Database initialization and upgrade are mutually exclusive:
 
@@ -298,16 +320,16 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 The controllers installed by v1.1.0 and v1.1.1 still check for a colocated
 `.sha256` before reading a new Release and extract archives under a root-only
-temporary directory. For the first upgrade from either version to v1.1.3,
+temporary directory. For the first upgrade from either version to v1.1.4,
 extract the archive and pass the directory to the same public command. This
 path does not require a sidecar:
 
 ```bash
-tar -xzf yistack-v1.1.3-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.3-linux-amd64
+tar -xzf yistack-v1.1.4-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.4-linux-amd64
 ```
 
-After upgrading to v1.1.3, later upgrades can consume `.tar.gz` archives
+After upgrading to v1.1.4, later upgrades can consume `.tar.gz` archives
 directly without a colocated `.sha256`.
 
 The command verifies the Release and forward-only version direction, preflights
@@ -317,7 +339,9 @@ and verifies the database, restores the previous running state, and performs a
 health check. On failure it restores the previous configuration, Release,
 systemd units, and database backup. If automatic recovery is incomplete, the
 services remain stopped and the backup location is reported. Services that were
-already stopped remain stopped.
+already stopped remain stopped. After the upgrade fully succeeds, Release
+directories older than the current version are removed from `/opt/yistack/releases`;
+database backups remain available for manual recovery.
 
 Backups default to `/var/lib/yistack/database-backups` and cover only the
 YiStack-managed `public` schema. Supabase-managed schemas such as `auth` and

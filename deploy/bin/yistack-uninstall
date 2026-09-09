@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+SERVICE_USER="${YISTACK_SERVICE_USER:-yistack}"
+SERVICE_GROUP="${YISTACK_SERVICE_GROUP:-yistack}"
+INSTALL_ROOT="${YISTACK_INSTALL_ROOT:-/opt/yistack}"
+CONFIG_DIR="${YISTACK_CONFIG_DIR:-/etc/yistack}"
+DATA_DIR="${YISTACK_DATA_DIR:-/var/lib/yistack}"
+LOG_DIR="${YISTACK_LOG_DIR:-/var/log/yistack}"
+CACHE_DIR="${YISTACK_CACHE_DIR:-/var/cache/yistack}"
+SYSTEMD_DIR="${YISTACK_SYSTEMD_DIR:-/etc/systemd/system}"
+YISTACKCTL_PATH="${YISTACKCTL_PATH:-/usr/local/bin/yistackctl}"
+COMPLETION_PATH="${YISTACK_COMPLETION_PATH:-/usr/share/bash-completion/completions/yistackctl}"
+SUBUID_FILE="${YISTACK_SUBUID_FILE:-/etc/subuid}"
+SUBGID_FILE="${YISTACK_SUBGID_FILE:-/etc/subgid}"
+UPGRADE_LOCK_FILE="${YISTACK_UPGRADE_LOCK_FILE:-/run/lock/yistack-upgrade.lock}"
+EPHEMERAL_LOCK_FILE="${YISTACK_EPHEMERAL_LOCK_FILE:-/run/lock/yistack-ephemeral-maintenance.lock}"
+SYSTEMCTL_BIN="${YISTACK_SYSTEMCTL_BIN:-systemctl}"
+LOGINCTL_BIN="${YISTACK_LOGINCTL_BIN:-loginctl}"
+RUNUSER_BIN="${YISTACK_RUNUSER_BIN:-runuser}"
+USERDEL_BIN="${YISTACK_USERDEL_BIN:-userdel}"
+GROUPDEL_BIN="${YISTACK_GROUPDEL_BIN:-groupdel}"
+SKIP_ROOT_CHECK="${YISTACK_UNINSTALL_SKIP_ROOT_CHECK:-false}"
+PURGE=false
+cleanup_failed=false
+
+managed_units=(
+  yistack.target
+  yistack-backend.service
+  yistack-frontend.service
+  yistack-browser-worker.service
+  yistack-postgres.service
+  yistack-ephemeral-reset.service
+  yistack-ephemeral-reset.timer
+  yistack-ephemeral-cleanup.service
+  yistack-ephemeral-cleanup.timer
+  yistack-demo-reset.service
+  yistack-demo-reset.timer
+  yistack-demo-cleanup.service
+  yistack-demo-cleanup.timer
+)
+
+usage() {
+  cat <<'EOF'
+Usage: sudo yistackctl uninstall [--purge]
+
+Without --purge, removes YiStack application files and systemd units while
+preserving configuration, data, logs, cache, and the yistack service account.
+
+Options:
+  --purge  Also remove managed local containers, configuration, data, logs,
+           cache, and the yistack service account. External databases are
+           never deleted.
+  --help   Show this help.
+EOF
+}
+
+die() {
+  echo "YiStack uninstall failed: $*" >&2
+  exit 1
+}
+
+warn_failure() {
+  echo "Warning: $*" >&2
+  cleanup_failed=true
+}
+
+validate_managed_directory() {
+  local variable_name="$1"
+  local label="$2"
+  local path="${!variable_name}"
+  local resolved=""
+  [[ "$path" = /* ]] || die "$label must be an absolute path: $path"
+  resolved="$(realpath -m -- "$path")"
+  case "$resolved" in
+    / | /bin | /boot | /dev | /etc | /home | /opt | /proc | /root | /run | /sbin | /srv | /sys | /tmp | /usr | /var)
+      die "refusing unsafe $label: $resolved"
+      ;;
+  esac
+  printf -v "$variable_name" '%s' "$resolved"
+}
+
+read_config_value() {
+  local file="$1"
+  local key="$2"
+  local fallback="$3"
+  local value=""
+  if [ -r "$file" ]; then
+    value="$(sed -n "s/^${key}=//p" "$file" | tail -n 1)"
+  fi
+  printf '%s' "${value:-$fallback}"
+}
+
+run_as_service_user() {
+  local service_uid="$1"
+  shift
+  "$RUNUSER_BIN" -u "$SERVICE_USER" -- env \
+    HOME="$DATA_DIR" \
+    XDG_RUNTIME_DIR="/run/user/$service_uid" \
+    "$@"
+}
+
+stop_or_remove_managed_containers() {
+  local service_uid="$1"
+  local postgres_name=""
+  local output=""
+  local resource_id=""
+  local action=(stop --time 20)
+
+  if [ "$PURGE" = "true" ]; then
+    action=(rm --force)
+  fi
+
+  if output="$(run_as_service_user "$service_uid" podman ps -aq \
+      --filter label=yistack.project_id 2>/dev/null)"; then
+    while IFS= read -r resource_id; do
+      [ -n "$resource_id" ] || continue
+      run_as_service_user "$service_uid" podman "${action[@]}" "$resource_id" \
+        >/dev/null 2>&1 || warn_failure "unable to clean project container $resource_id"
+    done <<< "$output"
+  else
+    warn_failure "unable to enumerate YiStack project containers"
+  fi
+
+  postgres_name="$(read_config_value "$CONFIG_DIR/postgres.env" \
+    POSTGRES_CONTAINER_NAME yistack-postgres)"
+  [[ "$postgres_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
+    die "POSTGRES_CONTAINER_NAME is invalid: $postgres_name"
+  if run_as_service_user "$service_uid" podman container exists "$postgres_name"; then
+    run_as_service_user "$service_uid" podman "${action[@]}" "$postgres_name" \
+      >/dev/null 2>&1 || warn_failure "unable to clean PostgreSQL container $postgres_name"
+  fi
+
+  if [ "$PURGE" = "true" ]; then
+    if output="$(run_as_service_user "$service_uid" podman network ls -q \
+        --filter label=yistack.project_id 2>/dev/null)"; then
+      while IFS= read -r resource_id; do
+        [ -n "$resource_id" ] || continue
+        run_as_service_user "$service_uid" podman network rm --force "$resource_id" \
+          >/dev/null 2>&1 || warn_failure "unable to remove project network $resource_id"
+      done <<< "$output"
+    else
+      warn_failure "unable to enumerate YiStack project networks"
+    fi
+  fi
+}
+
+remove_systemd_units() {
+  local unit=""
+  for unit in "${managed_units[@]}"; do
+    "$SYSTEMCTL_BIN" disable --now "$unit" >/dev/null 2>&1 || true
+    "$SYSTEMCTL_BIN" stop "$unit" >/dev/null 2>&1 || true
+    rm -f -- "$SYSTEMD_DIR/$unit"
+    rm -rf -- "$SYSTEMD_DIR/$unit.d"
+  done
+  "$SYSTEMCTL_BIN" daemon-reload
+  "$SYSTEMCTL_BIN" reset-failed >/dev/null 2>&1 || true
+}
+
+remove_subordinate_ids() {
+  local file="$1"
+  [ -f "$file" ] || return 0
+  sed -i "/^${SERVICE_USER}:/d" "$file"
+}
+
+main() {
+  local service_uid=""
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --purge)
+        PURGE=true
+        ;;
+      --help | -h)
+        usage
+        return 0
+        ;;
+      *)
+        usage >&2
+        die "unknown option: $1"
+        ;;
+    esac
+    shift
+  done
+
+  if [ "$SKIP_ROOT_CHECK" != "true" ] && [ "$(id -u)" -ne 0 ]; then
+    die "the uninstall command must run as root"
+  fi
+
+  for path_var in INSTALL_ROOT CONFIG_DIR DATA_DIR LOG_DIR CACHE_DIR; do
+    validate_managed_directory "$path_var" "$path_var"
+  done
+  [[ "$SYSTEMD_DIR" = /* ]] || die "SYSTEMD_DIR must be an absolute path"
+  [ "$(basename "$YISTACKCTL_PATH")" = yistackctl ] ||
+    die "YISTACKCTL_PATH must end with yistackctl"
+  [ "$(basename "$COMPLETION_PATH")" = yistackctl ] ||
+    die "COMPLETION_PATH must end with yistackctl"
+
+  mkdir -p "$(dirname "$UPGRADE_LOCK_FILE")"
+  exec 9>"$UPGRADE_LOCK_FILE"
+  flock -n 9 || die "another YiStack upgrade or uninstall is running"
+
+  remove_systemd_units
+
+  if id "$SERVICE_USER" >/dev/null 2>&1; then
+    service_uid="$(id -u "$SERVICE_USER")"
+    stop_or_remove_managed_containers "$service_uid"
+    run_as_service_user "$service_uid" "$SYSTEMCTL_BIN" --user disable --now \
+      podman.socket >/dev/null 2>&1 || true
+    "$LOGINCTL_BIN" disable-linger "$SERVICE_USER" >/dev/null 2>&1 || true
+    "$SYSTEMCTL_BIN" stop "user@${service_uid}.service" >/dev/null 2>&1 || true
+  fi
+
+  rm -rf --one-file-system -- "$INSTALL_ROOT"
+  rm -f -- "$YISTACKCTL_PATH" "$COMPLETION_PATH" \
+    "$UPGRADE_LOCK_FILE" "$EPHEMERAL_LOCK_FILE"
+
+  if [ "$PURGE" = "true" ]; then
+    rm -rf --one-file-system -- "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR" "$CACHE_DIR"
+    remove_subordinate_ids "$SUBUID_FILE"
+    remove_subordinate_ids "$SUBGID_FILE"
+    if id "$SERVICE_USER" >/dev/null 2>&1; then
+      "$USERDEL_BIN" "$SERVICE_USER" || warn_failure "unable to remove service user $SERVICE_USER"
+    fi
+    if getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
+      "$GROUPDEL_BIN" "$SERVICE_GROUP" || warn_failure "unable to remove service group $SERVICE_GROUP"
+    fi
+    echo "YiStack application files, local data, and service account removed."
+  else
+    echo "YiStack application files removed. Configuration and data were preserved."
+  fi
+
+  [ "$cleanup_failed" = "false" ] || die "one or more managed runtime resources could not be removed"
+}
+
+main "$@"

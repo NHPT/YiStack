@@ -117,6 +117,36 @@ cleanup_backup_helper() {
   backup_helper_path=""
 }
 
+cleanup_historical_releases() {
+  local releases_dir="$INSTALL_ROOT/releases"
+  local active_release=""
+  local candidate=""
+  local candidate_name=""
+  local highest_version=""
+  local resolved_candidate=""
+
+  active_release="$(realpath "$INSTALL_ROOT/current")" || return 1
+  [ "$active_release" = "$releases_dir/$target_version" ] || return 1
+  while IFS= read -r candidate; do
+    candidate_name="$(basename "$candidate")"
+    [[ "$candidate_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    [ ! -L "$candidate" ] || return 1
+    resolved_candidate="$(realpath "$candidate")" || return 1
+    case "$resolved_candidate" in
+      "$releases_dir"/*)
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+    [ "$resolved_candidate" != "$active_release" ] || continue
+    highest_version="$(printf '%s\n%s\n' "$candidate_name" "$target_version" |
+      sort -V | tail -n 1)"
+    [ "$highest_version" = "$target_version" ] || continue
+    rm -rf --one-file-system -- "$resolved_candidate" || return 1
+  done < <(find "$releases_dir" -mindepth 1 -maxdepth 1 -type d -name 'v*.*.*' -print)
+}
+
 snapshot_systemd_units() {
   local source_dir unit unit_name
   unit_backup_dir="${backup_path%.dump}.systemd"
@@ -448,6 +478,9 @@ main() {
   fi
   upgrade_active=false
   trap - EXIT
+  if ! cleanup_historical_releases; then
+    echo "Warning: upgrade succeeded, but one or more historical Release directories could not be removed." >&2
+  fi
   echo "YiStack upgraded from $current_version to $target_version."
   echo "Database backup retained at $backup_path"
   if [ "$application_was_active" != "true" ]; then

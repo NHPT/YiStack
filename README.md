@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.3**。这是 v1.1 系列的升级兼容性修复版本，确保旧版控制器解压 Release 后仍可由 `yistack` 服务用户完成数据库备份；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.4**。这是 v1.1 系列的部署生命周期完善版本：成功升级后自动清理历史 Release，并提供保留数据或彻底清理的卸载命令；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -150,6 +150,8 @@ sudo ./install.sh
 | `sudo yistackctl postgres {start\|init\|stop\|status\|logs}` | 管理安装器提供的 PostgreSQL 容器 |
 | `sudo yistackctl database {status\|plan\|migrate\|verify\|rollback}` | 管理数据库 migration |
 | `sudo yistackctl upgrade <release-directory\|release.tar.gz>` | 执行受校验的一键升级 |
+| `sudo yistackctl uninstall` | 卸载程序和服务，保留配置与数据 |
+| `sudo yistackctl uninstall --purge` | 彻底删除本地配置、数据、容器和服务账户 |
 | `sudo yistackctl ephemeral {snapshot\|reset\|cleanup\|enforce\|apply-schedule\|status}` | 管理无痕体验模式 |
 | `yistackctl help` | 显示完整命令帮助 |
 
@@ -179,6 +181,23 @@ source /usr/share/bash-completion/completions/yistackctl
 # 或仅在当前会话动态加载：
 source <(yistackctl completion bash)
 ```
+
+### 卸载
+
+移除程序和 systemd 单元但保留配置、数据、日志、缓存及 `yistack` 服务账户：
+
+```bash
+sudo yistackctl uninstall
+```
+
+彻底删除 YiStack 管理的本地容器、配置、数据库、项目数据、日志、缓存和服务账户：
+
+```bash
+sudo yistackctl uninstall --purge
+```
+
+`--purge` 不可恢复，应先导出需要保留的数据。无论使用哪种模式，卸载器都不会删除
+外部 Supabase 或 PostgreSQL 中的数据，也不会卸载可能被其他程序共用的系统软件包。
 
 数据库初始化和升级是两个互斥流程：
 
@@ -274,20 +293,21 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 v1.1.0 或 v1.1.1 的已安装控制器仍会在读取新 Release 前检查同目录
 `.sha256`，且会把压缩包解压到仅 root 可穿越的临时目录。从这两个版本首次升级到
-v1.1.3 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
+v1.1.4 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
 
 ```bash
-tar -xzf yistack-v1.1.3-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.3-linux-amd64
+tar -xzf yistack-v1.1.4-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.4-linux-amd64
 ```
 
-升级到 v1.1.3 后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
+升级到 v1.1.4 后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
 
 升级命令会校验 Release 和版本方向、预检数据库、停止应用及无痕体验模式 timer、
 创建并校验 PostgreSQL custom-format 备份、安装新 Release、执行并验证 migration、
 恢复升级前运行状态并完成健康检查。失败时会自动恢复旧配置、旧 Release、systemd
 单元和数据库备份；若自动恢复不完整，服务保持停止并输出备份位置。原先已停止的
-服务在升级后仍保持停止。
+服务在升级后仍保持停止。升级完全成功后会删除 `/opt/yistack/releases` 中所有早于当前版本的
+Release 目录；数据库备份仍保留用于人工恢复。
 
 备份默认保存在 `/var/lib/yistack/database-backups`，只覆盖 YiStack 管理的
 `public` schema；Supabase 的 `auth`、`storage` 等托管 schema 不在该备份范围内。
