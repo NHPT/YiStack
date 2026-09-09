@@ -115,8 +115,6 @@ run_release_upgrade() {
     local link_path=""
     local resolved_path=""
     local special_path=""
-    local checksum_line=""
-    local actual_checksum=""
     cleanup_release_upgrade() {
       [ -z "$temp_root" ] || rm -rf "$temp_root"
     }
@@ -132,23 +130,8 @@ run_release_upgrade() {
       echo "Invalid YiStack Release archive name: $archive_name" >&2
       return 2
     }
-    [ -f "${source_path}.sha256" ] || {
-      echo "Release checksum is missing: ${source_path}.sha256" >&2
-      return 1
-    }
-    checksum_line="$(< "${source_path}.sha256")"
-    if [[ ! "$checksum_line" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] ||
-      [ "${BASH_REMATCH[2]:-}" != "$archive_name" ]; then
-      echo "Release checksum file is invalid: ${source_path}.sha256" >&2
-      return 1
-    fi
-    actual_checksum="$(sha256sum "$source_path")"
-    actual_checksum="${actual_checksum%% *}"
-    [ "$actual_checksum" = "${BASH_REMATCH[1]}" ] || {
-      echo "Release checksum verification failed: $source_path" >&2
-      return 1
-    }
     temp_root="$(mktemp -d)"
+    chmod 0711 "$temp_root"
     archive_list="$temp_root/archive.list"
     if ! tar -tzf "$source_path" > "$archive_list"; then
       echo "Unable to read YiStack Release archive: $source_path" >&2

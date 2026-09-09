@@ -44,7 +44,8 @@ config_backup_path=""
 
 usage() {
   cat <<'EOF'
-Usage: sudo ./upgrade.sh [options]
+Internal Release upgrade entrypoint.
+Use: sudo yistackctl upgrade <release-directory|release.tar.gz> [options]
 
 Options:
   --skip-browser-install  Keep the existing Playwright Chromium runtime

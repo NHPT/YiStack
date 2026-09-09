@@ -12,12 +12,12 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.1**, a deployment hotfix for the v1.1 series. It fixes
-> Debian 12 rootless Podman service boundaries and standardizes post-installation
-> operations. Its stability scope is limited to the capabilities documented in
-> this README and [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations
-> use the current Release's `database/init.sql`; existing installations use the
-> one-command upgrade.
+> Current release: **v1.1.2**, an upgrade reliability fix for the v1.1 series.
+> It fixes archive extraction permissions and removes the requirement for a
+> colocated `.sha256` file. Its stability scope is limited to the capabilities
+> documented in this README and [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md).
+> Clean installations use the current Release's `database/init.sql`; existing
+> installations use the one-command upgrade.
 
 ## Why YiStack
 
@@ -115,17 +115,25 @@ YiStack's web interface is accessible from modern browsers across platforms, and
 
 ## Production Quick Start
 
-Download the deployment archive and matching `.sha256` file from [GitHub Releases](https://github.com/NHPT/YiStack/releases), for example:
+Download the deployment archive from [GitHub Releases](https://github.com/NHPT/YiStack/releases), for example:
 
 ```text
 yistack-vX.Y.Z-linux-amd64.tar.gz
-yistack-vX.Y.Z-linux-amd64.tar.gz.sha256
 ```
 
-Verify, extract, and install the package:
+Each Release also provides SHA-256 files for optional transfer-corruption
+checks, but a checksum stored beside an archive does not authenticate its
+source. To verify build provenance, use GitHub CLI before installation:
 
 ```bash
-sha256sum --check yistack-vX.Y.Z-linux-amd64.tar.gz.sha256
+gh attestation verify \
+  yistack-vX.Y.Z-linux-amd64.tar.gz \
+  --repo NHPT/YiStack
+```
+
+Extract and install the package:
+
+```bash
 tar -xzf yistack-vX.Y.Z-linux-amd64.tar.gz
 cd yistack-vX.Y.Z-linux-amd64
 sudo ./install.sh
@@ -279,16 +287,9 @@ If an installation was interrupted while pulling the image, configure the mirror
 
 ### Upgrade an Existing Installation
 
-v1.1.0 supports the known v1.0.0 database baseline. For the first upgrade from
-v1.0.0, verify and extract the new Release, then run one command from that
-directory:
-
-```bash
-sudo ./upgrade.sh
-```
-
-Starting with v1.1.0, subsequent upgrades can use the installed control command.
-Keep the Release archive and its matching `.sha256` file in the same directory:
+Download the target Release archive, then always upgrade through the installed
+control command. A colocated `.sha256` file is not required. To authenticate
+the source, verify its GitHub provenance as described above:
 
 ```bash
 sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz

@@ -360,6 +360,13 @@ dispatch_root="$root/dispatch/yistack-v9.9.9-linux-amd64"
 mkdir -p "$dispatch_root"
 cat > "$dispatch_root/upgrade.sh" <<'EOF'
 #!/usr/bin/env bash
+if [ "${YISTACK_ASSERT_ARCHIVE_PARENT_MODE:-false}" = "true" ]; then
+  archive_parent="$(dirname "$(dirname "$(realpath "$0")")")"
+  [ "$(stat -c '%a' "$archive_parent")" = "711" ] || {
+    echo "Archive extraction parent is not traversable by the service user." >&2
+    exit 1
+  }
+fi
 printf '%s\n' "$*" > "${YISTACK_UPGRADE_DISPATCH_OUTPUT:?}"
 [ "${1:-}" != "--fail" ] || exit 23
 EOF
@@ -369,12 +376,9 @@ YISTACK_UPGRADE_DISPATCH_OUTPUT="$root/directory-dispatch.out" \
 grep -Fqx -- '--skip-browser-install' "$root/directory-dispatch.out"
 tar -czf "$root/yistack-v9.9.9-linux-amd64.tar.gz" \
   -C "$root/dispatch" yistack-v9.9.9-linux-amd64
-(
-  cd "$root"
-  sha256sum yistack-v9.9.9-linux-amd64.tar.gz \
-    > yistack-v9.9.9-linux-amd64.tar.gz.sha256
-)
-YISTACK_UPGRADE_DISPATCH_OUTPUT="$root/archive-dispatch.out" \
+[ ! -e "$root/yistack-v9.9.9-linux-amd64.tar.gz.sha256" ]
+YISTACK_ASSERT_ARCHIVE_PARENT_MODE=true \
+  YISTACK_UPGRADE_DISPATCH_OUTPUT="$root/archive-dispatch.out" \
   "$PACKAGE_ROOT/bin/yistackctl" upgrade \
     "$root/yistack-v9.9.9-linux-amd64.tar.gz" --skip-browser-install
 grep -Fqx -- '--skip-browser-install' "$root/archive-dispatch.out"
@@ -383,11 +387,6 @@ mkdir -p "$root/unsafe/wrong-root" "$root/archive-tmp"
 cp "$dispatch_root/upgrade.sh" "$root/unsafe/wrong-root/upgrade.sh"
 tar -czf "$root/yistack-v9.9.8-linux-amd64.tar.gz" \
   -C "$root/unsafe" wrong-root
-(
-  cd "$root"
-  sha256sum yistack-v9.9.8-linux-amd64.tar.gz \
-    > yistack-v9.9.8-linux-amd64.tar.gz.sha256
-)
 set +e
 TMPDIR="$root/archive-tmp" \
 YISTACK_UPGRADE_DISPATCH_OUTPUT="$root/unsafe-dispatch.out" \

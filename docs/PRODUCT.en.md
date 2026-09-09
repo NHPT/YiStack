@@ -41,7 +41,7 @@ Core goals:
 | Implemented; live acceptance pending | The adapter, failure boundaries, and automated tests are complete; the external platform lifecycle still requires credentialed acceptance |
 | Experimental | Usable, but APIs or storage structures may change before a stable release |
 | Planned | Not complete and not a release commitment |
-| Out of current scope | Not provided in v1.1.1 |
+| Out of current scope | Not provided in v1.1.2 |
 
 ## 3. Current Product Capabilities
 
@@ -141,7 +141,7 @@ claim generation succeeded.
 - v1.0.0 remains clean-install only; v1.1.0 supports an in-place upgrade from
   v1.0.0, and later Releases support only sources listed in the compatibility
   matrix.
-- Release upgrades use `upgrade.sh` / `yistackctl upgrade`, back up the
+- Release upgrades use `yistackctl upgrade`, back up the
   `public` schema, and restore the database, configuration, systemd units, and old Release on failure.
 
 ## 7. External Integration Boundaries

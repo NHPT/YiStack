@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.1**。这是 v1.1 系列的部署热修复版本，修复 Debian 12 rootless Podman 服务边界并统一安装后运维入口；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.2**。这是 v1.1 系列的升级可靠性修复版本，修复压缩包升级的临时目录权限，并取消对同目录 `.sha256` 文件的强制要求；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -98,17 +98,24 @@ YiStack 的 Web 使用界面可通过现代浏览器跨平台访问，项目源�
 
 ## 生产快速部署
 
-从 [GitHub Releases](https://github.com/NHPT/YiStack/releases) 下载对应版本的部署包和同名 `.sha256` 文件，例如：
+从 [GitHub Releases](https://github.com/NHPT/YiStack/releases) 下载对应版本的部署包，例如：
 
 ```text
 yistack-vX.Y.Z-linux-amd64.tar.gz
-yistack-vX.Y.Z-linux-amd64.tar.gz.sha256
 ```
 
-校验、解压并安装：
+Release 同时提供 SHA-256 文件用于可选的传输损坏检查，但同目录 checksum 不能证明
+文件来源。需要验证构建来源时，应使用 GitHub CLI 校验发布工作流生成的 provenance：
 
 ```bash
-sha256sum --check yistack-vX.Y.Z-linux-amd64.tar.gz.sha256
+gh attestation verify \
+  yistack-vX.Y.Z-linux-amd64.tar.gz \
+  --repo NHPT/YiStack
+```
+
+解压并安装：
+
+```bash
 tar -xzf yistack-vX.Y.Z-linux-amd64.tar.gz
 cd yistack-vX.Y.Z-linux-amd64
 sudo ./install.sh
@@ -258,15 +265,8 @@ sudo -u yistack env \
 
 ### 升级现有安装
 
-v1.1.0 支持从 v1.0.0 的已知数据库基线升级。首次从 v1.0.0
-升级时，校验并解压新 Release，然后在该目录执行一条命令：
-
-```bash
-sudo ./upgrade.sh
-```
-
-从 v1.1.0 开始，后续升级可直接使用已安装的控制命令；Release 压缩包和同名
-`.sha256` 文件应位于同一目录：
+下载目标 Release 压缩包，然后统一通过已安装的控制命令升级；不需要在同一目录
+放置 `.sha256` 文件。需要验证来源时，可先按上文校验 GitHub provenance：
 
 ```bash
 sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz

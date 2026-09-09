@@ -96,7 +96,7 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
-assert.equal(packageJSON.version, '1.1.1');
+assert.equal(packageJSON.version, '1.1.2');
 assert.match(packageJSON.description, /开源 AI 工程工作台/);
 assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
 assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
@@ -147,8 +147,10 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /当前版本：\*\*v1\.1\.1\*\*/);
-assert.match(readmeEnglish, /Current release: \*\*v1\.1\.1\*\*/);
+assert.match(readme, /当前版本：\*\*v1\.1\.2\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.1\.2\*\*/);
+assert.match(changelog, /## \[1\.1\.2\] - 2026-09-09/);
+assert.match(changelogEnglish, /## \[1\.1\.2\] - 2026-09-09/);
 assert.match(changelog, /## \[1\.1\.1\] - 2026-09-09/);
 assert.match(changelogEnglish, /## \[1\.1\.1\] - 2026-09-09/);
 assert.match(changelog, /## \[1\.1\.0\] - 2026-09-07/);
@@ -185,12 +187,14 @@ assert.match(
   readmeEnglish,
   /\[YES Engineering System\]\(docs\/engineering\/YES\.en\.md\)/,
 );
-assert.match(readme, /sudo \.\/upgrade\.sh/);
+assert.doesNotMatch(readme, /sudo \.\/upgrade\.sh/);
 assert.match(readme, /sudo yistackctl upgrade \.\/yistack-vX\.Y\.Z-linux-amd64\.tar\.gz/);
 assert.match(readme, /\/var\/lib\/yistack\/database-backups/);
-assert.match(readmeEnglish, /sudo \.\/upgrade\.sh/);
+assert.doesNotMatch(readmeEnglish, /sudo \.\/upgrade\.sh/);
 assert.match(readmeEnglish, /sudo yistackctl upgrade \.\/yistack-vX\.Y\.Z-linux-amd64\.tar\.gz/);
 assert.match(readmeEnglish, /\/var\/lib\/yistack\/database-backups/);
+assert.doesNotMatch(product, /`upgrade\.sh`/);
+assert.doesNotMatch(productEnglish, /`upgrade\.sh`/);
 assert.match(product, /已实现，待云端验收/);
 assert.doesNotMatch(product, /合同已实现/);
 assert.match(productEnglish, /Implemented; live acceptance pending/);
@@ -669,7 +673,11 @@ const postgresSystemdUnit = read('deploy/systemd/yistack-postgres.service');
 assert.match(migrationRunner, /checksum_sha256[\s\S]*database checksum mismatch/, 'migration history must verify recorded checksums');
 assert.match(databaseBackup, /SCHEMA - public[\s\S]*--single-transaction[\s\S]*--use-list/, 'database recovery must use a filtered custom-archive TOC in one transaction');
 assert.doesNotMatch(databaseBackup, /DROP SCHEMA[^\n]*public/i, 'database recovery must not cascade-drop the public schema');
-assert.match(yistackctl, /checksum_line[\s\S]*BASH_REMATCH\[2\][\s\S]*actual_checksum/, 'archive upgrades must bind the checksum sidecar to the selected archive');
+assert.doesNotMatch(
+  yistackctl,
+  /\.sha256|checksum_line|actual_checksum/,
+  'archive upgrades must not require an unauthenticated checksum sidecar',
+);
 assert.match(upgradeScript, /file inventory does not match MANIFEST\.sha256/, 'upgrades must reject incomplete Release manifests');
 assert.match(databaseCommand, /status\|plan\|migrate\|verify\|rollback/, 'database CLI must expose lifecycle commands');
 assert.match(databaseCommand, /case "supabase"[\s\S]*buildSupabaseDirectDatabaseConfig/, 'Supabase migrations must use direct PostgreSQL access');
@@ -734,6 +742,16 @@ assert.match(
   /Restricted or Unavailable Docker Hub Access[\s\S]*--postgres-image[\s\S]*registries\.conf\.d/,
   'English README must document trusted PostgreSQL mirrors for restricted networks',
 );
+assert.match(
+  readme,
+  /gh attestation verify[\s\S]*--repo NHPT\/YiStack[\s\S]*不需要在同一目录[\s\S]*\.sha256/,
+  'README must separate provenance verification from optional transfer checksums',
+);
+assert.match(
+  readmeEnglish,
+  /gh attestation verify[\s\S]*--repo NHPT\/YiStack[\s\S]*colocated `\.sha256` file is not required/,
+  'English README must separate provenance verification from optional transfer checksums',
+);
 
 const envExample = read('.env.example');
 for (const key of [
@@ -747,4 +765,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] v1.1.1 public release repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.1.2 public release repository contract valid (${requiredFiles.length} required files).`);
