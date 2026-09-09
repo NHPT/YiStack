@@ -14,6 +14,20 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 暂无公开变更。
 
+## [1.1.2] - 2026-09-09
+
+### 变更
+
+- 所有用户升级统一使用 `yistackctl upgrade`，README 不再提供直接执行 Release 内部 `upgrade.sh` 的版本分支。
+
+### 修复
+
+- 修复从压缩包升级时，root 创建的 `0700` 临时解压目录阻止 `yistack` 服务用户执行数据库备份程序的问题。
+
+### 安全
+
+- 升级不再强制要求压缩包旁存在可被同时替换的 `.sha256` sidecar；包内 `MANIFEST.sha256` 继续校验文件完整性，README 将 Release checksum 明确为可选的传输损坏检查，并使用 GitHub artifact attestation 验证构建来源。
+
 ## [1.1.1] - 2026-09-09
 
 ### 修复

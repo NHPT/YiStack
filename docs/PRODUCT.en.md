@@ -41,7 +41,7 @@ Core goals:
 | Implemented; live acceptance pending | The adapter, failure boundaries, and automated tests are complete; the external platform lifecycle still requires credentialed acceptance |
 | Experimental | Usable, but APIs or storage structures may change before a stable release |
 | Planned | Not complete and not a release commitment |
-| Out of current scope | Not provided in v1.1.1 |
+| Out of current scope | Not provided in v1.1.2 |
 
 ## 3. Current Product Capabilities
 

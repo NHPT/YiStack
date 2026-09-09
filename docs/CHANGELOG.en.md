@@ -16,6 +16,20 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.2] - 2026-09-09
+
+### Changed
+
+- Standardized all user-facing upgrades on `yistackctl upgrade`; the READMEs no longer expose a version-specific path that directly invokes the internal Release `upgrade.sh`.
+
+### Fixed
+
+- Fixed archive upgrades where a root-owned `0700` extraction directory prevented the `yistack` service user from executing the database backup helper.
+
+### Security
+
+- Upgrades no longer require a colocated `.sha256` sidecar that could be replaced with the archive. The internal `MANIFEST.sha256` still verifies file integrity, while the READMEs describe Release checksums as optional transfer-corruption checks and use GitHub artifact attestations for build provenance.
+
 ## [1.1.1] - 2026-09-09
 
 ### Fixed
