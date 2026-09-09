@@ -216,6 +216,9 @@ prepare_case() {
   mkdir -p \
     "$old_release/bin" \
     "$old_release/systemd" \
+    "$case_root/install/releases/v0.9.0" \
+    "$case_root/install/releases/v9.9.9" \
+    "$case_root/install/releases/local-notes" \
     "$case_root/config" \
     "$case_root/data/database-backups" \
     "$case_root/systemd"
@@ -303,6 +306,10 @@ if ! MOCK_DENY_PACKAGE_HELPER=true \
   exit 1
 fi
 [ "$(tr -d '[:space:]' < "$success_root/install/current/VERSION")" = "$target_version" ]
+[ ! -e "$success_root/install/releases/v1.0.0" ]
+[ ! -e "$success_root/install/releases/v0.9.0" ]
+[ -d "$success_root/install/releases/v9.9.9" ]
+[ -d "$success_root/install/releases/local-notes" ]
 grep -Fqx 'INSTALL_MARKER=new' "$success_root/config/yistack.env"
 assert_service_state "$success_root"
 for unit in "$PACKAGE_ROOT"/systemd/*; do
@@ -348,6 +355,8 @@ set -e
   exit 1
 }
 [ "$(tr -d '[:space:]' < "$failure_root/install/current/VERSION")" = v1.0.0 ]
+[ -d "$failure_root/install/releases/v1.0.0" ]
+[ -d "$failure_root/install/releases/v0.9.0" ]
 cmp "$failure_root/original-yistack.env" "$failure_root/config/yistack.env"
 assert_service_state "$failure_root"
 for unit in "$failure_root/install/releases/v1.0.0/systemd/"*; do

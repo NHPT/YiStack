@@ -29,6 +29,7 @@ const requiredFiles = [
   '.github/workflows/ci.yml',
   '.github/workflows/release.yml',
   'deploy/bin/yistack-database-backup',
+  'deploy/bin/yistack-uninstall',
   'deploy/bin/yistack-ephemeral-maintenance',
   'deploy/bin/yistack-frontend',
   'deploy/bin/yistack-postgres',
@@ -53,6 +54,7 @@ const requiredFiles = [
   'scripts/validate-release-package.sh',
   'scripts/validate-release-postgres-runtime.sh',
   'scripts/validate-release-upgrade.sh',
+  'scripts/validate-release-uninstall.sh',
   'scripts/validate-database-migrations.sh',
   'scripts/validate-ephemeral-maintenance.sh',
   '.github/workflows/codeql.yml',
@@ -96,7 +98,7 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
-assert.equal(packageJSON.version, '1.1.3');
+assert.equal(packageJSON.version, '1.1.4');
 assert.match(packageJSON.description, /开源 AI 工程工作台/);
 assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
 assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
@@ -124,6 +126,7 @@ for (const script of [
   'validate:release',
   'validate:release:postgres',
   'validate:release:upgrade',
+  'validate:release:uninstall',
 ]) {
   assert.equal(typeof packageJSON.scripts[script], 'string', `missing package script ${script}`);
 }
@@ -147,8 +150,10 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /当前版本：\*\*v1\.1\.3\*\*/);
-assert.match(readmeEnglish, /Current release: \*\*v1\.1\.3\*\*/);
+assert.match(readme, /当前版本：\*\*v1\.1\.4\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.1\.4\*\*/);
+assert.match(changelog, /## \[1\.1\.4\] - 2026-09-09/);
+assert.match(changelogEnglish, /## \[1\.1\.4\] - 2026-09-09/);
 assert.match(changelog, /## \[1\.1\.3\] - 2026-09-09/);
 assert.match(changelogEnglish, /## \[1\.1\.3\] - 2026-09-09/);
 assert.match(changelog, /## \[1\.1\.2\] - 2026-09-09/);
@@ -356,7 +361,7 @@ for (const result of ['needs.change_scope.result', 'needs.repository_contract.re
 }
 assert.match(
   workflow,
-  /name: Deployment package acceptance[\s\S]*pnpm validate:database:migrations[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh[\s\S]*scripts\/validate-release-upgrade\.sh/,
+  /name: Deployment package acceptance[\s\S]*pnpm validate:database:migrations[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh[\s\S]*scripts\/validate-release-upgrade\.sh[\s\S]*scripts\/validate-release-uninstall\.sh/,
 );
 assert.match(
   workflow,
@@ -421,6 +426,7 @@ assert.match(releaseWorkflow, /scripts\/validate-release-package\.sh/);
 assert.match(releaseWorkflow, /scripts\/validate-release-postgres-runtime\.sh/);
 assert.match(releaseWorkflow, /format: spdx-json/);
 assert.match(releaseWorkflow, /scripts\/validate-release-upgrade\.sh/);
+assert.match(releaseWorkflow, /scripts\/validate-release-uninstall\.sh/);
 assert.match(releaseWorkflow, /actions\/attest-build-provenance@v3/);
 assert.match(releaseWorkflow, /gh release (create|upload)/);
 
@@ -664,9 +670,11 @@ const releaseValidation = read('scripts/validate-release-package.sh');
 const yistackctl = read('deploy/bin/yistackctl');
 const migrationValidation = read('scripts/validate-database-migrations.sh');
 assert.match(migrationRunner, /pg_try_advisory_lock[\s\S]*pg_advisory_unlock/, 'migration writes must hold a PostgreSQL advisory lock');
-assert.match(releaseValidation, /bin\/yistack-database-backup[\s\S]*upgrade\.sh/, 'Release validation must require the upgrade entrypoints');
+assert.match(releaseValidation, /bin\/yistack-database-backup[\s\S]*bin\/yistack-uninstall[\s\S]*upgrade\.sh/, 'Release validation must require the lifecycle entrypoints');
 const upgradeValidation = read('scripts/validate-release-upgrade.sh');
+const uninstallValidation = read('scripts/validate-release-uninstall.sh');
 const upgradeScript = read('deploy/upgrade.sh');
+const uninstallScript = read('deploy/bin/yistack-uninstall');
 const installer = read('deploy/install.sh');
 const backendSystemdUnit = read('deploy/systemd/yistack-backend.service');
 const ephemeralCleanupSystemdUnit = read('deploy/systemd/yistack-ephemeral-cleanup.service');
@@ -688,6 +696,7 @@ assert.match(releaseBuilder, /cp -a "\$ROOT_DIR\/backend\/migrations"/, 'Release
 assert.match(releaseBuilder, /docs\/assets\/screenshots/, 'Release packages must include README screenshots');
 assert.match(releaseValidation, /docs\/assets\/screenshots\/mobile-preview\.png[\s\S]*docs\/assets\/screenshots\/workspace-overview\.png/, 'Release validation must require README screenshots');
 assert.match(yistackctl, /upgrade\)[\s\S]*run_release_upgrade/, 'yistackctl must dispatch one-command upgrades');
+assert.match(yistackctl, /run_uninstall\(\)[\s\S]*mktemp[\s\S]*yistack-uninstall[\s\S]*uninstall\)[\s\S]*run_uninstall/, 'yistackctl must dispatch uninstalls through a staged helper');
 assert.match(
   yistackctl,
   /run_as_service_user\(\)[\s\S]*runuser -u yistack[\s\S]*XDG_RUNTIME_DIR="\/run\/user\/\$service_uid"[\s\S]*postgres\)[\s\S]*run_as_service_user/,
@@ -721,6 +730,11 @@ assert.match(
   'database backup and recovery must execute the staged helper',
 );
 assert.match(upgradeValidation, /Successful upgrade acceptance[\s\S]*MOCK_NEW_HEALTH_FAIL=true[\s\S]*Previous Release v1\.0\.0 restored/, 'Release acceptance must cover successful upgrade and failed-health recovery');
+assert.match(upgradeScript, /trap - EXIT[\s\S]*cleanup_historical_releases/, 'historical Releases must be removed only after rollback is disabled');
+assert.match(upgradeValidation, /success_root[\s\S]*releases\/v1\.0\.0[\s\S]*failure_root[\s\S]*releases\/v1\.0\.0/, 'upgrade acceptance must remove old Releases on success and retain them on failure');
+assert.match(uninstallScript, /uninstall \[--purge\][\s\S]*External databases are[\s\S]*never deleted/, 'uninstall must expose preserve and explicit purge modes');
+assert.match(uninstallScript, /label=yistack\.project_id[\s\S]*POSTGRES_CONTAINER_NAME[\s\S]*validate_managed_directory/, 'purge must target only managed runtime resources and guarded directories');
+assert.match(uninstallValidation, /preserve_root[\s\S]*purge_root[\s\S]*refusing unsafe INSTALL_ROOT/, 'uninstall acceptance must cover preservation, purge, and unsafe path rejection');
 assert.match(releaseValidation, /database\/migrations\/manifest\.json[\s\S]*rollback\/202609070001_migration_integrity\.sql/, 'Release validation must require the complete migration set');
 assert.match(yistackctl, /database\)[\s\S]*migrate \| rollback\)[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*systemctl is-active --quiet yistack-backend\.service[\s\S]*yistack-server" database/, 'database schema writes must require stopped application services');
 assert.match(migrationValidation, /advisory lock contention[\s\S]*tampered and unknown histories[\s\S]*Rolling back one version/, 'PostgreSQL acceptance must cover locking, integrity boundaries, and rollback');
@@ -766,14 +780,16 @@ assert.match(
 );
 assert.match(
   readme,
-  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.3-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.3-linux-amd64/,
+  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.4-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.4-linux-amd64/,
   'README must document the sidecar-free upgrade path for older controllers',
 );
 assert.match(
   readmeEnglish,
-  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.3-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.3-linux-amd64/,
+  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.4-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.4-linux-amd64/,
   'English README must document the sidecar-free upgrade path for older controllers',
 );
+assert.match(readme, /yistackctl uninstall[\s\S]*yistackctl uninstall --purge[\s\S]*外部 Supabase 或 PostgreSQL/);
+assert.match(readmeEnglish, /yistackctl uninstall[\s\S]*yistackctl uninstall --purge[\s\S]*external Supabase or PostgreSQL/);
 
 const envExample = read('.env.example');
 for (const key of [
@@ -787,4 +803,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] v1.1.3 public release repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.1.4 public release repository contract valid (${requiredFiles.length} required files).`);

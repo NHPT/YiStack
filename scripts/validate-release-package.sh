@@ -95,6 +95,7 @@ required_files=(
   "SOURCE_COMMIT"
   "VERSION"
   "bin/yistack-database-backup"
+  "bin/yistack-uninstall"
   "bin/yistack-ephemeral-maintenance"
   "bin/yistack-frontend"
   "bin/yistack-postgres"
@@ -197,6 +198,7 @@ for script in \
   "$package_root/install.sh" \
   "$package_root/upgrade.sh" \
   "$package_root/bin/yistack-database-backup" \
+  "$package_root/bin/yistack-uninstall" \
   "$package_root/bin/yistack-ephemeral-maintenance" \
   "$package_root/bin/yistack-frontend" \
   "$package_root/bin/yistack-postgres" \
@@ -213,9 +215,10 @@ grep -Fq -- "--postgres-image IMAGE" <<< "$install_help" || {
   exit 1
 }
 "$package_root/upgrade.sh" --help >/dev/null
+"$package_root/bin/yistack-uninstall" --help >/dev/null
 "$package_root/bin/yistack-ephemeral-maintenance" --help >/dev/null
 yistackctl_help="$("$package_root/bin/yistackctl" help)"
-for command in start stop restart status logs health postgres database upgrade ephemeral completion; do
+for command in start stop restart status logs health postgres database upgrade uninstall ephemeral completion; do
   grep -Eq "^  ${command}( |$)" <<< "$yistackctl_help" || {
     echo "yistackctl help is missing the $command command." >&2
     exit 1
@@ -240,6 +243,19 @@ completion_result="$(
 )"
 grep -Fqx ephemeral <<< "$completion_result" || {
   echo "Bash completion does not expose the ephemeral command." >&2
+  exit 1
+}
+completion_result="$(
+  bash -c '
+    source "$1"
+    COMP_WORDS=(yistackctl uninstall --p)
+    COMP_CWORD=2
+    _yistackctl
+    printf "%s\n" "${COMPREPLY[@]}"
+  ' _ "$completion_script"
+)"
+grep -Fqx -- --purge <<< "$completion_result" || {
+  echo "Bash completion does not expose uninstall --purge." >&2
   exit 1
 }
 completion_result="$(

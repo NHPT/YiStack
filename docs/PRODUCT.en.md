@@ -41,7 +41,7 @@ Core goals:
 | Implemented; live acceptance pending | The adapter, failure boundaries, and automated tests are complete; the external platform lifecycle still requires credentialed acceptance |
 | Experimental | Usable, but APIs or storage structures may change before a stable release |
 | Planned | Not complete and not a release commitment |
-| Out of current scope | Not provided in v1.1.3 |
+| Out of current scope | Not provided in v1.1.4 |
 
 ## 3. Current Product Capabilities
 
@@ -142,7 +142,8 @@ claim generation succeeded.
   v1.0.0, and later Releases support only sources listed in the compatibility
   matrix.
 - Release upgrades use `yistackctl upgrade`, back up the
-  `public` schema, and restore the database, configuration, systemd units, and old Release on failure.
+  `public` schema, restore the database, configuration, systemd units, and old Release on failure, and remove older Release directories only after full success.
+- `yistackctl uninstall` supports data-preserving removal and explicit `--purge`; purge removes only YiStack-managed local resources and never deletes an external database.
 
 ## 7. External Integration Boundaries
 

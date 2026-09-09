@@ -16,6 +16,20 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.4] - 2026-09-09
+
+### Added
+
+- Added `yistackctl uninstall`. By default it removes application files, systemd units, and command entrypoints while preserving configuration and data; `--purge` explicitly removes YiStack-managed local containers, configuration, data, logs, cache, and the service account.
+
+### Changed
+
+- Release upgrades remove Release directories older than the current version only after migration, health checks, and running-state restoration all succeed. Failure paths retain the previous Release for automatic rollback.
+
+### Security
+
+- The uninstaller is restricted to fixed managed directories and `yistack.*` resources, never deletes external Supabase/PostgreSQL data or shared system packages, and rejects dangerous top-level path overrides.
+
 ## [1.1.3] - 2026-09-09
 
 ### Fixed

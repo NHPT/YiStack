@@ -1,6 +1,6 @@
 {
   "name": "yistack",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "private": true,
   "description": "YiStack - 从自然语言需求到可运行、可验证、可迭代应用的开源 AI 工程工作台",
   "license": "Apache-2.0",
@@ -17,6 +17,7 @@
     "validate:release": "bash ./scripts/validate-release-package.sh",
     "validate:release:postgres": "bash ./scripts/validate-release-postgres-runtime.sh",
     "validate:release:upgrade": "bash ./scripts/validate-release-upgrade.sh",
+    "validate:release:uninstall": "bash ./scripts/validate-release-uninstall.sh",
     "check:admin-runtime-readiness": "pnpm exec tsx scripts/validate-admin-runtime-health-diagnostics-model.ts",
     "checkout:verify": "bash ./scripts/verify-clean-checkout.sh",
     "contributor:validate": "node scripts/validate-contributor-alpha.mjs",

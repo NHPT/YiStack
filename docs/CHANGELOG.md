@@ -14,6 +14,20 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 暂无公开变更。
 
+## [1.1.4] - 2026-09-09
+
+### 新增
+
+- 新增 `yistackctl uninstall`，默认移除程序、systemd 单元和命令入口并保留配置与数据；`--purge` 显式删除 YiStack 管理的本地容器、配置、数据、日志、缓存及服务账户。
+
+### 变更
+
+- Release 升级仅在 migration、健康检查和运行状态恢复全部成功后删除早于当前版本的 Release 目录；失败路径继续保留旧 Release 用于自动回滚。
+
+### 安全
+
+- 卸载器限定固定受管目录和 `yistack.*` 资源，不删除外部 Supabase/PostgreSQL 数据或共享系统软件包，并拒绝危险的顶级目录覆盖。
+
 ## [1.1.3] - 2026-09-09
 
 ### 修复
