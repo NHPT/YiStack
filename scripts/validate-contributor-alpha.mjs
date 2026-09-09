@@ -96,7 +96,7 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
-assert.equal(packageJSON.version, '1.1.2');
+assert.equal(packageJSON.version, '1.1.3');
 assert.match(packageJSON.description, /开源 AI 工程工作台/);
 assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
 assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
@@ -147,8 +147,10 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /当前版本：\*\*v1\.1\.2\*\*/);
-assert.match(readmeEnglish, /Current release: \*\*v1\.1\.2\*\*/);
+assert.match(readme, /当前版本：\*\*v1\.1\.3\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.1\.3\*\*/);
+assert.match(changelog, /## \[1\.1\.3\] - 2026-09-09/);
+assert.match(changelogEnglish, /## \[1\.1\.3\] - 2026-09-09/);
 assert.match(changelog, /## \[1\.1\.2\] - 2026-09-09/);
 assert.match(changelogEnglish, /## \[1\.1\.2\] - 2026-09-09/);
 assert.match(changelog, /## \[1\.1\.1\] - 2026-09-09/);
@@ -708,6 +710,16 @@ assert.doesNotMatch(
 );
 assert.match(upgradeScript, /flock -n[\s\S]*run_backup_command create[\s\S]*run_database_command "\$INSTALL_ROOT\/current" migrate[\s\S]*run_database_command "\$INSTALL_ROOT\/current" verify/, 'one-command upgrades must lock, back up, migrate, and verify');
 assert.match(upgradeScript, /recover_failed_upgrade[\s\S]*run_backup_command restore[\s\S]*restore_previous_release_files/, 'failed upgrades must restore the database and previous Release');
+assert.match(
+  upgradeScript,
+  /stage_backup_helper\(\)[\s\S]*install -m 0700 -o "\$SERVICE_USER"[\s\S]*"\$PACKAGE_ROOT\/bin\/yistack-database-backup" "\$backup_helper_path"/,
+  'upgrades must stage the backup helper outside an inaccessible Release extraction parent',
+);
+assert.match(
+  upgradeScript,
+  /run_backup_command\(\)[\s\S]*"\$backup_helper_path" "\$command" "\$backup_name"/,
+  'database backup and recovery must execute the staged helper',
+);
 assert.match(upgradeValidation, /Successful upgrade acceptance[\s\S]*MOCK_NEW_HEALTH_FAIL=true[\s\S]*Previous Release v1\.0\.0 restored/, 'Release acceptance must cover successful upgrade and failed-health recovery');
 assert.match(releaseValidation, /database\/migrations\/manifest\.json[\s\S]*rollback\/202609070001_migration_integrity\.sql/, 'Release validation must require the complete migration set');
 assert.match(yistackctl, /database\)[\s\S]*migrate \| rollback\)[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*systemctl is-active --quiet yistack-backend\.service[\s\S]*yistack-server" database/, 'database schema writes must require stopped application services');
@@ -752,6 +764,16 @@ assert.match(
   /gh attestation verify[\s\S]*--repo NHPT\/YiStack[\s\S]*colocated `\.sha256` file is not required/,
   'English README must separate provenance verification from optional transfer checksums',
 );
+assert.match(
+  readme,
+  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.3-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.3-linux-amd64/,
+  'README must document the sidecar-free upgrade path for older controllers',
+);
+assert.match(
+  readmeEnglish,
+  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.3-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.3-linux-amd64/,
+  'English README must document the sidecar-free upgrade path for older controllers',
+);
 
 const envExample = read('.env.example');
 for (const key of [
@@ -765,4 +787,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] v1.1.2 public release repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.1.3 public release repository contract valid (${requiredFiles.length} required files).`);

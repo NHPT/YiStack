@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.2**。这是 v1.1 系列的升级可靠性修复版本，修复压缩包升级的临时目录权限，并取消对同目录 `.sha256` 文件的强制要求；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.3**。这是 v1.1 系列的升级兼容性修复版本，确保旧版控制器解压 Release 后仍可由 `yistack` 服务用户完成数据库备份；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -271,6 +271,17 @@ sudo -u yistack env \
 ```bash
 sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 ```
+
+v1.1.0 或 v1.1.1 的已安装控制器仍会在读取新 Release 前检查同目录
+`.sha256`，且会把压缩包解压到仅 root 可穿越的临时目录。从这两个版本首次升级到
+v1.1.3 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
+
+```bash
+tar -xzf yistack-v1.1.3-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.3-linux-amd64
+```
+
+升级到 v1.1.3 后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
 
 升级命令会校验 Release 和版本方向、预检数据库、停止应用及无痕体验模式 timer、
 创建并校验 PostgreSQL custom-format 备份、安装新 Release、执行并验证 migration、

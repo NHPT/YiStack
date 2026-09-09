@@ -139,6 +139,14 @@ cat > "$mock_root/runuser" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 filtered=()
+if [ "${MOCK_DENY_PACKAGE_HELPER:-false}" = "true" ]; then
+  for argument in "$@"; do
+    [ "$argument" != "$YISTACK_PACKAGE_ROOT/bin/yistack-database-backup" ] || {
+      echo "Upgrade executed the backup helper through the Release package path." >&2
+      exit 1
+    }
+  done
+fi
 if [ "${1:-}" = "-u" ]; then
   shift 2
 fi
@@ -241,6 +249,7 @@ EOF
 run_upgrade() {
   local case_root="$1"
   env \
+    MOCK_DENY_PACKAGE_HELPER="${MOCK_DENY_PACKAGE_HELPER:-false}" \
     MOCK_NEW_HEALTH_FAIL="${MOCK_NEW_HEALTH_FAIL:-false}" \
     MOCK_NEW_YISTACKCTL="$mock_root/new-yistackctl" \
     MOCK_SYSTEMCTL_ENABLED="$case_root/systemctl.enabled" \
@@ -287,7 +296,8 @@ assert_service_state() {
 
 success_root="$root/success"
 prepare_case "$success_root"
-if ! run_upgrade "$success_root" > "$success_root/upgrade.out" 2>&1; then
+if ! MOCK_DENY_PACKAGE_HELPER=true \
+  run_upgrade "$success_root" > "$success_root/upgrade.out" 2>&1; then
   echo "Successful upgrade acceptance failed:" >&2
   cat "$success_root/upgrade.out" >&2
   exit 1
@@ -315,6 +325,8 @@ success_dumps=("$success_root/data/database-backups/"*.dump)
 [ -s "${success_dumps[0]}.sha256" ]
 [ -s "${success_dumps[0]%.dump}.yistack.env" ]
 [ -s "${success_dumps[0]%.dump}.systemd/units.state" ]
+[ -z "$(find "$success_root/data/database-backups" \
+  -maxdepth 1 -name '.yistack-database-backup.upgrade.*' -print -quit)" ]
 
 success_backup_name="$(basename "${success_dumps[0]}" .dump)"
 YISTACK_ENV_FILE="$success_root/config/yistack.env" \
@@ -327,7 +339,7 @@ failure_root="$root/failure"
 prepare_case "$failure_root"
 cp "$failure_root/config/yistack.env" "$failure_root/original-yistack.env"
 set +e
-MOCK_NEW_HEALTH_FAIL=true run_upgrade "$failure_root" \
+MOCK_DENY_PACKAGE_HELPER=true MOCK_NEW_HEALTH_FAIL=true run_upgrade "$failure_root" \
   > "$failure_root/upgrade.out" 2>&1
 failure_status="$?"
 set -e
@@ -355,6 +367,8 @@ failure_contract="$(database_contract "SELECT
   exit 1
 }
 grep -Fq 'Previous Release v1.0.0 restored.' "$failure_root/upgrade.out"
+[ -z "$(find "$failure_root/data/database-backups" \
+  -maxdepth 1 -name '.yistack-database-backup.upgrade.*' -print -quit)" ]
 
 dispatch_root="$root/dispatch/yistack-v9.9.9-linux-amd64"
 mkdir -p "$dispatch_root"
