@@ -279,16 +279,8 @@ If an installation was interrupted while pulling the image, configure the mirror
 
 ### Upgrade an Existing Installation
 
-v1.1.0 supports the known v1.0.0 database baseline. For the first upgrade from
-v1.0.0, verify and extract the new Release, then run one command from that
-directory:
-
-```bash
-sudo ./upgrade.sh
-```
-
-Starting with v1.1.0, subsequent upgrades can use the installed control command.
-Keep the Release archive and its matching `.sha256` file in the same directory:
+Download the target Release archive and its matching `.sha256` file into the
+same directory, then always upgrade through the installed control command:
 
 ```bash
 sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz

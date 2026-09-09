@@ -115,7 +115,7 @@ YiStack 是面向开发者的 AI 应用生成与工程工作台。用户从自�
 - `backend/migrations/manifest.json` 固定迁移顺序、来源版本和 SQL checksum
 - 生产启动只验证当前数据库版本，schema 变更必须显式运行 migration runner
 - v1.0.0 只支持全新安装；v1.1.0 支持从 v1.0.0 原地升级，后续 Release 仍仅支持兼容矩阵列出的来源版本
-- Release 升级使用 `upgrade.sh` / `yistackctl upgrade`，自动备份 `public` schema，并在失败时恢复数据库、配置、systemd 单元和旧 Release
+- Release 升级统一使用 `yistackctl upgrade`，自动备份 `public` schema，并在失败时恢复数据库、配置、systemd 单元和旧 Release
 
 ## 7. 外部集成边界
 

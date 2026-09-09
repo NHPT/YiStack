@@ -258,15 +258,8 @@ sudo -u yistack env \
 
 ### 升级现有安装
 
-v1.1.0 支持从 v1.0.0 的已知数据库基线升级。首次从 v1.0.0
-升级时，校验并解压新 Release，然后在该目录执行一条命令：
-
-```bash
-sudo ./upgrade.sh
-```
-
-从 v1.1.0 开始，后续升级可直接使用已安装的控制命令；Release 压缩包和同名
-`.sha256` 文件应位于同一目录：
+下载目标 Release 压缩包和同名 `.sha256` 文件并放在同一目录，然后统一通过
+已安装的控制命令升级：
 
 ```bash
 sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz

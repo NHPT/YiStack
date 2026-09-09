@@ -185,12 +185,14 @@ assert.match(
   readmeEnglish,
   /\[YES Engineering System\]\(docs\/engineering\/YES\.en\.md\)/,
 );
-assert.match(readme, /sudo \.\/upgrade\.sh/);
+assert.doesNotMatch(readme, /sudo \.\/upgrade\.sh/);
 assert.match(readme, /sudo yistackctl upgrade \.\/yistack-vX\.Y\.Z-linux-amd64\.tar\.gz/);
 assert.match(readme, /\/var\/lib\/yistack\/database-backups/);
-assert.match(readmeEnglish, /sudo \.\/upgrade\.sh/);
+assert.doesNotMatch(readmeEnglish, /sudo \.\/upgrade\.sh/);
 assert.match(readmeEnglish, /sudo yistackctl upgrade \.\/yistack-vX\.Y\.Z-linux-amd64\.tar\.gz/);
 assert.match(readmeEnglish, /\/var\/lib\/yistack\/database-backups/);
+assert.doesNotMatch(product, /`upgrade\.sh`/);
+assert.doesNotMatch(productEnglish, /`upgrade\.sh`/);
 assert.match(product, /已实现，待云端验收/);
 assert.doesNotMatch(product, /合同已实现/);
 assert.match(productEnglish, /Implemented; live acceptance pending/);

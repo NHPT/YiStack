@@ -141,7 +141,7 @@ claim generation succeeded.
 - v1.0.0 remains clean-install only; v1.1.0 supports an in-place upgrade from
   v1.0.0, and later Releases support only sources listed in the compatibility
   matrix.
-- Release upgrades use `upgrade.sh` / `yistackctl upgrade`, back up the
+- Release upgrades use `yistackctl upgrade`, back up the
   `public` schema, and restore the database, configuration, systemd units, and old Release on failure.
 
 ## 7. External Integration Boundaries
