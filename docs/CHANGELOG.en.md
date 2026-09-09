@@ -16,6 +16,13 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.3] - 2026-09-09
+
+### Fixed
+
+- The upgrade executor now stages the manifest-verified database backup helper in a private directory accessible to `yistack` before changing users, remaining compatible with the root-only extraction directories created by v1.1.0 and v1.1.1 controllers.
+- The READMEs document the one-time directory input for upgrading an older controller to v1.1.3 without a `.sha256` sidecar; later upgrades can use archives directly.
+
 ## [1.1.2] - 2026-09-09
 
 ### Changed
@@ -24,7 +31,7 @@ No public changes yet.
 
 ### Fixed
 
-- Fixed archive upgrades where a root-owned `0700` extraction directory prevented the `yistack` service user from executing the database backup helper.
+- The updated `yistackctl` now creates archive extraction directories with mode `0711`, preventing upgrades that it initiates from blocking the `yistack` service user from executing the database backup helper.
 
 ### Security
 

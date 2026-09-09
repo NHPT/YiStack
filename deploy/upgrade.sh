@@ -41,6 +41,7 @@ target_version=""
 backup_name=""
 backup_path=""
 config_backup_path=""
+backup_helper_path=""
 
 usage() {
   cat <<'EOF'
@@ -100,7 +101,20 @@ run_backup_command() {
     YISTACK_ENV_FILE="$CONFIG_FILE" \
     YISTACK_POSTGRES_ENV_FILE="$POSTGRES_CONFIG_FILE" \
     YISTACK_DATABASE_BACKUP_DIR="$BACKUP_DIR" \
-    "$PACKAGE_ROOT/bin/yistack-database-backup" "$command" "$backup_name"
+    "$backup_helper_path" "$command" "$backup_name"
+}
+
+stage_backup_helper() {
+  backup_helper_path="$BACKUP_DIR/.yistack-database-backup.upgrade.$$"
+  install -m 0700 -o "$SERVICE_USER" -g "$SERVICE_GROUP" \
+    "$PACKAGE_ROOT/bin/yistack-database-backup" "$backup_helper_path"
+}
+
+cleanup_backup_helper() {
+  if [ -n "$backup_helper_path" ]; then
+    rm -f "$backup_helper_path" || return 1
+  fi
+  backup_helper_path=""
 }
 
 snapshot_systemd_units() {
@@ -259,6 +273,7 @@ recover_failed_upgrade() {
   if [ "$recovery_succeeded" = "true" ]; then
     restore_ephemeral_timer_state || recovery_succeeded=false
   fi
+  cleanup_backup_helper || recovery_succeeded=false
 
   if [ "$recovery_succeeded" = "true" ]; then
     echo "Previous Release $current_version restored." >&2
@@ -399,6 +414,7 @@ main() {
   stop_upgrade_writers || die "unable to stop all YiStack database writers"
 
   install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$BACKUP_DIR"
+  stage_backup_helper
   backup_name="upgrade-${current_version}-to-${target_version}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
   backup_path="$(run_backup_command create)"
   backup_created=true
@@ -427,6 +443,9 @@ main() {
   fi
   restore_ephemeral_timer_state
 
+  if ! cleanup_backup_helper; then
+    echo "Warning: unable to remove temporary database backup helper: $backup_helper_path" >&2
+  fi
   upgrade_active=false
   trap - EXIT
   echo "YiStack upgraded from $current_version to $target_version."

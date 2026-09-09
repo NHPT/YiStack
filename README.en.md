@@ -12,12 +12,13 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.2**, an upgrade reliability fix for the v1.1 series.
-> It fixes archive extraction permissions and removes the requirement for a
-> colocated `.sha256` file. Its stability scope is limited to the capabilities
-> documented in this README and [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md).
-> Clean installations use the current Release's `database/init.sql`; existing
-> installations use the one-command upgrade.
+> Current release: **v1.1.3**, an upgrade compatibility fix for the v1.1
+> series. It lets the `yistack` service user complete database backups even when
+> an older controller extracted the Release. Its stability scope is limited to
+> the capabilities documented in this README and
+> [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the current
+> Release's `database/init.sql`; existing installations use the one-command
+> upgrade.
 
 ## Why YiStack
 
@@ -294,6 +295,20 @@ the source, verify its GitHub provenance as described above:
 ```bash
 sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 ```
+
+The controllers installed by v1.1.0 and v1.1.1 still check for a colocated
+`.sha256` before reading a new Release and extract archives under a root-only
+temporary directory. For the first upgrade from either version to v1.1.3,
+extract the archive and pass the directory to the same public command. This
+path does not require a sidecar:
+
+```bash
+tar -xzf yistack-v1.1.3-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.3-linux-amd64
+```
+
+After upgrading to v1.1.3, later upgrades can consume `.tar.gz` archives
+directly without a colocated `.sha256`.
 
 The command verifies the Release and forward-only version direction, preflights
 the database, stops the application and ephemeral-experience timers, creates and

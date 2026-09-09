@@ -14,6 +14,13 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 暂无公开变更。
 
+## [1.1.3] - 2026-09-09
+
+### 修复
+
+- 升级执行器将通过包内清单校验的数据库备份 helper 暂存到 `yistack` 可访问的私有目录后再切换用户执行，兼容 v1.1.0 和 v1.1.1 控制器创建的 root-only 解压目录。
+- README 明确旧版控制器首次升级到 v1.1.3 时使用解压目录作为 `yistackctl upgrade` 输入，无需 `.sha256` sidecar；升级后可直接使用压缩包。
+
 ## [1.1.2] - 2026-09-09
 
 ### 变更
@@ -22,7 +29,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 ### 修复
 
-- 修复从压缩包升级时，root 创建的 `0700` 临时解压目录阻止 `yistack` 服务用户执行数据库备份程序的问题。
+- 新版 `yistackctl` 将压缩包临时解压目录设置为 `0711`，避免其发起的后续升级阻止 `yistack` 服务用户执行数据库备份程序。
 
 ### 安全
 

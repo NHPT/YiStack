@@ -13,7 +13,7 @@ SKIP_FRONTEND_BUILD="${SKIP_FRONTEND_BUILD:-false}"
 REQUIRE_CLEAN_TREE="${REQUIRE_CLEAN_TREE:-false}"
 
 if [ -z "$VERSION" ]; then
-  echo "VERSION is required, for example VERSION=v1.1.2 pnpm build:release" >&2
+  echo "VERSION is required, for example VERSION=v1.1.3 pnpm build:release" >&2
   exit 2
 fi
 if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
