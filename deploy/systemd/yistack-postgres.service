@@ -9,7 +9,6 @@ RemainAfterExit=yes
 User=yistack
 Group=yistack
 Environment=HOME=/var/lib/yistack
-Environment=XDG_RUNTIME_DIR=/run/user/%U
 ExecStart=/opt/yistack/current/bin/yistack-postgres start
 ExecStop=/opt/yistack/current/bin/yistack-postgres stop
 TimeoutStartSec=180

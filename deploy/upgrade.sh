@@ -30,8 +30,8 @@ target_was_enabled=false
 backend_was_active=false
 frontend_was_active=false
 browser_worker_was_active=false
-demo_reset_timer_was_active=false
-demo_cleanup_timer_was_active=false
+ephemeral_reset_timer_was_active=false
+ephemeral_cleanup_timer_was_active=false
 application_was_active=false
 unit_backup_dir=""
 recovery_succeeded=true
@@ -193,22 +193,22 @@ restore_application_state() {
   fi
 }
 
-restore_demo_timer_state() {
-  if [ "$demo_reset_timer_was_active" = "true" ]; then
-    "$SYSTEMCTL_BIN" start yistack-demo-reset.timer || return 1
+restore_ephemeral_timer_state() {
+  if [ "$ephemeral_reset_timer_was_active" = "true" ]; then
+    "$SYSTEMCTL_BIN" start yistack-ephemeral-reset.timer || return 1
   fi
-  if [ "$demo_cleanup_timer_was_active" = "true" ]; then
-    "$SYSTEMCTL_BIN" start yistack-demo-cleanup.timer || return 1
+  if [ "$ephemeral_cleanup_timer_was_active" = "true" ]; then
+    "$SYSTEMCTL_BIN" start yistack-ephemeral-cleanup.timer || return 1
   fi
 }
 
 stop_upgrade_writers() {
   local unit
   for unit in \
-    yistack-demo-reset.timer \
-    yistack-demo-cleanup.timer \
-    yistack-demo-reset.service \
-    yistack-demo-cleanup.service \
+    yistack-ephemeral-reset.timer \
+    yistack-ephemeral-cleanup.timer \
+    yistack-ephemeral-reset.service \
+    yistack-ephemeral-cleanup.service \
     yistack.target \
     yistack-backend.service \
     yistack-frontend.service \
@@ -256,7 +256,7 @@ recover_failed_upgrade() {
     fi
   fi
   if [ "$recovery_succeeded" = "true" ]; then
-    restore_demo_timer_state || recovery_succeeded=false
+    restore_ephemeral_timer_state || recovery_succeeded=false
   fi
 
   if [ "$recovery_succeeded" = "true" ]; then
@@ -386,11 +386,11 @@ main() {
     [ "$browser_worker_was_active" = "true" ]; then
     application_was_active=true
   fi
-  if unit_is_active yistack-demo-reset.timer; then
-    demo_reset_timer_was_active=true
+  if unit_is_active yistack-ephemeral-reset.timer; then
+    ephemeral_reset_timer_was_active=true
   fi
-  if unit_is_active yistack-demo-cleanup.timer; then
-    demo_cleanup_timer_was_active=true
+  if unit_is_active yistack-ephemeral-cleanup.timer; then
+    ephemeral_cleanup_timer_was_active=true
   fi
 
   upgrade_active=true
@@ -424,7 +424,7 @@ main() {
     { [ "$backend_was_active" = "true" ] && [ "$frontend_was_active" = "true" ]; }; then
     wait_for_health
   fi
-  restore_demo_timer_state
+  restore_ephemeral_timer_state
 
   upgrade_active=false
   trap - EXIT

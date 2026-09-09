@@ -1,19 +1,19 @@
 [Unit]
-Description=Enforce YiStack ephemeral trial retention and disk limits
+Description=Enforce YiStack ephemeral experience retention and disk limits
 After=network-online.target yistack-postgres.service
 Wants=network-online.target
-ConditionPathExists=/etc/yistack/demo-maintenance.env
+ConditionPathExists=/etc/yistack/ephemeral-maintenance.env
 
 [Service]
 Type=oneshot
 User=root
 Group=root
-ExecStart=/opt/yistack/current/bin/yistack-demo-maintenance enforce
+ExecStart=/opt/yistack/current/bin/yistack-ephemeral-maintenance enforce
 Nice=15
 IOSchedulingClass=idle
 TimeoutStartSec=20min
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
+ProtectHome=read-only
 ProtectSystem=strict
 ReadWritePaths=/var/lib/yistack /var/log/yistack /var/cache/yistack /run/lock

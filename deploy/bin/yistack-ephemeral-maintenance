@@ -4,15 +4,15 @@ set -euo pipefail
 
 YISTACK_ENV_FILE="${YISTACK_ENV_FILE:-/etc/yistack/yistack.env}"
 YISTACK_POSTGRES_ENV_FILE="${YISTACK_POSTGRES_ENV_FILE:-/etc/yistack/postgres.env}"
-YISTACK_DEMO_ENV_FILE="${YISTACK_DEMO_ENV_FILE:-/etc/yistack/demo-maintenance.env}"
+YISTACK_EPHEMERAL_ENV_FILE="${YISTACK_EPHEMERAL_ENV_FILE:-/etc/yistack/ephemeral-maintenance.env}"
 
 if [ -r "$YISTACK_ENV_FILE" ]; then
   # shellcheck disable=SC1090
   source "$YISTACK_ENV_FILE"
 fi
-if [ -r "$YISTACK_DEMO_ENV_FILE" ]; then
+if [ -r "$YISTACK_EPHEMERAL_ENV_FILE" ]; then
   # shellcheck disable=SC1090
-  source "$YISTACK_DEMO_ENV_FILE"
+  source "$YISTACK_EPHEMERAL_ENV_FILE"
 fi
 
 : "${YISTACK_INSTALL_DIR:=/opt/yistack/current}"
@@ -24,22 +24,22 @@ fi
 : "${CONTAINER_DATA_DIR:=$YISTACK_DATA_DIR/runtime/container-data}"
 : "${YISTACK_BROWSER_EVIDENCE_DIR:=$YISTACK_DATA_DIR/runtime/generation-evidence}"
 : "${PLAYWRIGHT_BROWSERS_PATH:=$YISTACK_DATA_DIR/ms-playwright}"
-: "${DEMO_MAINTENANCE_ENABLED:=false}"
-: "${DEMO_BASELINE_DIR:=$YISTACK_DATA_DIR/demo-baseline}"
-: "${DEMO_PROJECT_TTL_HOURS:=24}"
-: "${DEMO_STOPPED_CONTAINER_TTL_MINUTES:=60}"
-: "${DEMO_EVIDENCE_TTL_HOURS:=24}"
-: "${DEMO_CACHE_TTL_HOURS:=24}"
-: "${DEMO_LOG_TTL_DAYS:=7}"
-: "${DEMO_DISK_HIGH_WATERMARK_PERCENT:=80}"
-: "${DEMO_DISK_LOW_WATERMARK_PERCENT:=70}"
-: "${DEMO_RESTART_AFTER_RESET:=true}"
-: "${DEMO_HEALTH_TIMEOUT_SECONDS:=120}"
-: "${DEMO_LOCK_FILE:=/run/lock/yistack-demo-maintenance.lock}"
-: "${DEMO_RESET_ON_CALENDAR:=*-*-* 04:00:00}"
-: "${DEMO_RESET_RANDOMIZED_DELAY_SEC:=10min}"
-: "${DEMO_CLEANUP_ON_CALENDAR:=*-*-* *:30:00}"
-: "${DEMO_CLEANUP_RANDOMIZED_DELAY_SEC:=5min}"
+: "${EPHEMERAL_MAINTENANCE_ENABLED:=false}"
+: "${EPHEMERAL_BASELINE_DIR:=$YISTACK_DATA_DIR/ephemeral-baseline}"
+: "${EPHEMERAL_PROJECT_TTL_HOURS:=24}"
+: "${EPHEMERAL_STOPPED_CONTAINER_TTL_MINUTES:=60}"
+: "${EPHEMERAL_EVIDENCE_TTL_HOURS:=24}"
+: "${EPHEMERAL_CACHE_TTL_HOURS:=24}"
+: "${EPHEMERAL_LOG_TTL_DAYS:=7}"
+: "${EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT:=80}"
+: "${EPHEMERAL_DISK_LOW_WATERMARK_PERCENT:=70}"
+: "${EPHEMERAL_RESTART_AFTER_RESET:=true}"
+: "${EPHEMERAL_HEALTH_TIMEOUT_SECONDS:=120}"
+: "${EPHEMERAL_LOCK_FILE:=/run/lock/yistack-ephemeral-maintenance.lock}"
+: "${EPHEMERAL_RESET_ON_CALENDAR:=*-*-* 04:00:00}"
+: "${EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC:=10min}"
+: "${EPHEMERAL_CLEANUP_ON_CALENDAR:=*-*-* *:30:00}"
+: "${EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC:=5min}"
 : "${YISTACK_SYSTEMD_UNIT_DIR:=/etc/systemd/system}"
 : "${SERVICE_USER:=yistack}"
 
@@ -49,17 +49,17 @@ TEMP_PATHS=()
 POSTGRES_CONFIG_LOADED=false
 
 log() {
-  printf '[demo-maintenance] %s\n' "$*"
+  printf '[ephemeral-maintenance] %s\n' "$*"
 }
 
 die() {
-  printf '[demo-maintenance] ERROR: %s\n' "$*" >&2
+  printf '[ephemeral-maintenance] ERROR: %s\n' "$*" >&2
   exit 1
 }
 
 usage() {
   cat <<'EOF'
-Usage: yistack-demo-maintenance {snapshot|reset|cleanup|enforce|apply-schedule|status}
+Usage: yistackctl ephemeral {snapshot|reset|cleanup|enforce|apply-schedule|status}
 
   snapshot  Capture a verified baseline with no user or project data
   reset     Restore the clean baseline and remove managed transient data
@@ -135,7 +135,7 @@ resolve_managed_paths() {
   PROJECT_DIR="$(canonical_path "$CONTAINER_PROJECT_DIR")"
   CONTAINER_STATE_DIR="$(canonical_path "$CONTAINER_DATA_DIR")"
   EVIDENCE_DIR="$(canonical_path "$YISTACK_BROWSER_EVIDENCE_DIR")"
-  BASELINE_DIR="$(canonical_path "$DEMO_BASELINE_DIR")"
+  BASELINE_DIR="$(canonical_path "$EPHEMERAL_BASELINE_DIR")"
   CACHE_DIR="$(canonical_path "$YISTACK_CACHE_DIR")"
   LOG_DIR="$(canonical_path "$YISTACK_LOG_DIR")"
   INSTALL_DIR="$(canonical_path "$YISTACK_INSTALL_DIR")"
@@ -151,8 +151,8 @@ resolve_managed_paths() {
     die "CONTAINER_DATA_DIR must be YISTACK_DATA_DIR/runtime/container-data"
   [ "$EVIDENCE_DIR" = "$DATA_DIR/runtime/generation-evidence" ] ||
     die "YISTACK_BROWSER_EVIDENCE_DIR must be inside the managed runtime"
-  [ "$BASELINE_DIR" = "$DATA_DIR/demo-baseline" ] ||
-    die "DEMO_BASELINE_DIR must be YISTACK_DATA_DIR/demo-baseline"
+  [ "$BASELINE_DIR" = "$DATA_DIR/ephemeral-baseline" ] ||
+    die "EPHEMERAL_BASELINE_DIR must be YISTACK_DATA_DIR/ephemeral-baseline"
 
   assert_safe_auxiliary_dir YISTACK_DATA_DIR "$DATA_DIR"
   case "$DATA_DIR" in
@@ -179,44 +179,44 @@ resolve_managed_paths() {
 }
 
 validate_configuration() {
-  require_bool DEMO_MAINTENANCE_ENABLED "$DEMO_MAINTENANCE_ENABLED"
-  require_bool DEMO_RESTART_AFTER_RESET "$DEMO_RESTART_AFTER_RESET"
-  require_uint DEMO_PROJECT_TTL_HOURS "$DEMO_PROJECT_TTL_HOURS"
-  require_uint DEMO_STOPPED_CONTAINER_TTL_MINUTES "$DEMO_STOPPED_CONTAINER_TTL_MINUTES"
-  require_uint DEMO_EVIDENCE_TTL_HOURS "$DEMO_EVIDENCE_TTL_HOURS"
-  require_uint DEMO_CACHE_TTL_HOURS "$DEMO_CACHE_TTL_HOURS"
-  require_uint DEMO_LOG_TTL_DAYS "$DEMO_LOG_TTL_DAYS"
-  require_uint DEMO_DISK_HIGH_WATERMARK_PERCENT "$DEMO_DISK_HIGH_WATERMARK_PERCENT"
-  require_uint DEMO_DISK_LOW_WATERMARK_PERCENT "$DEMO_DISK_LOW_WATERMARK_PERCENT"
-  require_uint DEMO_HEALTH_TIMEOUT_SECONDS "$DEMO_HEALTH_TIMEOUT_SECONDS"
-  require_single_line DEMO_RESET_ON_CALENDAR "$DEMO_RESET_ON_CALENDAR"
-  require_single_line DEMO_RESET_RANDOMIZED_DELAY_SEC "$DEMO_RESET_RANDOMIZED_DELAY_SEC"
-  require_single_line DEMO_CLEANUP_ON_CALENDAR "$DEMO_CLEANUP_ON_CALENDAR"
-  require_single_line DEMO_CLEANUP_RANDOMIZED_DELAY_SEC "$DEMO_CLEANUP_RANDOMIZED_DELAY_SEC"
+  require_bool EPHEMERAL_MAINTENANCE_ENABLED "$EPHEMERAL_MAINTENANCE_ENABLED"
+  require_bool EPHEMERAL_RESTART_AFTER_RESET "$EPHEMERAL_RESTART_AFTER_RESET"
+  require_uint EPHEMERAL_PROJECT_TTL_HOURS "$EPHEMERAL_PROJECT_TTL_HOURS"
+  require_uint EPHEMERAL_STOPPED_CONTAINER_TTL_MINUTES "$EPHEMERAL_STOPPED_CONTAINER_TTL_MINUTES"
+  require_uint EPHEMERAL_EVIDENCE_TTL_HOURS "$EPHEMERAL_EVIDENCE_TTL_HOURS"
+  require_uint EPHEMERAL_CACHE_TTL_HOURS "$EPHEMERAL_CACHE_TTL_HOURS"
+  require_uint EPHEMERAL_LOG_TTL_DAYS "$EPHEMERAL_LOG_TTL_DAYS"
+  require_uint EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT "$EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT"
+  require_uint EPHEMERAL_DISK_LOW_WATERMARK_PERCENT "$EPHEMERAL_DISK_LOW_WATERMARK_PERCENT"
+  require_uint EPHEMERAL_HEALTH_TIMEOUT_SECONDS "$EPHEMERAL_HEALTH_TIMEOUT_SECONDS"
+  require_single_line EPHEMERAL_RESET_ON_CALENDAR "$EPHEMERAL_RESET_ON_CALENDAR"
+  require_single_line EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC "$EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC"
+  require_single_line EPHEMERAL_CLEANUP_ON_CALENDAR "$EPHEMERAL_CLEANUP_ON_CALENDAR"
+  require_single_line EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC "$EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC"
 
-  (( DEMO_DISK_LOW_WATERMARK_PERCENT >= 1 )) ||
-    die "DEMO_DISK_LOW_WATERMARK_PERCENT must be at least 1"
-  (( DEMO_DISK_HIGH_WATERMARK_PERCENT <= 99 )) ||
-    die "DEMO_DISK_HIGH_WATERMARK_PERCENT must be less than 100"
-  (( DEMO_DISK_LOW_WATERMARK_PERCENT < DEMO_DISK_HIGH_WATERMARK_PERCENT )) ||
+  (( EPHEMERAL_DISK_LOW_WATERMARK_PERCENT >= 1 )) ||
+    die "EPHEMERAL_DISK_LOW_WATERMARK_PERCENT must be at least 1"
+  (( EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT <= 99 )) ||
+    die "EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT must be less than 100"
+  (( EPHEMERAL_DISK_LOW_WATERMARK_PERCENT < EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT )) ||
     die "The disk low watermark must be lower than the high watermark"
-  (( DEMO_HEALTH_TIMEOUT_SECONDS >= 10 )) ||
-    die "DEMO_HEALTH_TIMEOUT_SECONDS must be at least 10"
+  (( EPHEMERAL_HEALTH_TIMEOUT_SECONDS >= 10 )) ||
+    die "EPHEMERAL_HEALTH_TIMEOUT_SECONDS must be at least 10"
 
   resolve_managed_paths
 }
 
 require_enabled() {
-  [ -r "$YISTACK_DEMO_ENV_FILE" ] ||
-    die "Ephemeral trial mode configuration is missing: $YISTACK_DEMO_ENV_FILE"
-  [ "$DEMO_MAINTENANCE_ENABLED" = "true" ] ||
-    die "Ephemeral trial mode is disabled; set DEMO_MAINTENANCE_ENABLED=true explicitly"
+  [ -r "$YISTACK_EPHEMERAL_ENV_FILE" ] ||
+    die "Ephemeral experience mode configuration is missing: $YISTACK_EPHEMERAL_ENV_FILE"
+  [ "$EPHEMERAL_MAINTENANCE_ENABLED" = "true" ] ||
+    die "Ephemeral experience mode is disabled; set EPHEMERAL_MAINTENANCE_ENABLED=true explicitly"
 }
 
 load_postgres_configuration() {
   [ "$POSTGRES_CONFIG_LOADED" = "true" ] && return 0
   [ "${DB_TYPE:-}" = "postgres" ] ||
-    die "Ephemeral trial mode supports only DB_TYPE=postgres; external Supabase is refused"
+    die "Ephemeral experience mode supports only DB_TYPE=postgres; external Supabase is refused"
   [ -r "$YISTACK_POSTGRES_ENV_FILE" ] ||
     die "PostgreSQL configuration is missing: $YISTACK_POSTGRES_ENV_FILE"
   # shellcheck disable=SC1090
@@ -274,9 +274,9 @@ ensure_postgres_running() {
 
 acquire_lock() {
   require_command flock
-  install -d -m 0755 "$(dirname "$DEMO_LOCK_FILE")"
-  exec 9>"$DEMO_LOCK_FILE"
-  flock -n 9 || die "Another demo maintenance operation is already running"
+  install -d -m 0755 "$(dirname "$EPHEMERAL_LOCK_FILE")"
+  exec 9>"$EPHEMERAL_LOCK_FILE"
+  flock -n 9 || die "Another ephemeral experience maintenance operation is already running"
 }
 
 pause_application() {
@@ -411,18 +411,18 @@ delete_aged_files() {
 }
 
 cleanup_transient_files() {
-  delete_aged_files "$EVIDENCE_DIR" "$((DEMO_EVIDENCE_TTL_HOURS * 60))"
-  delete_aged_files "$CACHE_DIR" "$((DEMO_CACHE_TTL_HOURS * 60))"
-  delete_aged_files "$LOG_DIR" "$((DEMO_LOG_TTL_DAYS * 1440))"
+  delete_aged_files "$EVIDENCE_DIR" "$((EPHEMERAL_EVIDENCE_TTL_HOURS * 60))"
+  delete_aged_files "$CACHE_DIR" "$((EPHEMERAL_CACHE_TTL_HOURS * 60))"
+  delete_aged_files "$LOG_DIR" "$((EPHEMERAL_LOG_TTL_DAYS * 1440))"
 }
 
 cleanup_stopped_containers() {
   local container_id full_id label finished_at finished_epoch cutoff now index
   local container_ids=()
   local project_ids=()
-  [ "$DEMO_STOPPED_CONTAINER_TTL_MINUTES" -gt 0 ] || return 0
+  [ "$EPHEMERAL_STOPPED_CONTAINER_TTL_MINUTES" -gt 0 ] || return 0
   now="$(date +%s)"
-  cutoff="$((now - DEMO_STOPPED_CONTAINER_TTL_MINUTES * 60))"
+  cutoff="$((now - EPHEMERAL_STOPPED_CONTAINER_TTL_MINUTES * 60))"
   while IFS= read -r container_id; do
     [ -n "$container_id" ] || continue
     label="$(podman_cmd container inspect --format '{{ index .Config.Labels "yistack.project_id" }}' "$container_id" 2>/dev/null || true)"
@@ -452,9 +452,9 @@ cleanup_stopped_containers() {
 }
 
 expired_project_ids() {
-  [ "$DEMO_PROJECT_TTL_HOURS" -gt 0 ] || return 0
+  [ "$EPHEMERAL_PROJECT_TTL_HOURS" -gt 0 ] || return 0
   postgres_query -c \
-    "SELECT project_id FROM public.projects WHERE deleted_at IS NOT NULL OR updated_at < now() - make_interval(hours => $DEMO_PROJECT_TTL_HOURS) ORDER BY updated_at NULLS FIRST, project_id;"
+    "SELECT project_id FROM public.projects WHERE deleted_at IS NOT NULL OR updated_at < now() - make_interval(hours => $EPHEMERAL_PROJECT_TTL_HOURS) ORDER BY updated_at NULLS FIRST, project_id;"
 }
 
 oldest_project_ids() {
@@ -483,25 +483,25 @@ enforce_disk_watermarks() {
   local usage project_id removed=false
   usage="$(disk_usage_percent)"
   require_uint disk_usage_percent "$usage"
-  if [ "$usage" -lt "$DEMO_DISK_HIGH_WATERMARK_PERCENT" ]; then
+  if [ "$usage" -lt "$EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT" ]; then
     return 0
   fi
 
-  log "Disk usage ${usage}% reached the ${DEMO_DISK_HIGH_WATERMARK_PERCENT}% high watermark"
+  log "Disk usage ${usage}% reached the ${EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT}% high watermark"
   pause_application
   while IFS= read -r project_id; do
     [ -n "$project_id" ] || continue
     delete_project "$project_id" true
     removed=true
     usage="$(disk_usage_percent)"
-    if [ "$usage" -le "$DEMO_DISK_LOW_WATERMARK_PERCENT" ]; then
+    if [ "$usage" -le "$EPHEMERAL_DISK_LOW_WATERMARK_PERCENT" ]; then
       break
     fi
   done < <(oldest_project_ids)
   resume_application
 
   usage="$(disk_usage_percent)"
-  if [ "$usage" -gt "$DEMO_DISK_LOW_WATERMARK_PERCENT" ]; then
+  if [ "$usage" -gt "$EPHEMERAL_DISK_LOW_WATERMARK_PERCENT" ]; then
     [ "$removed" = "true" ] || log "No projects were eligible for pressure cleanup"
     die "Disk usage remains ${usage}% after bounded cleanup; operator action is required"
   fi
@@ -523,7 +523,7 @@ write_baseline_metadata() {
   [ -r "$YISTACK_INSTALL_DIR/VERSION" ] && version="$(tr -d '[:space:]' < "$YISTACK_INSTALL_DIR/VERSION")"
   [ -r "$YISTACK_INSTALL_DIR/SOURCE_COMMIT" ] && source_commit="$(tr -d '[:space:]' < "$YISTACK_INSTALL_DIR/SOURCE_COMMIT")"
   cat > "$destination" <<EOF
-schema=ephemeral-trial-baseline.v1
+schema=ephemeral-experience-baseline.v1
 created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 version=$version
 source_commit=$source_commit
@@ -548,10 +548,10 @@ verify_baseline() {
     cd "$BASELINE_DIR"
     sha256sum --check --quiet FILES.sha256
   ) || die "Baseline checksum verification failed"
-  [ "$(metadata_value schema)" = "ephemeral-trial-baseline.v1" ] ||
-    die "Unsupported ephemeral trial baseline schema"
+  [ "$(metadata_value schema)" = "ephemeral-experience-baseline.v1" ] ||
+    die "Unsupported ephemeral experience baseline schema"
   [ "$(metadata_value user_data_policy)" = "empty" ] ||
-    die "Ephemeral trial baseline does not require empty user data"
+    die "Ephemeral experience baseline does not require empty user data"
   [ "$(metadata_value db_name)" = "$POSTGRES_DB" ] || die "Baseline database name does not match POSTGRES_DB"
   [ "$(metadata_value project_dir)" = "$PROJECT_DIR" ] || die "Baseline project directory does not match this installation"
 
@@ -631,8 +631,8 @@ snapshot_baseline() {
   pause_application
   stop_running_project_containers
   install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$PROJECT_DIR"
-  assert_no_database_user_data "Refusing to capture the ephemeral trial baseline because the database"
-  assert_empty_project_workspaces "Refusing to capture the ephemeral trial baseline because the project directory"
+  assert_no_database_user_data "Refusing to capture the ephemeral experience baseline because the database"
+  assert_empty_project_workspaces "Refusing to capture the ephemeral experience baseline because the project directory"
 
   parent="$(dirname "$BASELINE_DIR")"
   install -d -m 0750 "$parent"
@@ -664,13 +664,13 @@ snapshot_baseline() {
   fi
   if ! mv "$temp_dir" "$BASELINE_DIR"; then
     [ -d "$previous_dir" ] && mv "$previous_dir" "$BASELINE_DIR"
-    die "Failed to activate the new demo baseline"
+    die "Failed to activate the new ephemeral experience baseline"
   fi
   rm -rf -- "$previous_dir"
   TEMP_PATHS=()
   restore_running_containers
   resume_application
-  log "Clean ephemeral trial baseline captured at $BASELINE_DIR"
+  log "Clean ephemeral experience baseline captured at $BASELINE_DIR"
 }
 
 restore_database() {
@@ -685,7 +685,7 @@ restore_database() {
     "UPDATE public.projects SET container_id = NULL, container_name = NULL, container_port = NULL, container_status = 'stopped';"
   [ "$(postgres_query -c "SELECT count(*) FROM public.schema_migrations WHERE version = '000000000000_contributor_alpha';")" = "1" ] ||
     die "Restored database is missing the YiStack baseline migration"
-  assert_no_database_user_data "Restored ephemeral trial baseline"
+  assert_no_database_user_data "Restored ephemeral experience baseline"
 }
 
 restore_workspaces() {
@@ -707,15 +707,15 @@ restore_workspaces() {
   fi
   rm -rf -- "$old_dir"
   TEMP_PATHS=()
-  assert_empty_project_workspaces "Restored ephemeral trial baseline"
+  assert_empty_project_workspaces "Restored ephemeral experience baseline"
 }
 
 wait_for_health() {
   local deadline
-  deadline="$(( $(date +%s) + DEMO_HEALTH_TIMEOUT_SECONDS ))"
+  deadline="$(( $(date +%s) + EPHEMERAL_HEALTH_TIMEOUT_SECONDS ))"
   until "$YISTACK_INSTALL_DIR/bin/yistackctl" health >/dev/null 2>&1; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
-      die "YiStack did not become healthy after the demo reset"
+      die "YiStack did not become healthy after the ephemeral experience reset"
     fi
     sleep 2
   done
@@ -734,11 +734,11 @@ reset_to_baseline() {
   clear_directory_contents "$CACHE_DIR"
   clear_directory_contents "$LOG_DIR"
 
-  if [ "$DEMO_RESTART_AFTER_RESET" = "true" ]; then
+  if [ "$EPHEMERAL_RESTART_AFTER_RESET" = "true" ]; then
     systemctl start yistack.target
     wait_for_health
   fi
-  log "Ephemeral trial state restored from the verified clean baseline"
+  log "Ephemeral experience state restored from the verified clean baseline"
 }
 
 run_cleanup() {
@@ -782,25 +782,25 @@ apply_timer_schedule() {
     die "YISTACK_SYSTEMD_UNIT_DIR must contain at least three path components"
   assert_not_symlink "$SYSTEMD_UNIT_DIR"
   if [ "$SYSTEMD_UNIT_DIR" = "/etc/systemd/system" ] && [ "$(id -u)" -ne 0 ]; then
-    die "Applying the ephemeral trial schedule requires root privileges"
+    die "Applying the ephemeral experience schedule requires root privileges"
   fi
 
-  validate_timer_setting DEMO_RESET_ON_CALENDAR calendar "$DEMO_RESET_ON_CALENDAR"
-  validate_timer_setting DEMO_RESET_RANDOMIZED_DELAY_SEC timespan "$DEMO_RESET_RANDOMIZED_DELAY_SEC"
-  validate_timer_setting DEMO_CLEANUP_ON_CALENDAR calendar "$DEMO_CLEANUP_ON_CALENDAR"
-  validate_timer_setting DEMO_CLEANUP_RANDOMIZED_DELAY_SEC timespan "$DEMO_CLEANUP_RANDOMIZED_DELAY_SEC"
+  validate_timer_setting EPHEMERAL_RESET_ON_CALENDAR calendar "$EPHEMERAL_RESET_ON_CALENDAR"
+  validate_timer_setting EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC timespan "$EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC"
+  validate_timer_setting EPHEMERAL_CLEANUP_ON_CALENDAR calendar "$EPHEMERAL_CLEANUP_ON_CALENDAR"
+  validate_timer_setting EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC timespan "$EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC"
   write_timer_override \
-    yistack-demo-reset.timer \
-    "$DEMO_RESET_ON_CALENDAR" \
-    "$DEMO_RESET_RANDOMIZED_DELAY_SEC"
+    yistack-ephemeral-reset.timer \
+    "$EPHEMERAL_RESET_ON_CALENDAR" \
+    "$EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC"
   write_timer_override \
-    yistack-demo-cleanup.timer \
-    "$DEMO_CLEANUP_ON_CALENDAR" \
-    "$DEMO_CLEANUP_RANDOMIZED_DELAY_SEC"
+    yistack-ephemeral-cleanup.timer \
+    "$EPHEMERAL_CLEANUP_ON_CALENDAR" \
+    "$EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC"
   systemctl daemon-reload
-  systemctl enable --now yistack-demo-reset.timer yistack-demo-cleanup.timer
-  systemctl restart yistack-demo-reset.timer yistack-demo-cleanup.timer
-  log "Ephemeral trial schedules applied"
+  systemctl enable --now yistack-ephemeral-reset.timer yistack-ephemeral-cleanup.timer
+  systemctl restart yistack-ephemeral-reset.timer yistack-ephemeral-cleanup.timer
+  log "Ephemeral experience schedules applied"
 }
 
 show_status() {
@@ -819,18 +819,18 @@ show_status() {
       project_count="$(postgres_query -c 'SELECT count(*) FROM public.projects;' 2>/dev/null || printf unknown)"
     fi
   fi
-  printf 'enabled=%s\n' "$DEMO_MAINTENANCE_ENABLED"
+  printf 'enabled=%s\n' "$EPHEMERAL_MAINTENANCE_ENABLED"
   printf 'database_mode=%s\n' "${DB_TYPE:-unset}"
   printf 'baseline=%s\n' "$baseline_status"
   printf 'baseline_dir=%s\n' "$BASELINE_DIR"
   printf 'project_count=%s\n' "$project_count"
   printf 'disk_usage_percent=%s\n' "$usage"
-  printf 'project_ttl_hours=%s\n' "$DEMO_PROJECT_TTL_HOURS"
-  printf 'disk_watermarks=%s/%s\n' "$DEMO_DISK_HIGH_WATERMARK_PERCENT" "$DEMO_DISK_LOW_WATERMARK_PERCENT"
-  printf 'configured_reset_on_calendar=%s\n' "$DEMO_RESET_ON_CALENDAR"
-  printf 'configured_reset_randomized_delay=%s\n' "$DEMO_RESET_RANDOMIZED_DELAY_SEC"
-  printf 'configured_cleanup_on_calendar=%s\n' "$DEMO_CLEANUP_ON_CALENDAR"
-  printf 'configured_cleanup_randomized_delay=%s\n' "$DEMO_CLEANUP_RANDOMIZED_DELAY_SEC"
+  printf 'project_ttl_hours=%s\n' "$EPHEMERAL_PROJECT_TTL_HOURS"
+  printf 'disk_watermarks=%s/%s\n' "$EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT" "$EPHEMERAL_DISK_LOW_WATERMARK_PERCENT"
+  printf 'configured_reset_on_calendar=%s\n' "$EPHEMERAL_RESET_ON_CALENDAR"
+  printf 'configured_reset_randomized_delay=%s\n' "$EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC"
+  printf 'configured_cleanup_on_calendar=%s\n' "$EPHEMERAL_CLEANUP_ON_CALENDAR"
+  printf 'configured_cleanup_randomized_delay=%s\n' "$EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC"
 }
 
 main() {

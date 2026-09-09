@@ -14,6 +14,94 @@ read_config_value() {
   printf '%s' "${value:-$fallback}"
 }
 
+run_as_service_user() {
+  local service_uid
+  service_uid="$(id -u yistack)"
+  if [ "$(id -u)" -eq 0 ]; then
+    exec runuser -u yistack -- env \
+      HOME=/var/lib/yistack \
+      XDG_RUNTIME_DIR="/run/user/$service_uid" \
+      "$@"
+  fi
+  if [ "$(id -un)" = "yistack" ]; then
+    exec "$@"
+  fi
+  echo "This command must run as root or the yistack service user." >&2
+  exit 1
+}
+
+print_bash_completion() {
+  cat <<'EOF'
+_yistackctl() {
+  local current="${COMP_WORDS[COMP_CWORD]}"
+  local command="${COMP_WORDS[1]:-}"
+
+  if [ "$COMP_CWORD" -eq 1 ]; then
+    mapfile -t COMPREPLY < <(
+      compgen -W \
+        "start stop restart status logs health postgres database upgrade ephemeral completion help" \
+        -- "$current"
+    )
+    return
+  fi
+
+  case "$command" in
+    postgres)
+      mapfile -t COMPREPLY < <(
+        compgen -W "start init stop status logs" -- "$current"
+      )
+      ;;
+    database)
+      mapfile -t COMPREPLY < <(
+        compgen -W "status plan migrate verify rollback" -- "$current"
+      )
+      ;;
+    ephemeral)
+      mapfile -t COMPREPLY < <(
+        compgen -W \
+          "snapshot reset cleanup enforce apply-schedule status" \
+          -- "$current"
+      )
+      ;;
+    completion)
+      mapfile -t COMPREPLY < <(compgen -W "bash" -- "$current")
+      ;;
+    upgrade)
+      mapfile -t COMPREPLY < <(compgen -f -- "$current")
+      ;;
+  esac
+}
+
+complete -F _yistackctl yistackctl
+EOF
+}
+
+usage() {
+  cat <<'EOF'
+Usage: yistackctl <command> [arguments]
+
+Service commands:
+  start                         Start the YiStack application services
+  stop                          Stop the YiStack application services
+  restart                       Restart the YiStack application services
+  status                        Show service status
+  logs [SINCE]                  Follow service logs since today or SINCE
+  health                        Verify backend and frontend health
+
+Database and release commands:
+  postgres {start|init|stop|status|logs}
+  database {status|plan|migrate|verify|rollback}
+  upgrade <release-directory|release.tar.gz>
+
+Ephemeral experience commands:
+  ephemeral {snapshot|reset|cleanup|enforce|apply-schedule|status}
+
+Shell integration:
+  completion bash               Print Bash completion script
+  help                          Show this help
+EOF
+}
+
 run_release_upgrade() {
   (
     local source_path="$1"
@@ -157,7 +245,8 @@ case "${1:-status}" in
     ;;
   postgres)
     shift
-    exec /opt/yistack/current/bin/yistack-postgres "${1:-status}"
+    run_as_service_user \
+      /opt/yistack/current/bin/yistack-postgres "${1:-status}"
     ;;
   database)
     shift
@@ -200,12 +289,27 @@ case "${1:-status}" in
     shift
     run_release_upgrade "$release_source" "$@"
     ;;
-  demo)
+  ephemeral)
     shift
-    exec /opt/yistack/current/bin/yistack-demo-maintenance "${1:-status}"
+    exec /opt/yistack/current/bin/yistack-ephemeral-maintenance "${1:-status}"
+    ;;
+  completion)
+    shift
+    case "${1:-}" in
+      bash)
+        print_bash_completion
+        ;;
+      *)
+        echo "Usage: yistackctl completion bash" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  help | -h | --help)
+    usage
     ;;
   *)
-    echo "Usage: yistackctl {start|stop|restart|status|logs|health|postgres|database|upgrade|demo}" >&2
+    usage >&2
     exit 2
     ;;
 esac

@@ -16,6 +16,24 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.1] - 2026-09-09
+
+### Fixed
+
+- Fixed systemd system-manager expansion of `%U` to the root UID, which started rootless Podman for the `yistack` service with the incorrect `/run/user/0` runtime directory.
+- Changed the backend service to `ProtectHome=read-only`, retaining read-only isolation while allowing access to `/run/user/<uid>/podman/podman.sock`.
+- Added the installer `--postgres-image` option and documented real mirror references for networks where Docker Hub is restricted.
+
+### Changed
+
+- Standardized Ephemeral Experience Mode on the `ephemeral` name and removed the `demo` command, old configuration name, old environment variables, and old systemd units without compatibility aliases.
+- Standardized routine service, PostgreSQL, migration, upgrade, and Ephemeral Experience Mode operations on `yistackctl`; the installer now provides Bash completion and both READMEs document the full command surface.
+- `yistackctl postgres` now switches to the `yistack` service user and its rootless Podman runtime instead of accidentally selecting the root container context under `sudo`.
+
+### Security
+
+- Pinned the ESLint transitive dependency `js-yaml` to 4.3.2, fixing the high-severity CPU consumption issue described by GHSA-2883-xcg3-v3hh.
+
 ## [1.1.0] - 2026-09-07
 
 ### Added
@@ -48,7 +66,7 @@ No public changes yet.
 - The Preview inspector validates iframe `source/origin` and never reads cookies, storage, HTML, form values, or URL query parameters. The backend revalidates paths, selectors, rectangles, and the computed-style allowlist, while permission lookup failures fail closed.
 - systemd exposes the complete secret configuration only to the backend. The frontend reads an allowlist of non-sensitive runtime settings, while the browser worker receives only its browser path and listen port.
 - Upgrade backups use PostgreSQL custom format and a filename-bound SHA-256 for the YiStack-managed `public` schema only. Recovery cleans and restores backed-up objects in one transaction and leaves services stopped when automatic recovery is incomplete.
-- Demo maintenance accepts only the installer-managed local PostgreSQL database, operates only on Podman resources labeled with `yistack.project_id`, and protects templates, browser runtimes, configuration, and Release directories.
+- Ephemeral experience maintenance accepts only the installer-managed local PostgreSQL database, operates only on Podman resources labeled with `yistack.project_id`, and protects templates, browser runtimes, configuration, and Release directories.
 - The database runner rejects tampered SQL, checksum drift, history gaps, and unknown or newer versions; production startup fails closed until pending migrations are applied explicitly.
 - Collaboration resource events are backend-owned file or generation transaction evidence; clients cannot forge mutation audit events.
 - The `body-parser` transitive dependency under `express@5.2.1` is pinned to 2.3.0, keeping the High/Critical dependency audit at zero.

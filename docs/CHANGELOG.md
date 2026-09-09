@@ -14,6 +14,24 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 暂无公开变更。
 
+## [1.1.1] - 2026-09-09
+
+### 修复
+
+- 修复 systemd system manager 将 `%U` 解析为 root UID，导致 `yistack` 服务在错误的 `/run/user/0` 中启动 rootless Podman 的问题。
+- 将后端服务的 `ProtectHome` 调整为 `read-only`，在保留只读隔离的同时允许访问 `/run/user/<uid>/podman/podman.sock`。
+- 安装器新增 `--postgres-image`，并记录受限网络中可直接使用或配置为 Podman mirror 的真实国内镜像地址。
+
+### 变更
+
+- 无痕体验模式统一使用 `ephemeral` 命名；移除 `demo` 命令、旧配置名、旧环境变量及旧 systemd unit，不提供兼容别名。
+- 日常服务、PostgreSQL、migration、升级和无痕体验操作统一由 `yistackctl` 提供入口；安装器同时部署 Bash 自动补全，README 补充完整命令参考和配置修改流程。
+- `yistackctl postgres` 自动切换到 `yistack` 服务用户及其 rootless Podman runtime，避免 `sudo` 后误用 root 容器上下文。
+
+### 安全
+
+- 将 ESLint 传递依赖 `js-yaml` 固定为 4.3.2，修复 GHSA-2883-xcg3-v3hh 描述的高危 CPU 消耗问题。
+
 ## [1.1.0] - 2026-09-07
 
 ### 新增
@@ -45,7 +63,7 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 - 视觉上下文携带服务端 HMAC 完整性证明；即使客户端同时改写请求与项目 `plan_data` 也不能伪造分析结果，合法上下文可在讨论与重规划中连续复用。
 - Preview inspector 校验 iframe `source/origin`，不读取 Cookie、Storage、HTML、表单值或 URL 查询参数；服务端再次校验路径、选择器、矩形和 computed-style allowlist，权限读取失败时关闭失败。
 - systemd 仅向后端注入完整密钥配置；前端按 allowlist 读取非敏感运行参数，浏览器 worker 只接收浏览器目录和监听端口。
-- 演示维护只接受安装器管理的本地 PostgreSQL，只操作带 `yistack.project_id` 标签的 Podman 资源，并保护模板、浏览器运行时、配置和 Release 目录。
+- 无痕体验模式维护只接受安装器管理的本地 PostgreSQL，只操作带 `yistack.project_id` 标签的 Podman 资源，并保护模板、浏览器运行时、配置和 Release 目录。
 - 数据库 runner 拒绝被篡改的 SQL、checksum 漂移、版本断层、未知或过新历史；生产启动在数据库未显式升级时关闭失败。
 - 升级备份使用 PostgreSQL custom format 和绑定文件名的 SHA-256，只覆盖 YiStack 管理的 `public` schema；恢复会在单事务中清理并恢复备份内对象，自动恢复不完整时保持服务停止。
 - 协作资源事件只能由后端文件或生成事务写入，客户端不能伪造 mutation audit。

@@ -1,11 +1,11 @@
 [Unit]
-Description=Restore the YiStack ephemeral trial instance each day
+Description=Restore the YiStack ephemeral experience instance each day
 
 [Timer]
 OnCalendar=*-*-* 04:00:00
 RandomizedDelaySec=10min
 Persistent=true
-Unit=yistack-demo-reset.service
+Unit=yistack-ephemeral-reset.service
 
 [Install]
 WantedBy=timers.target

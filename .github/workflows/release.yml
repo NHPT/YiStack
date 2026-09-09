@@ -75,7 +75,7 @@ jobs:
         run: |
           pnpm lint
           pnpm build
-          pnpm validate:release:demo
+          pnpm validate:release:ephemeral
           pnpm yes:validate
           (cd backend && go test ./...)
           git diff --check
