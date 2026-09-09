@@ -12,11 +12,11 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.0**, YiStack's first stable release with a safe
-> in-place upgrade from v1.0.0. Its stability scope is limited to the
-> capabilities documented in this README and
-> [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the
-> current Release's `database/init.sql`; existing v1.0.0 installations use the
+> Current release: **v1.1.1**, a deployment hotfix for the v1.1 series. It fixes
+> Debian 12 rootless Podman service boundaries and standardizes post-installation
+> operations. Its stability scope is limited to the capabilities documented in
+> this README and [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations
+> use the current Release's `database/init.sql`; existing installations use the
 > one-command upgrade.
 
 ## Why YiStack
@@ -141,6 +141,58 @@ The installer verifies the internal `MANIFEST.sha256`, creates the `yistack` sys
 /var/cache/yistack     caches
 ```
 
+After a successful installation, the original extracted directory can be removed.
+Do not remove `/opt/yistack/releases`, `/opt/yistack/current`, `/etc/yistack`, or
+`/var/lib/yistack`.
+
+### Post-installation Management
+
+Use `yistackctl` for routine operations. Direct `systemctl` or `journalctl`
+commands are only needed when diagnosing a specific unit:
+
+| Command | Purpose |
+| --- | --- |
+| `sudo yistackctl start` | Start application services |
+| `sudo yistackctl stop` | Stop application services |
+| `sudo yistackctl restart` | Restart services and reload configuration |
+| `sudo yistackctl status` | Show frontend, backend, and browser worker status |
+| `sudo yistackctl logs [SINCE]` | Follow service logs, starting from today by default |
+| `sudo yistackctl health` | Verify frontend and backend health |
+| `sudo yistackctl postgres {start\|init\|stop\|status\|logs}` | Manage the installer-provided PostgreSQL container |
+| `sudo yistackctl database {status\|plan\|migrate\|verify\|rollback}` | Manage database migrations |
+| `sudo yistackctl upgrade <release-directory\|release.tar.gz>` | Run a verified one-command upgrade |
+| `sudo yistackctl ephemeral {snapshot\|reset\|cleanup\|enforce\|apply-schedule\|status}` | Manage Ephemeral Experience Mode |
+| `yistackctl help` | Show complete command help |
+
+`start`, `stop`, and `restart` control only the application services and leave
+PostgreSQL running. Manage the database container separately with
+`yistackctl postgres`.
+
+Configuration is separated by responsibility:
+
+```text
+/etc/yistack/yistack.env                 application, Provider, container, and public URL configuration
+/etc/yistack/postgres.env                optional PostgreSQL container configuration
+/etc/yistack/ephemeral-maintenance.env   Ephemeral Experience Mode configuration
+```
+
+Edit the application configuration and restart:
+
+```bash
+sudoedit /etc/yistack/yistack.env
+sudo yistackctl restart
+sudo yistackctl health
+```
+
+The installer installs Bash completion. New Bash login sessions load it
+automatically; enable it immediately in the current shell with:
+
+```bash
+source /usr/share/bash-completion/completions/yistackctl
+# Or load it dynamically for this shell only:
+source <(yistackctl completion bash)
+```
+
 Database initialization and upgrade are mutually exclusive:
 
 - Clean installation: apply `database/init.sql` once for external Supabase;
@@ -177,6 +229,54 @@ sudo yistackctl health
 
 The installer generates the database password in `/etc/yistack/postgres.env`, then applies the Supabase SQL compatibility layer and `database/init.sql`. This mode provides YiStack's own PostgreSQL database and traditional JWT authentication. It does not provide Supabase Auth, Storage, or other managed services; generated applications that depend on Supabase still need a separate Supabase project.
 
+#### Restricted or Unavailable Docker Hub Access
+
+The installer pulls the official `docker.io/library/postgres:16-alpine` image by default. Configure a trusted mirror before the first installation when Docker Hub is unavailable or restricted, so systemd does not time out while acquiring the image. YiStack does not guarantee the availability or supply-chain integrity of public third-party mirrors. Production operators should prefer an organization-controlled registry, a provider-specific accelerator, or a verified image copy.
+
+The most direct option is to override the complete image reference during installation:
+
+```bash
+sudo ./install.sh \
+  --with-postgres \
+  --postgres-image docker.1panel.live/library/postgres:16-alpine \
+  --start
+```
+
+Public mirror availability varies by network and service policy. Test these candidates from the target host:
+
+```text
+docker.1panel.live/library/postgres:16-alpine
+docker.m.daocloud.io/library/postgres:16-alpine
+docker.xuanyuan.me/library/postgres:16-alpine
+docker.1ms.run/library/postgres:16-alpine
+```
+
+Alternatively, configure a system-wide Docker Hub mirror for Podman before running the installer. This configuration also applies to the rootless `yistack` user:
+
+```toml
+# /etc/containers/registries.conf.d/10-docker-io-mirror.conf
+[[registry]]
+prefix = "docker.io"
+location = "docker.io"
+
+[[registry.mirror]]
+location = "docker.1panel.live"
+insecure = false
+```
+
+Registry providers may map `library/postgres` differently. Follow the provider's documentation and verify the pull as the service user before installation:
+
+```bash
+uid="$(id -u yistack)"
+cd /tmp
+sudo -u yistack env \
+  HOME=/var/lib/yistack \
+  XDG_RUNTIME_DIR="/run/user/$uid" \
+  podman pull docker.io/library/postgres:16-alpine
+```
+
+If an installation was interrupted while pulling the image, configure the mirror and rerun the original installation command. The installer reuses the generated configuration under `/etc/yistack`.
+
 ### Upgrade an Existing Installation
 
 v1.1.0 supports the known v1.0.0 database baseline. For the first upgrade from
@@ -195,7 +295,7 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 ```
 
 The command verifies the Release and forward-only version direction, preflights
-the database, stops the application and ephemeral-trial timers, creates and
+the database, stops the application and ephemeral-experience timers, creates and
 verifies a PostgreSQL custom-format backup, installs the new Release, migrates
 and verifies the database, restores the previous running state, and performs a
 health check. On failure it restores the previous configuration, Release,
@@ -220,13 +320,13 @@ This mode supports only the installer-managed local PostgreSQL database and fail
 
 ```bash
 sudo install -m 0640 -o root -g yistack \
-  /opt/yistack/current/config/yistack-demo-maintenance.env.example \
-  /etc/yistack/demo-maintenance.env
-sudo sed -i 's/^DEMO_MAINTENANCE_ENABLED=false$/DEMO_MAINTENANCE_ENABLED=true/' \
-  /etc/yistack/demo-maintenance.env
-sudo yistackctl demo snapshot
-sudo yistackctl demo apply-schedule
-sudo yistackctl demo status
+  /opt/yistack/current/config/yistack-ephemeral-maintenance.env.example \
+  /etc/yistack/ephemeral-maintenance.env
+sudo sed -i 's/^EPHEMERAL_MAINTENANCE_ENABLED=false$/EPHEMERAL_MAINTENANCE_ENABLED=true/' \
+  /etc/yistack/ephemeral-maintenance.env
+sudo yistackctl ephemeral snapshot
+sudo yistackctl ephemeral apply-schedule
+sudo yistackctl ephemeral status
 ```
 
 `snapshot` briefly stops the application and project containers, then records a PostgreSQL dump, an empty project workspace, the Release commit, and SHA-256 checksums. It refuses to create a baseline when regular users, projects, related business records, or project workspaces still exist. It does not copy secrets from `/etc/yistack`.
@@ -240,24 +340,24 @@ The defaults are:
 - always retain Podman base images, `runtime/templates`, `ms-playwright`, administrator and provider configuration, configuration files, and installed Releases;
 - never run a global `podman system prune` or delete reusable images.
 
-The reset time, randomized delay, hourly cleanup time, TTLs, and disk watermarks are configurable in `/etc/yistack/demo-maintenance.env`. For example:
+The reset time, randomized delay, hourly cleanup time, TTLs, and disk watermarks are configurable in `/etc/yistack/ephemeral-maintenance.env`. For example:
 
 ```bash
-DEMO_RESET_ON_CALENDAR="*-*-* 04:00:00"
-DEMO_RESET_RANDOMIZED_DELAY_SEC=10min
-DEMO_CLEANUP_ON_CALENDAR="*-*-* *:30:00"
-DEMO_CLEANUP_RANDOMIZED_DELAY_SEC=5min
+EPHEMERAL_RESET_ON_CALENDAR="*-*-* 04:00:00"
+EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC=10min
+EPHEMERAL_CLEANUP_ON_CALENDAR="*-*-* *:30:00"
+EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC=5min
 ```
 
-Calendar expressions use systemd syntax and the server timezone. After changing them, run `sudo yistackctl demo apply-schedule` to validate the values and atomically update the timer overrides. After upgrading YiStack, an old baseline is rejected when its schema or `SOURCE_COMMIT` no longer matches; capture a new baseline only after validating the new release and confirming that no regular users or projects exist. Manual operations and timer shutdown are available through:
+Calendar expressions use systemd syntax and the server timezone. After changing them, run `sudo yistackctl ephemeral apply-schedule` to validate the values and atomically update the timer overrides. After upgrading YiStack, an old baseline is rejected when its schema or `SOURCE_COMMIT` no longer matches; capture a new baseline only after validating the new release and confirming that no regular users or projects exist. Manual operations and timer shutdown are available through:
 
 ```bash
-sudo yistackctl demo cleanup
-sudo yistackctl demo reset
-sudo systemctl list-timers 'yistack-demo-*'
+sudo yistackctl ephemeral cleanup
+sudo yistackctl ephemeral reset
+sudo systemctl list-timers 'yistack-ephemeral-*'
 sudo systemctl disable --now \
-  yistack-demo-reset.timer \
-  yistack-demo-cleanup.timer
+  yistack-ephemeral-reset.timer \
+  yistack-ephemeral-cleanup.timer
 ```
 
 The frontend listens on `127.0.0.1:5000` and the backend on `127.0.0.1:8080` by default. Put Caddy, Nginx, or an equivalent TLS reverse proxy in front of the frontend for public deployments. After editing `/etc/yistack/yistack.env`, run:

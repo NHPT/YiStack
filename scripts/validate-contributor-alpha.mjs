@@ -29,16 +29,22 @@ const requiredFiles = [
   '.github/workflows/ci.yml',
   '.github/workflows/release.yml',
   'deploy/bin/yistack-database-backup',
+  'deploy/bin/yistack-ephemeral-maintenance',
   'deploy/bin/yistack-frontend',
   'deploy/bin/yistack-postgres',
   'deploy/bin/yistackctl',
   'deploy/config/postgres.env.example',
+  'deploy/config/yistack-ephemeral-maintenance.env.example',
   'deploy/config/yistack.env.example',
   'deploy/database/postgres-auth-compat.sql',
   'deploy/install.sh',
   'deploy/upgrade.sh',
   'deploy/systemd/yistack-backend.service',
   'deploy/systemd/yistack-browser-worker.service',
+  'deploy/systemd/yistack-ephemeral-cleanup.service',
+  'deploy/systemd/yistack-ephemeral-cleanup.timer',
+  'deploy/systemd/yistack-ephemeral-reset.service',
+  'deploy/systemd/yistack-ephemeral-reset.timer',
   'deploy/systemd/yistack-frontend.service',
   'deploy/systemd/yistack-postgres.service',
   'deploy/systemd/yistack.target',
@@ -48,6 +54,7 @@ const requiredFiles = [
   'scripts/validate-release-postgres-runtime.sh',
   'scripts/validate-release-upgrade.sh',
   'scripts/validate-database-migrations.sh',
+  'scripts/validate-ephemeral-maintenance.sh',
   '.github/workflows/codeql.yml',
   '.github/codeql/codeql-config.yml',
   '.github/workflows/canonical-eval.yml',
@@ -89,7 +96,7 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
-assert.equal(packageJSON.version, '1.1.0');
+assert.equal(packageJSON.version, '1.1.1');
 assert.match(packageJSON.description, /开源 AI 工程工作台/);
 assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
 assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
@@ -112,6 +119,7 @@ for (const script of [
   'db:verify',
   'docs:screenshots',
   'validate:database:migrations',
+  'validate:release:ephemeral',
   'eval:smoke:ci',
   'validate:release',
   'validate:release:postgres',
@@ -139,8 +147,10 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /当前版本：\*\*v1\.1\.0\*\*/);
-assert.match(readmeEnglish, /Current release: \*\*v1\.1\.0\*\*/);
+assert.match(readme, /当前版本：\*\*v1\.1\.1\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.1\.1\*\*/);
+assert.match(changelog, /## \[1\.1\.1\] - 2026-09-09/);
+assert.match(changelogEnglish, /## \[1\.1\.1\] - 2026-09-09/);
 assert.match(changelog, /## \[1\.1\.0\] - 2026-09-07/);
 assert.match(changelogEnglish, /## \[1\.1\.0\] - 2026-09-07/);
 assert.match(changelog, /## \[1\.0\.0\] - 2026-09-01/);
@@ -485,7 +495,7 @@ assert.match(
 );
 assert.match(
   postgresRuntimeValidation,
-  /snapshot[\s\S]*INSERT INTO public\.users[\s\S]*run_demo_maintenance reset[\s\S]*SELECT count\(\*\) FROM public\.users[\s\S]*SELECT count\(\*\) FROM public\.projects/,
+  /snapshot[\s\S]*INSERT INTO public\.users[\s\S]*run_ephemeral_maintenance reset[\s\S]*SELECT count\(\*\) FROM public\.users[\s\S]*SELECT count\(\*\) FROM public\.projects/,
   'release validation must prove that the clean baseline removes user and project data',
 );
 assert.match(
@@ -494,8 +504,8 @@ assert.match(
   'release validation must prove that reusable PostgreSQL images survive a reset',
 );
 
-const demoMaintenance = read('deploy/bin/yistack-demo-maintenance');
-const demoMaintenanceConfig = read('deploy/config/yistack-demo-maintenance.env.example');
+const ephemeralMaintenance = read('deploy/bin/yistack-ephemeral-maintenance');
+const ephemeralMaintenanceConfig = read('deploy/config/yistack-ephemeral-maintenance.env.example');
 assert.match(
   postgresRuntimeValidation,
   /yistack-database-backup[\s\S]*create release-runtime[\s\S]*verify release-runtime[\s\S]*restore release-runtime/,
@@ -507,44 +517,44 @@ assert.match(
   'release validation must reject corrupted database backups',
 );
 assert.match(
-  demoMaintenance,
-  /schema=ephemeral-trial-baseline\.v1[\s\S]*user_data_policy=empty/,
-  'ephemeral trial baselines must declare the empty user-data policy',
+  ephemeralMaintenance,
+  /schema=ephemeral-experience-baseline\.v1[\s\S]*user_data_policy=empty/,
+  'ephemeral experience baselines must declare the empty user-data policy',
 );
 assert.match(
-  demoMaintenance,
+  ephemeralMaintenance,
   /list_user_data_rows\(\)[\s\S]*public\.users[\s\S]*public\.projects[\s\S]*public\.project_collaboration_events/,
-  'ephemeral trial snapshots must inspect all user and project data domains',
+  'ephemeral experience snapshots must inspect all user and project data domains',
 );
 assert.match(
-  demoMaintenance,
+  ephemeralMaintenance,
   /reset_to_baseline\(\)[\s\S]*remove_all_project_resources[\s\S]*restore_database[\s\S]*restore_workspaces[\s\S]*clear_directory_contents "\$LOG_DIR"/,
   'daily restoration must clear project resources, user state, caches, evidence, and managed logs',
 );
 assert.match(
-  demoMaintenance,
+  ephemeralMaintenance,
   /validate_timer_setting\(\)[\s\S]*systemd-analyze/,
-  'ephemeral trial timer values must be validated by systemd',
+  'ephemeral experience timer values must be validated by systemd',
 );
 assert.match(
-  demoMaintenance,
+  ephemeralMaintenance,
   /apply_timer_schedule\(\)[\s\S]*validate_timer_setting[\s\S]*write_timer_override[\s\S]*systemctl daemon-reload/,
-  'ephemeral trial timer schedules must be validated and applied through systemd drop-ins',
+  'ephemeral experience timer schedules must be validated and applied through systemd drop-ins',
 );
 assert.doesNotMatch(
-  demoMaintenance,
+  ephemeralMaintenance,
   /podman_cmd (?:image rm|rmi)|podman system prune/,
-  'ephemeral trial reset must retain reusable Podman images',
+  'ephemeral experience reset must retain reusable Podman images',
 );
 for (const scheduleKey of [
-  'DEMO_RESET_ON_CALENDAR',
-  'DEMO_RESET_RANDOMIZED_DELAY_SEC',
-  'DEMO_CLEANUP_ON_CALENDAR',
-  'DEMO_CLEANUP_RANDOMIZED_DELAY_SEC',
+  'EPHEMERAL_RESET_ON_CALENDAR',
+  'EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC',
+  'EPHEMERAL_CLEANUP_ON_CALENDAR',
+  'EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC',
 ]) {
   assert.ok(
-    demoMaintenanceConfig.includes(scheduleKey),
-    `ephemeral trial configuration must expose ${scheduleKey}`,
+    ephemeralMaintenanceConfig.includes(scheduleKey),
+    `ephemeral experience configuration must expose ${scheduleKey}`,
   );
 }
 
@@ -561,8 +571,14 @@ for (const action of [
 
 const workspace = read('pnpm-workspace.yaml');
 assert.match(workspace, /minimumReleaseAge:\s+1440/);
+assert.match(
+  workspace,
+  /minimumReleaseAgeExclude:[\s\S]*js-yaml@4\.3\.2[\s\S]*overrides:[\s\S]*js-yaml:\s+4\.3\.2/,
+  'the patched js-yaml security override must bypass only the dependency maturity delay',
+);
 
 const lockfile = read('pnpm-lock.yaml');
+assert.match(lockfile, /js-yaml@4\.3\.2:/, 'the lockfile must resolve patched js-yaml 4.3.2');
 assert.doesNotMatch(lockfile, /^(<<<<<<< |>>>>>>> )/m);
 
 const releaseConfig = read('.github/release.yml');
@@ -646,6 +662,10 @@ assert.match(releaseValidation, /bin\/yistack-database-backup[\s\S]*upgrade\.sh/
 const upgradeValidation = read('scripts/validate-release-upgrade.sh');
 const upgradeScript = read('deploy/upgrade.sh');
 const installer = read('deploy/install.sh');
+const backendSystemdUnit = read('deploy/systemd/yistack-backend.service');
+const ephemeralCleanupSystemdUnit = read('deploy/systemd/yistack-ephemeral-cleanup.service');
+const ephemeralResetSystemdUnit = read('deploy/systemd/yistack-ephemeral-reset.service');
+const postgresSystemdUnit = read('deploy/systemd/yistack-postgres.service');
 assert.match(migrationRunner, /checksum_sha256[\s\S]*database checksum mismatch/, 'migration history must verify recorded checksums');
 assert.match(databaseBackup, /SCHEMA - public[\s\S]*--single-transaction[\s\S]*--use-list/, 'database recovery must use a filtered custom-archive TOC in one transaction');
 assert.doesNotMatch(databaseBackup, /DROP SCHEMA[^\n]*public/i, 'database recovery must not cascade-drop the public schema');
@@ -658,6 +678,26 @@ assert.match(releaseBuilder, /cp -a "\$ROOT_DIR\/backend\/migrations"/, 'Release
 assert.match(releaseBuilder, /docs\/assets\/screenshots/, 'Release packages must include README screenshots');
 assert.match(releaseValidation, /docs\/assets\/screenshots\/mobile-preview\.png[\s\S]*docs\/assets\/screenshots\/workspace-overview\.png/, 'Release validation must require README screenshots');
 assert.match(yistackctl, /upgrade\)[\s\S]*run_release_upgrade/, 'yistackctl must dispatch one-command upgrades');
+assert.match(
+  yistackctl,
+  /run_as_service_user\(\)[\s\S]*runuser -u yistack[\s\S]*XDG_RUNTIME_DIR="\/run\/user\/\$service_uid"[\s\S]*postgres\)[\s\S]*run_as_service_user/,
+  'yistackctl must run PostgreSQL commands in the rootless service-user context',
+);
+assert.match(
+  yistackctl,
+  /print_bash_completion\(\)[\s\S]*completion\)[\s\S]*print_bash_completion/,
+  'yistackctl must expose Bash completion',
+);
+assert.match(
+  yistackctl,
+  /ephemeral\)[\s\S]*yistack-ephemeral-maintenance/,
+  'yistackctl must expose the ephemeral experience command',
+);
+assert.doesNotMatch(
+  yistackctl,
+  /(?:^|\s)demo\)/m,
+  'yistackctl must not retain the deprecated demo command',
+);
 assert.match(upgradeScript, /flock -n[\s\S]*run_backup_command create[\s\S]*run_database_command "\$INSTALL_ROOT\/current" migrate[\s\S]*run_database_command "\$INSTALL_ROOT\/current" verify/, 'one-command upgrades must lock, back up, migrate, and verify');
 assert.match(upgradeScript, /recover_failed_upgrade[\s\S]*run_backup_command restore[\s\S]*restore_previous_release_files/, 'failed upgrades must restore the database and previous Release');
 assert.match(upgradeValidation, /Successful upgrade acceptance[\s\S]*MOCK_NEW_HEALTH_FAIL=true[\s\S]*Previous Release v1\.0\.0 restored/, 'Release acceptance must cover successful upgrade and failed-health recovery');
@@ -665,6 +705,35 @@ assert.match(releaseValidation, /database\/migrations\/manifest\.json[\s\S]*roll
 assert.match(yistackctl, /database\)[\s\S]*migrate \| rollback\)[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*systemctl is-active --quiet yistack-backend\.service[\s\S]*yistack-server" database/, 'database schema writes must require stopped application services');
 assert.match(migrationValidation, /advisory lock contention[\s\S]*tampered and unknown histories[\s\S]*Rolling back one version/, 'PostgreSQL acceptance must cover locking, integrity boundaries, and rollback');
 assert.match(installer, /systemctl is-active --quiet yistack\.target[\s\S]*Stop YiStack before installing or upgrading/, 'Release installation must reject a running application stack');
+assert.match(
+  installer,
+  /--postgres-image IMAGE[\s\S]*POSTGRES_IMAGE_OVERRIDE[\s\S]*set_env_value "\$CONFIG_DIR\/postgres\.env"[\s\S]*POSTGRES_IMAGE/,
+  'Release installation must support a PostgreSQL mirror before first startup',
+);
+for (const unit of [backendSystemdUnit, postgresSystemdUnit]) {
+  assert.doesNotMatch(
+    unit,
+    /XDG_RUNTIME_DIR=\/run\/user\/%U/,
+    'system units must not resolve rootless Podman runtime paths through the system manager UID',
+  );
+}
+for (const unit of [backendSystemdUnit, ephemeralCleanupSystemdUnit, ephemeralResetSystemdUnit]) {
+  assert.match(
+    unit,
+    /ProtectHome=read-only/,
+    'services that use rootless Podman must retain access to its socket under /run/user',
+  );
+}
+assert.match(
+  readme,
+  /Docker Hub 不可达或受限网络[\s\S]*--postgres-image[\s\S]*registries\.conf\.d/,
+  'README must document trusted PostgreSQL mirrors for restricted networks',
+);
+assert.match(
+  readmeEnglish,
+  /Restricted or Unavailable Docker Hub Access[\s\S]*--postgres-image[\s\S]*registries\.conf\.d/,
+  'English README must document trusted PostgreSQL mirrors for restricted networks',
+);
 
 const envExample = read('.env.example');
 for (const key of [
@@ -678,4 +747,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] v1.1.0 public release repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.1.1 public release repository contract valid (${requiredFiles.length} required files).`);

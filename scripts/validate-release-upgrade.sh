@@ -233,7 +233,7 @@ ORIGINAL_CONFIG=true
 EOF
   printf '%s\n' \
     yistack.target \
-    yistack-demo-reset.timer > "$case_root/systemctl.state"
+    yistack-ephemeral-reset.timer > "$case_root/systemctl.state"
   : > "$case_root/systemctl.enabled"
   : > "$case_root/systemctl.log"
 }
@@ -274,8 +274,8 @@ database_contract() {
 assert_service_state() {
   local case_root="$1"
   grep -Fqx yistack.target "$case_root/systemctl.state"
-  grep -Fqx yistack-demo-reset.timer "$case_root/systemctl.state"
-  if grep -Fqx yistack-demo-cleanup.timer "$case_root/systemctl.state"; then
+  grep -Fqx yistack-ephemeral-reset.timer "$case_root/systemctl.state"
+  if grep -Fqx yistack-ephemeral-cleanup.timer "$case_root/systemctl.state"; then
     echo "Upgrade changed the inactive cleanup timer state." >&2
     exit 1
   fi

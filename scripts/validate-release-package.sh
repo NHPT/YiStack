@@ -24,7 +24,7 @@ if [ -n "$EXPECTED_ARCH" ] && [ "$EXPECTED_ARCH" != "$package_arch" ]; then
   exit 1
 fi
 
-for command in bash curl file find grep realpath sed seq sha256sum tar; do
+for command in bash curl diff file find grep realpath sed seq sha256sum tar; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Missing validation command: $command" >&2
     exit 1
@@ -95,7 +95,7 @@ required_files=(
   "SOURCE_COMMIT"
   "VERSION"
   "bin/yistack-database-backup"
-  "bin/yistack-demo-maintenance"
+  "bin/yistack-ephemeral-maintenance"
   "bin/yistack-frontend"
   "bin/yistack-postgres"
   "bin/yistack-server"
@@ -105,7 +105,7 @@ required_files=(
   "browser-worker/node_modules/playwright/package.json"
   "browser-worker/node_modules/playwright-core/package.json"
   "config/postgres.env.example"
-  "config/yistack-demo-maintenance.env.example"
+  "config/yistack-ephemeral-maintenance.env.example"
   "config/yistack.env.example"
   "database/init.sql"
   "database/migrations/000000000000_contributor_alpha.sql"
@@ -122,10 +122,10 @@ required_files=(
   "runtime/node/bin/node"
   "systemd/yistack-backend.service"
   "systemd/yistack-browser-worker.service"
-  "systemd/yistack-demo-cleanup.service"
-  "systemd/yistack-demo-cleanup.timer"
-  "systemd/yistack-demo-reset.service"
-  "systemd/yistack-demo-reset.timer"
+  "systemd/yistack-ephemeral-cleanup.service"
+  "systemd/yistack-ephemeral-cleanup.timer"
+  "systemd/yistack-ephemeral-reset.service"
+  "systemd/yistack-ephemeral-reset.timer"
   "systemd/yistack-frontend.service"
   "systemd/yistack-postgres.service"
   "systemd/yistack.target"
@@ -133,6 +133,21 @@ required_files=(
 for relative_path in "${required_files[@]}"; do
   if [ ! -e "$package_root/$relative_path" ]; then
     echo "Release package is missing $relative_path" >&2
+    exit 1
+  fi
+done
+
+deprecated_files=(
+  "bin/yistack-demo-maintenance"
+  "config/yistack-demo-maintenance.env.example"
+  "systemd/yistack-demo-cleanup.service"
+  "systemd/yistack-demo-cleanup.timer"
+  "systemd/yistack-demo-reset.service"
+  "systemd/yistack-demo-reset.timer"
+)
+for relative_path in "${deprecated_files[@]}"; do
+  if [ -e "$package_root/$relative_path" ]; then
+    echo "Release package retained deprecated maintenance file $relative_path" >&2
     exit 1
   fi
 done
@@ -182,7 +197,7 @@ for script in \
   "$package_root/install.sh" \
   "$package_root/upgrade.sh" \
   "$package_root/bin/yistack-database-backup" \
-  "$package_root/bin/yistack-demo-maintenance" \
+  "$package_root/bin/yistack-ephemeral-maintenance" \
   "$package_root/bin/yistack-frontend" \
   "$package_root/bin/yistack-postgres" \
   "$package_root/bin/yistackctl"; do
@@ -192,9 +207,75 @@ for script in \
   }
   bash -n "$script"
 done
-"$package_root/install.sh" --help >/dev/null
+install_help="$("$package_root/install.sh" --help)"
+grep -Fq -- "--postgres-image IMAGE" <<< "$install_help" || {
+  echo "Release installer does not expose the PostgreSQL image override." >&2
+  exit 1
+}
 "$package_root/upgrade.sh" --help >/dev/null
-"$package_root/bin/yistack-demo-maintenance" --help >/dev/null
+"$package_root/bin/yistack-ephemeral-maintenance" --help >/dev/null
+yistackctl_help="$("$package_root/bin/yistackctl" help)"
+for command in start stop restart status logs health postgres database upgrade ephemeral completion; do
+  grep -Eq "^  ${command}( |$)" <<< "$yistackctl_help" || {
+    echo "yistackctl help is missing the $command command." >&2
+    exit 1
+  }
+done
+if grep -Eq '^  demo( |$)' <<< "$yistackctl_help"; then
+  echo "yistackctl help retained the deprecated demo command." >&2
+  exit 1
+fi
+
+completion_script="$temp_root/yistackctl-completion.bash"
+"$package_root/bin/yistackctl" completion bash > "$completion_script"
+bash -n "$completion_script"
+completion_result="$(
+  bash -c '
+    source "$1"
+    COMP_WORDS=(yistackctl ep)
+    COMP_CWORD=1
+    _yistackctl
+    printf "%s\n" "${COMPREPLY[@]}"
+  ' _ "$completion_script"
+)"
+grep -Fqx ephemeral <<< "$completion_result" || {
+  echo "Bash completion does not expose the ephemeral command." >&2
+  exit 1
+}
+completion_result="$(
+  bash -c '
+    source "$1"
+    COMP_WORDS=(yistackctl database m)
+    COMP_CWORD=2
+    _yistackctl
+    printf "%s\n" "${COMPREPLY[@]}"
+  ' _ "$completion_script"
+)"
+grep -Fqx migrate <<< "$completion_result" || {
+  echo "Bash completion does not expose database migrate." >&2
+  exit 1
+}
+
+mock_bin="$temp_root/mock-bin"
+systemctl_log="$temp_root/systemctl.log"
+mkdir -p "$mock_bin"
+cat > "$mock_bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
+EOF
+chmod 0755 "$mock_bin/systemctl"
+for command in start stop restart; do
+  PATH="$mock_bin:$PATH" SYSTEMCTL_LOG="$systemctl_log" \
+    "$package_root/bin/yistackctl" "$command"
+done
+printf '%s\n' \
+  'start yistack.target' \
+  'stop yistack.target' \
+  'restart yistack.target' > "$temp_root/expected-systemctl.log"
+if ! diff -u "$temp_root/expected-systemctl.log" "$systemctl_log"; then
+  echo "yistackctl service commands do not control yistack.target as expected." >&2
+  exit 1
+fi
 
 backend_description="$(file -b "$package_root/bin/yistack-server")"
 node_description="$(file -b "$package_root/runtime/node/bin/node")"

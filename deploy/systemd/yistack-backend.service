@@ -10,7 +10,6 @@ User=yistack
 Group=yistack
 EnvironmentFile=/etc/yistack/yistack.env
 Environment=HOME=/var/lib/yistack
-Environment=XDG_RUNTIME_DIR=/run/user/%U
 WorkingDirectory=/opt/yistack/current
 ExecStart=/opt/yistack/current/bin/yistack-server
 Restart=on-failure
@@ -19,7 +18,7 @@ TimeoutStopSec=30
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=read-only
 ReadWritePaths=/var/lib/yistack /var/log/yistack /var/cache/yistack
 
 [Install]

@@ -13,6 +13,7 @@ LOG_DIR="/var/log/yistack"
 CACHE_DIR="/var/cache/yistack"
 RELEASE_DIR="$INSTALL_ROOT/releases/$VERSION"
 WITH_POSTGRES=false
+POSTGRES_IMAGE_OVERRIDE=""
 START_SERVICES=false
 INSTALL_BROWSER=true
 
@@ -22,6 +23,7 @@ Usage: sudo ./install.sh [options]
 
 Options:
   --with-postgres         Configure and start the optional PostgreSQL container
+  --postgres-image IMAGE  Override the PostgreSQL image before first startup
   --start                 Start YiStack after installation
   --skip-browser-install  Do not download the Playwright Chromium runtime
   --help                  Show this help
@@ -32,6 +34,14 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --with-postgres)
       WITH_POSTGRES=true
+      ;;
+    --postgres-image)
+      [ "$#" -ge 2 ] || {
+        echo "--postgres-image requires an image reference." >&2
+        exit 2
+      }
+      POSTGRES_IMAGE_OVERRIDE="$2"
+      shift
       ;;
     --start)
       START_SERVICES=true
@@ -51,6 +61,17 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+if [ -n "$POSTGRES_IMAGE_OVERRIDE" ]; then
+  [ "$WITH_POSTGRES" = "true" ] || {
+    echo "--postgres-image requires --with-postgres." >&2
+    exit 2
+  }
+  [[ "$POSTGRES_IMAGE_OVERRIDE" =~ ^[A-Za-z0-9][A-Za-z0-9._:/@-]*$ ]] || {
+    echo "Invalid PostgreSQL image reference: $POSTGRES_IMAGE_OVERRIDE" >&2
+    exit 2
+  }
+fi
 
 if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Invalid deployment package version: $VERSION" >&2
@@ -80,6 +101,7 @@ fi
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install --yes \
+    bash-completion \
     ca-certificates \
     curl \
     fuse-overlayfs \
@@ -135,6 +157,10 @@ mv -Tf "$INSTALL_ROOT/current.new" "$INSTALL_ROOT/current"
 chmod 0755 "$RELEASE_DIR/install.sh" "$RELEASE_DIR/bin/"*
 install -d -m 0755 -o root -g root /usr/local/bin
 ln -sfn "$INSTALL_ROOT/current/bin/yistackctl" /usr/local/bin/yistackctl
+install -d -m 0755 -o root -g root /usr/share/bash-completion/completions
+"$RELEASE_DIR/bin/yistackctl" completion bash \
+  > /usr/share/bash-completion/completions/yistackctl
+chmod 0644 /usr/share/bash-completion/completions/yistackctl
 
 if [ ! -f "$CONFIG_DIR/yistack.env" ]; then
   install -m 0640 -o root -g "$SERVICE_GROUP" \
@@ -201,6 +227,10 @@ if [ "$WITH_POSTGRES" = "true" ]; then
       "$RELEASE_DIR/config/postgres.env.example" \
       "$CONFIG_DIR/postgres.env"
   fi
+  if [ -n "$POSTGRES_IMAGE_OVERRIDE" ]; then
+    set_env_value "$CONFIG_DIR/postgres.env" \
+      POSTGRES_IMAGE "$POSTGRES_IMAGE_OVERRIDE"
+  fi
   if ! grep -Eq '^POSTGRES_PASSWORD=.{24,}$' "$CONFIG_DIR/postgres.env"; then
     set_env_value "$CONFIG_DIR/postgres.env" POSTGRES_PASSWORD "$(openssl rand -hex 24)"
   fi
@@ -227,7 +257,7 @@ fi
 echo "YiStack $VERSION installed at $RELEASE_DIR"
 echo "Configuration: $CONFIG_DIR/yistack.env"
 if [ "$START_SERVICES" = "false" ]; then
-  echo "Review the configuration, then run: sudo systemctl start yistack.target"
+  echo "Review the configuration, then run: sudo yistackctl start"
 else
   echo "Run 'sudo yistackctl health' to verify the deployment."
 fi
