@@ -17,6 +17,12 @@ POSTGRES_IMAGE_OVERRIDE=""
 START_SERVICES=false
 INSTALL_BROWSER=true
 
+run_as_service_user() {
+  YISTACK_SERVICE_USER="$SERVICE_USER" \
+  YISTACK_DATA_DIR="$DATA_DIR" \
+    "$RELEASE_DIR/bin/yistack-service-user-exec" "$@"
+}
+
 usage() {
   cat <<'EOF'
 Usage: sudo ./install.sh [options]
@@ -201,10 +207,7 @@ set_env_value "$CONFIG_DIR/yistack.env" \
 
 loginctl enable-linger "$SERVICE_USER" || true
 systemctl start "user@${service_uid}.service"
-runuser -u "$SERVICE_USER" -- env \
-  HOME="$DATA_DIR" \
-  XDG_RUNTIME_DIR="/run/user/$service_uid" \
-  systemctl --user enable --now podman.socket
+run_as_service_user systemctl --user enable --now podman.socket
 
 for unit in "$RELEASE_DIR"/systemd/*; do
   install -m 0644 -o root -g root "$unit" "/etc/systemd/system/$(basename "$unit")"
@@ -215,8 +218,7 @@ if [ "$INSTALL_BROWSER" = "true" ]; then
   node_bin="$RELEASE_DIR/runtime/node/bin/node"
   playwright_cli="$RELEASE_DIR/browser-worker/node_modules/playwright/cli.js"
   "$node_bin" "$playwright_cli" install-deps chromium
-  runuser -u "$SERVICE_USER" -- env \
-    HOME="$DATA_DIR" \
+  run_as_service_user env \
     PLAYWRIGHT_BROWSERS_PATH="$DATA_DIR/ms-playwright" \
     "$node_bin" "$playwright_cli" install chromium
 fi
@@ -243,10 +245,7 @@ if [ "$WITH_POSTGRES" = "true" ]; then
   set_env_value "$CONFIG_DIR/yistack.env" DB_NAME yistack
   set_env_value "$CONFIG_DIR/yistack.env" DB_SSL_MODE disable
   systemctl enable --now yistack-postgres.service
-  runuser -u "$SERVICE_USER" -- env \
-    HOME="$DATA_DIR" \
-    XDG_RUNTIME_DIR="/run/user/$service_uid" \
-    "$RELEASE_DIR/bin/yistack-postgres" init
+  run_as_service_user "$RELEASE_DIR/bin/yistack-postgres" init
 fi
 
 systemctl enable yistack.target

@@ -42,6 +42,7 @@ fi
 : "${EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC:=5min}"
 : "${YISTACK_SYSTEMD_UNIT_DIR:=/etc/systemd/system}"
 : "${SERVICE_USER:=yistack}"
+: "${YISTACK_SERVICE_USER_EXEC:=$YISTACK_INSTALL_DIR/bin/yistack-service-user-exec}"
 
 APP_RESTORE_ON_EXIT=false
 RUNNING_CONTAINERS_FILE=""
@@ -236,11 +237,11 @@ load_postgres_configuration() {
 
 run_as_service() {
   if [ "$(id -u)" -eq 0 ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
-    local service_uid
-    service_uid="$(id -u "$SERVICE_USER")"
-    runuser -u "$SERVICE_USER" -- env \
-      HOME="$DATA_DIR" \
-      XDG_RUNTIME_DIR="/run/user/$service_uid" \
+    [ -x "$YISTACK_SERVICE_USER_EXEC" ] ||
+      die "service-user execution helper is missing: $YISTACK_SERVICE_USER_EXEC"
+    YISTACK_SERVICE_USER="$SERVICE_USER" \
+    YISTACK_DATA_DIR="$DATA_DIR" \
+      "$YISTACK_SERVICE_USER_EXEC" env \
       PATH="$PATH" \
       "$@"
   else

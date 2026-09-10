@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.4**。这是 v1.1 系列的部署生命周期完善版本：成功升级后自动清理历史 Release，并提供保留数据或彻底清理的卸载命令；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.5**。这是 v1.1 系列的服务用户执行边界修复版本：安装、升级、卸载和维护在切换到 `yistack` 前统一进入可访问的数据目录，支持直接从 `/root` 下的解压目录安装；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -120,6 +120,10 @@ tar -xzf yistack-vX.Y.Z-linux-amd64.tar.gz
 cd yistack-vX.Y.Z-linux-amd64
 sudo ./install.sh
 ```
+
+部署包可以解压在 `/root` 等仅 root 可访问的目录中。安装器复制并校验 Release 后，
+所有 `yistack` 用户命令都会先进入 `/var/lib/yistack`，不会继承调用者的 root-only
+当前目录。
 
 安装器会校验包内 `MANIFEST.sha256`，创建 `yistack` 系统用户，配置 rootless Podman，安装 systemd 单元和 Playwright Chromium，并使用以下稳定目录：
 
@@ -293,14 +297,14 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 v1.1.0 或 v1.1.1 的已安装控制器仍会在读取新 Release 前检查同目录
 `.sha256`，且会把压缩包解压到仅 root 可穿越的临时目录。从这两个版本首次升级到
-v1.1.4 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
+v1.1.5 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
 
 ```bash
-tar -xzf yistack-v1.1.4-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.4-linux-amd64
+tar -xzf yistack-v1.1.5-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.5-linux-amd64
 ```
 
-升级到 v1.1.4 后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
+升级到 v1.1.5 后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
 
 升级命令会校验 Release 和版本方向、预检数据库、停止应用及无痕体验模式 timer、
 创建并校验 PostgreSQL custom-format 备份、安装新 Release、执行并验证 migration、

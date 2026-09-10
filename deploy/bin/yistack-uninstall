@@ -19,6 +19,7 @@ EPHEMERAL_LOCK_FILE="${YISTACK_EPHEMERAL_LOCK_FILE:-/run/lock/yistack-ephemeral-
 SYSTEMCTL_BIN="${YISTACK_SYSTEMCTL_BIN:-systemctl}"
 LOGINCTL_BIN="${YISTACK_LOGINCTL_BIN:-loginctl}"
 RUNUSER_BIN="${YISTACK_RUNUSER_BIN:-runuser}"
+SERVICE_USER_EXEC="${YISTACK_SERVICE_USER_EXEC:-$INSTALL_ROOT/current/bin/yistack-service-user-exec}"
 USERDEL_BIN="${YISTACK_USERDEL_BIN:-userdel}"
 GROUPDEL_BIN="${YISTACK_GROUPDEL_BIN:-groupdel}"
 SKIP_ROOT_CHECK="${YISTACK_UNINSTALL_SKIP_ROOT_CHECK:-false}"
@@ -93,16 +94,13 @@ read_config_value() {
 }
 
 run_as_service_user() {
-  local service_uid="$1"
-  shift
-  "$RUNUSER_BIN" -u "$SERVICE_USER" -- env \
-    HOME="$DATA_DIR" \
-    XDG_RUNTIME_DIR="/run/user/$service_uid" \
-    "$@"
+  YISTACK_SERVICE_USER="$SERVICE_USER" \
+  YISTACK_DATA_DIR="$DATA_DIR" \
+  YISTACK_RUNUSER_BIN="$RUNUSER_BIN" \
+    "$SERVICE_USER_EXEC" "$@"
 }
 
 stop_or_remove_managed_containers() {
-  local service_uid="$1"
   local postgres_name=""
   local output=""
   local resource_id=""
@@ -112,11 +110,11 @@ stop_or_remove_managed_containers() {
     action=(rm --force)
   fi
 
-  if output="$(run_as_service_user "$service_uid" podman ps -aq \
+  if output="$(run_as_service_user podman ps -aq \
       --filter label=yistack.project_id 2>/dev/null)"; then
     while IFS= read -r resource_id; do
       [ -n "$resource_id" ] || continue
-      run_as_service_user "$service_uid" podman "${action[@]}" "$resource_id" \
+      run_as_service_user podman "${action[@]}" "$resource_id" \
         >/dev/null 2>&1 || warn_failure "unable to clean project container $resource_id"
     done <<< "$output"
   else
@@ -127,17 +125,17 @@ stop_or_remove_managed_containers() {
     POSTGRES_CONTAINER_NAME yistack-postgres)"
   [[ "$postgres_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
     die "POSTGRES_CONTAINER_NAME is invalid: $postgres_name"
-  if run_as_service_user "$service_uid" podman container exists "$postgres_name"; then
-    run_as_service_user "$service_uid" podman "${action[@]}" "$postgres_name" \
+  if run_as_service_user podman container exists "$postgres_name"; then
+    run_as_service_user podman "${action[@]}" "$postgres_name" \
       >/dev/null 2>&1 || warn_failure "unable to clean PostgreSQL container $postgres_name"
   fi
 
   if [ "$PURGE" = "true" ]; then
-    if output="$(run_as_service_user "$service_uid" podman network ls -q \
+    if output="$(run_as_service_user podman network ls -q \
         --filter label=yistack.project_id 2>/dev/null)"; then
       while IFS= read -r resource_id; do
         [ -n "$resource_id" ] || continue
-        run_as_service_user "$service_uid" podman network rm --force "$resource_id" \
+        run_as_service_user podman network rm --force "$resource_id" \
           >/dev/null 2>&1 || warn_failure "unable to remove project network $resource_id"
       done <<< "$output"
     else
@@ -196,6 +194,8 @@ main() {
     die "YISTACKCTL_PATH must end with yistackctl"
   [ "$(basename "$COMPLETION_PATH")" = yistackctl ] ||
     die "COMPLETION_PATH must end with yistackctl"
+  [ -x "$SERVICE_USER_EXEC" ] ||
+    die "service-user execution helper is missing: $SERVICE_USER_EXEC"
 
   mkdir -p "$(dirname "$UPGRADE_LOCK_FILE")"
   exec 9>"$UPGRADE_LOCK_FILE"
@@ -205,8 +205,8 @@ main() {
 
   if id "$SERVICE_USER" >/dev/null 2>&1; then
     service_uid="$(id -u "$SERVICE_USER")"
-    stop_or_remove_managed_containers "$service_uid"
-    run_as_service_user "$service_uid" "$SYSTEMCTL_BIN" --user disable --now \
+    stop_or_remove_managed_containers
+    run_as_service_user "$SYSTEMCTL_BIN" --user disable --now \
       podman.socket >/dev/null 2>&1 || true
     "$LOGINCTL_BIN" disable-linger "$SERVICE_USER" >/dev/null 2>&1 || true
     "$SYSTEMCTL_BIN" stop "user@${service_uid}.service" >/dev/null 2>&1 || true

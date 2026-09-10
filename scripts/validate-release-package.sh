@@ -99,6 +99,7 @@ required_files=(
   "bin/yistack-ephemeral-maintenance"
   "bin/yistack-frontend"
   "bin/yistack-postgres"
+  "bin/yistack-service-user-exec"
   "bin/yistack-server"
   "bin/yistackctl"
   "browser-worker/browser-acceptance-worker.mjs"
@@ -202,6 +203,7 @@ for script in \
   "$package_root/bin/yistack-ephemeral-maintenance" \
   "$package_root/bin/yistack-frontend" \
   "$package_root/bin/yistack-postgres" \
+  "$package_root/bin/yistack-service-user-exec" \
   "$package_root/bin/yistackctl"; do
   [ -x "$script" ] || {
     echo "Release script is not executable: $script" >&2

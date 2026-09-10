@@ -8,7 +8,7 @@ if [ -z "$PACKAGE_ROOT" ]; then
   exit 2
 fi
 PACKAGE_ROOT="$(realpath "$PACKAGE_ROOT")"
-for required_file in bin/yistack-uninstall bin/yistackctl; do
+for required_file in bin/yistack-service-user-exec bin/yistack-uninstall bin/yistackctl; do
   [ -x "$PACKAGE_ROOT/$required_file" ] || {
     echo "Release directory is missing executable $required_file" >&2
     exit 1
@@ -39,6 +39,7 @@ EOF
 cat > "$mock_bin/runuser" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+[ "$PWD" = "${MOCK_EXPECTED_SERVICE_CWD:?}" ] || exit 1
 if [ "${1:-}" = -u ]; then
   shift 2
 fi
@@ -78,7 +79,7 @@ prepare_case() {
   local case_root="$1"
   local unit=""
   mkdir -p \
-    "$case_root/install/releases/v1.1.4/bin" \
+    "$case_root/install/releases/v9.9.9/bin" \
     "$case_root/config" \
     "$case_root/data/runtime" \
     "$case_root/log" \
@@ -87,11 +88,14 @@ prepare_case() {
     "$case_root/usr/local/bin" \
     "$case_root/usr/share/bash-completion/completions" \
     "$case_root/run/lock" \
+    "$case_root/root-only" \
     "$case_root/tmp"
-  cp "$PACKAGE_ROOT/bin/yistackctl" "$case_root/install/releases/v1.1.4/bin/yistackctl"
-  cp "$PACKAGE_ROOT/bin/yistack-uninstall" "$case_root/install/releases/v1.1.4/bin/yistack-uninstall"
-  chmod 0755 "$case_root/install/releases/v1.1.4/bin/"*
-  ln -s "$case_root/install/releases/v1.1.4" "$case_root/install/current"
+  chmod 0700 "$case_root/root-only"
+  cp "$PACKAGE_ROOT/bin/yistackctl" "$case_root/install/releases/v9.9.9/bin/yistackctl"
+  cp "$PACKAGE_ROOT/bin/yistack-uninstall" "$case_root/install/releases/v9.9.9/bin/yistack-uninstall"
+  cp "$PACKAGE_ROOT/bin/yistack-service-user-exec" "$case_root/install/releases/v9.9.9/bin/yistack-service-user-exec"
+  chmod 0755 "$case_root/install/releases/v9.9.9/bin/"*
+  ln -s "$case_root/install/releases/v9.9.9" "$case_root/install/current"
   printf 'POSTGRES_CONTAINER_NAME=yistack-postgres\n' > "$case_root/config/postgres.env"
   printf 'preserve\n' > "$case_root/data/runtime/state"
   printf 'log\n' > "$case_root/log/yistack.log"
@@ -117,11 +121,14 @@ prepare_case() {
 run_uninstall() {
   local case_root="$1"
   shift
-  env \
+  (
+    cd "$case_root/root-only"
+    env \
     PATH="$mock_bin:$PATH" \
     MOCK_ACCOUNT_LOG="$case_root/account.log" \
     MOCK_LOGINCTL_LOG="$case_root/loginctl.log" \
     MOCK_FLOCK_LOG="$case_root/flock.log" \
+    MOCK_EXPECTED_SERVICE_CWD="$case_root/data" \
     MOCK_PODMAN_LOG="$case_root/podman.log" \
     MOCK_SYSTEMCTL_LOG="$case_root/systemctl.log" \
     YISTACK_CACHE_DIR="$case_root/cache" \
@@ -134,6 +141,7 @@ run_uninstall() {
     YISTACK_LOGINCTL_BIN="$mock_bin/loginctl" \
     YISTACK_LOG_DIR="$case_root/log" \
     YISTACK_RUNUSER_BIN="$mock_bin/runuser" \
+    YISTACK_SERVICE_EXEC_SKIP_ROOT_CHECK=true \
     YISTACK_SERVICE_GROUP="$service_group" \
     YISTACK_SERVICE_USER="$service_user" \
     YISTACK_SUBGID_FILE="$case_root/subgid" \
@@ -146,6 +154,7 @@ run_uninstall() {
     YISTACK_USERDEL_BIN="$mock_bin/userdel" \
     YISTACKCTL_PATH="$case_root/usr/local/bin/yistackctl" \
       "$case_root/usr/local/bin/yistackctl" uninstall "$@"
+  )
 }
 
 preserve_root="$root/preserve"

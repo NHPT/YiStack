@@ -15,19 +15,7 @@ read_config_value() {
 }
 
 run_as_service_user() {
-  local service_uid
-  service_uid="$(id -u yistack)"
-  if [ "$(id -u)" -eq 0 ]; then
-    exec runuser -u yistack -- env \
-      HOME=/var/lib/yistack \
-      XDG_RUNTIME_DIR="/run/user/$service_uid" \
-      "$@"
-  fi
-  if [ "$(id -un)" = "yistack" ]; then
-    exec "$@"
-  fi
-  echo "This command must run as root or the yistack service user." >&2
-  exit 1
+  exec /opt/yistack/current/bin/yistack-service-user-exec "$@"
 }
 
 print_bash_completion() {

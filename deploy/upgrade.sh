@@ -14,6 +14,7 @@ SERVICE_USER="${YISTACK_SERVICE_USER:-yistack}"
 SERVICE_GROUP="${YISTACK_SERVICE_GROUP:-yistack}"
 SYSTEMCTL_BIN="${YISTACK_SYSTEMCTL_BIN:-systemctl}"
 RUNUSER_BIN="${YISTACK_RUNUSER_BIN:-runuser}"
+SERVICE_USER_EXEC="${YISTACK_SERVICE_USER_EXEC:-$PACKAGE_ROOT/bin/yistack-service-user-exec}"
 INSTALLER_PATH="${YISTACK_INSTALLER_PATH:-$PACKAGE_ROOT/install.sh}"
 LOCK_FILE="${YISTACK_UPGRADE_LOCK_FILE:-/run/lock/yistack-upgrade.lock}"
 SKIP_ROOT_CHECK="${YISTACK_SKIP_ROOT_CHECK:-false}"
@@ -95,9 +96,10 @@ run_database_command() {
 
 run_backup_command() {
   local command="$1"
-  "$RUNUSER_BIN" -u "$SERVICE_USER" -- env \
-    HOME="$DATA_DIR" \
-    XDG_RUNTIME_DIR="/run/user/$(id -u "$SERVICE_USER")" \
+  YISTACK_SERVICE_USER="$SERVICE_USER" \
+  YISTACK_DATA_DIR="$DATA_DIR" \
+  YISTACK_RUNUSER_BIN="$RUNUSER_BIN" \
+    "$SERVICE_USER_EXEC" env \
     YISTACK_ENV_FILE="$CONFIG_FILE" \
     YISTACK_POSTGRES_ENV_FILE="$POSTGRES_CONFIG_FILE" \
     YISTACK_DATABASE_BACKUP_DIR="$BACKUP_DIR" \
@@ -367,6 +369,8 @@ main() {
     die "Release installer is missing: $INSTALLER_PATH"
   [ -x "$PACKAGE_ROOT/bin/yistack-database-backup" ] ||
     die "database backup helper is missing from $PACKAGE_ROOT"
+  [ -x "$SERVICE_USER_EXEC" ] ||
+    die "service-user execution helper is missing: $SERVICE_USER_EXEC"
   [ -x "$PACKAGE_ROOT/bin/yistack-server" ] ||
     die "database migration binary is missing from $PACKAGE_ROOT"
   if ! diff -u \
