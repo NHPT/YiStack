@@ -199,13 +199,20 @@ main() {
 
   mkdir -p "$(dirname "$UPGRADE_LOCK_FILE")"
   exec 9>"$UPGRADE_LOCK_FILE"
-  flock -n 9 || die "another YiStack upgrade or uninstall is running"
+  flock -n 9 || die "another YiStack installation, upgrade, or uninstall is running"
 
+  if [ "$PURGE" = "true" ]; then
+    echo "Removing YiStack application files and all managed local data..."
+  else
+    echo "Removing YiStack application files; configuration and data will be preserved..."
+  fi
   remove_systemd_units
 
   if id "$SERVICE_USER" >/dev/null 2>&1; then
     service_uid="$(id -u "$SERVICE_USER")"
     stop_or_remove_managed_containers
+    [ "$cleanup_failed" = "false" ] ||
+      die "managed runtime cleanup failed; application files and local data were preserved for retry"
     run_as_service_user "$SYSTEMCTL_BIN" --user disable --now \
       podman.socket >/dev/null 2>&1 || true
     "$LOGINCTL_BIN" disable-linger "$SERVICE_USER" >/dev/null 2>&1 || true
@@ -214,7 +221,7 @@ main() {
 
   rm -rf --one-file-system -- "$INSTALL_ROOT"
   rm -f -- "$YISTACKCTL_PATH" "$COMPLETION_PATH" \
-    "$UPGRADE_LOCK_FILE" "$EPHEMERAL_LOCK_FILE"
+    "$EPHEMERAL_LOCK_FILE"
 
   if [ "$PURGE" = "true" ]; then
     rm -rf --one-file-system -- "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR" "$CACHE_DIR"
@@ -226,12 +233,13 @@ main() {
     if getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
       "$GROUPDEL_BIN" "$SERVICE_GROUP" || warn_failure "unable to remove service group $SERVICE_GROUP"
     fi
+    [ "$cleanup_failed" = "false" ] ||
+      die "local files were removed, but service-account cleanup was incomplete"
     echo "YiStack application files, local data, and service account removed."
   else
     echo "YiStack application files removed. Configuration and data were preserved."
   fi
 
-  [ "$cleanup_failed" = "false" ] || die "one or more managed runtime resources could not be removed"
 }
 
 main "$@"

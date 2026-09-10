@@ -17,19 +17,22 @@ die() {
 [ -d "$DATA_DIR" ] || die "YiStack data directory is missing: $DATA_DIR"
 
 service_uid="$(id -u "$SERVICE_USER")" || die "service user is missing: $SERVICE_USER"
+runtime_dir="/run/user/$service_uid"
 cd "$DATA_DIR"
 
 if [ "$(id -u)" -eq 0 ] || [ "$SKIP_ROOT_CHECK" = "true" ]; then
   exec "$RUNUSER_BIN" -u "$SERVICE_USER" -- env \
     HOME="$DATA_DIR" \
-    XDG_RUNTIME_DIR="/run/user/$service_uid" \
+    XDG_RUNTIME_DIR="$runtime_dir" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
     "$@"
 fi
 
 if [ "$(id -un)" = "$SERVICE_USER" ]; then
   exec env \
     HOME="$DATA_DIR" \
-    XDG_RUNTIME_DIR="/run/user/$service_uid" \
+    XDG_RUNTIME_DIR="$runtime_dir" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
     "$@"
 fi
 

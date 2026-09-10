@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.5**。这是 v1.1 系列的服务用户执行边界修复版本：安装、升级、卸载和维护在切换到 `yistack` 前统一进入可访问的数据目录，支持直接从 `/root` 下的解压目录安装；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.6**。这是 v1.1 系列的部署可观测性与结果判定修复版本：安装和服务启动会自动等待健康检查，rootless Podman 使用隔离的服务用户环境，安装、升级、卸载和维护均支持从 `/root` 等受限目录执行；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -151,6 +151,7 @@ sudo ./install.sh
 | `sudo yistackctl status` | 查看前端、后端和浏览器 worker 状态 |
 | `sudo yistackctl logs [SINCE]` | 持续查看服务日志，默认从当天开始 |
 | `sudo yistackctl health` | 验证前端和后端健康状态 |
+| `sudo yistackctl runtime {info\|images\|ps}` | 查看 `yistack` 用户的 rootless Podman 信息、镜像和容器 |
 | `sudo yistackctl postgres {start\|init\|stop\|status\|logs}` | 管理安装器提供的 PostgreSQL 容器 |
 | `sudo yistackctl database {status\|plan\|migrate\|verify\|rollback}` | 管理数据库 migration |
 | `sudo yistackctl upgrade <release-directory\|release.tar.gz>` | 执行受校验的一键升级 |
@@ -159,8 +160,7 @@ sudo ./install.sh
 | `sudo yistackctl ephemeral {snapshot\|reset\|cleanup\|enforce\|apply-schedule\|status}` | 管理无痕体验模式 |
 | `yistackctl help` | 显示完整命令帮助 |
 
-`start`、`stop` 和 `restart` 只控制应用服务，不会停止 PostgreSQL；
-数据库容器由 `yistackctl postgres` 单独管理。
+`start` 和 `restart` 会等待前后端健康检查通过后才报告成功；`stop` 只在 systemd 停止成功后报告完成。这三个命令只控制应用服务，不会停止 PostgreSQL；数据库容器由 `yistackctl postgres` 单独管理。
 
 配置文件按职责分离：
 
@@ -233,8 +233,12 @@ sudo yistackctl status
 ```bash
 sudo ./install.sh --with-postgres --start
 sudo yistackctl postgres status
-sudo yistackctl health
+sudo yistackctl runtime images
 ```
+
+`--start` 会等待前后端健康检查通过，只有安装、启动和健康检查全部成功后才输出成功；失败时返回非零状态并给出状态与日志命令。
+
+PostgreSQL 镜像和容器属于 `yistack` 用户的 rootless Podman，默认镜像存储位于 `/var/lib/yistack/.local/share/containers/storage`。直接以 root 执行 `podman images` 查看的是 `/var/lib/containers/storage`，不会显示这套镜像；应使用 `sudo yistackctl runtime images`。数据库由系统级 `yistack-postgres.service` 以 `yistack` 用户启动。
 
 安装器会生成数据库密码，写入 `/etc/yistack/postgres.env`，并依次执行 Supabase SQL 兼容层和 `database/init.sql`。此模式提供 YiStack 自身的 PostgreSQL 数据库和传统 JWT 认证，不提供 Supabase Auth、Storage 或其他托管服务；生成的应用若依赖 Supabase，仍需单独配置 Supabase 项目。
 
@@ -297,14 +301,14 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 v1.1.0 或 v1.1.1 的已安装控制器仍会在读取新 Release 前检查同目录
 `.sha256`，且会把压缩包解压到仅 root 可穿越的临时目录。从这两个版本首次升级到
-v1.1.5 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
+v1.1.6 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
 
 ```bash
-tar -xzf yistack-v1.1.5-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.5-linux-amd64
+tar -xzf yistack-v1.1.6-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.6-linux-amd64
 ```
 
-升级到 v1.1.5 后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
+升级到 v1.1.6 后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
 
 升级命令会校验 Release 和版本方向、预检数据库、停止应用及无痕体验模式 timer、
 创建并校验 PostgreSQL custom-format 备份、安装新 Release、执行并验证 migration、

@@ -3,6 +3,11 @@
 set -euo pipefail
 
 CONFIG_FILE="${YISTACK_ENV_FILE:-/etc/yistack/yistack.env}"
+INSTALL_ROOT="${YISTACK_INSTALL_ROOT:-/opt/yistack}"
+CURRENT_RELEASE="$INSTALL_ROOT/current"
+SERVICE_USER_EXEC="${YISTACK_SERVICE_USER_EXEC:-$CURRENT_RELEASE/bin/yistack-service-user-exec}"
+HEALTH_ATTEMPTS="${YISTACK_HEALTH_ATTEMPTS:-60}"
+HEALTH_SLEEP_SECONDS="${YISTACK_HEALTH_SLEEP_SECONDS:-1}"
 
 read_config_value() {
   local key="$1"
@@ -15,7 +20,58 @@ read_config_value() {
 }
 
 run_as_service_user() {
-  exec /opt/yistack/current/bin/yistack-service-user-exec "$@"
+  exec "$SERVICE_USER_EXEC" "$@"
+}
+
+run_health_check() {
+  local backend_port=""
+  local frontend_port=""
+  backend_port="$(read_config_value APP_PORT 8080)"
+  frontend_port="$(read_config_value FRONTEND_PORT 5000)"
+  case "$backend_port:$frontend_port" in
+    *[!0-9:]* | :* | *:)
+      echo "APP_PORT and FRONTEND_PORT must be numeric." >&2
+      return 1
+      ;;
+  esac
+  curl --fail --silent --show-error \
+    "http://127.0.0.1:$backend_port/api/health" || return 1
+  printf '\n'
+  curl --fail --silent --show-error \
+    "http://127.0.0.1:$frontend_port/auth" >/dev/null || return 1
+}
+
+wait_for_health() {
+  local attempt=""
+  [[ "$HEALTH_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || {
+    echo "YISTACK_HEALTH_ATTEMPTS must be a positive integer." >&2
+    return 1
+  }
+  [[ "$HEALTH_SLEEP_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    echo "YISTACK_HEALTH_SLEEP_SECONDS must be a non-negative number." >&2
+    return 1
+  }
+  for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
+    if run_health_check >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$HEALTH_SLEEP_SECONDS"
+  done
+  echo "YiStack did not become healthy after starting." >&2
+  run_health_check >&2 || true
+  return 1
+}
+
+report_started() {
+  if ! wait_for_health; then
+    systemctl --no-pager --full status \
+      yistack-backend.service \
+      yistack-frontend.service \
+      yistack-browser-worker.service >&2 || true
+    return 1
+  fi
+  echo "YiStack services started successfully."
+  echo "Health check: passed"
 }
 
 print_bash_completion() {
@@ -27,7 +83,7 @@ _yistackctl() {
   if [ "$COMP_CWORD" -eq 1 ]; then
     mapfile -t COMPREPLY < <(
       compgen -W \
-        "start stop restart status logs health postgres database upgrade uninstall ephemeral completion help" \
+        "start stop restart status logs health runtime postgres database upgrade uninstall ephemeral completion help" \
         -- "$current"
     )
     return
@@ -37,6 +93,11 @@ _yistackctl() {
     postgres)
       mapfile -t COMPREPLY < <(
         compgen -W "start init stop status logs" -- "$current"
+      )
+      ;;
+    runtime)
+      mapfile -t COMPREPLY < <(
+        compgen -W "info images ps" -- "$current"
       )
       ;;
     database)
@@ -79,7 +140,8 @@ Service commands:
   logs [SINCE]                  Follow service logs since today or SINCE
   health                        Verify backend and frontend health
 
-Database and release commands:
+Runtime, database, and release commands:
+  runtime {info|images|ps}       Inspect the yistack rootless Podman runtime
   postgres {start|init|stop|status|logs}
   database {status|plan|migrate|verify|rollback}
   upgrade <release-directory|release.tar.gz>
@@ -211,12 +273,15 @@ run_uninstall() {
 case "${1:-status}" in
   start)
     systemctl start yistack.target
+    report_started
     ;;
   stop)
     systemctl stop yistack.target
+    echo "YiStack services stopped."
     ;;
   restart)
     systemctl restart yistack.target
+    report_started
     ;;
   status)
     systemctl --no-pager --full status \
@@ -231,23 +296,31 @@ case "${1:-status}" in
       --since "${2:-today}" -f
     ;;
   health)
-    backend_port="$(read_config_value APP_PORT 8080)"
-    frontend_port="$(read_config_value FRONTEND_PORT 5000)"
-    case "$backend_port:$frontend_port" in
-      *[!0-9:]* | :* | *:)
-        echo "APP_PORT and FRONTEND_PORT must be numeric." >&2
-        exit 1
-        ;;
-    esac
-    curl --fail --silent --show-error "http://127.0.0.1:$backend_port/api/health"
-    printf '\n'
-    curl --fail --silent --show-error "http://127.0.0.1:$frontend_port/auth" >/dev/null
+    run_health_check
     echo "YiStack frontend and backend are healthy."
     ;;
   postgres)
     shift
     run_as_service_user \
-      /opt/yistack/current/bin/yistack-postgres "${1:-status}"
+      "$CURRENT_RELEASE/bin/yistack-postgres" "${1:-status}"
+    ;;
+  runtime)
+    shift
+    case "${1:-info}" in
+      info)
+        run_as_service_user podman info
+        ;;
+      images)
+        run_as_service_user podman images
+        ;;
+      ps)
+        run_as_service_user podman ps --all
+        ;;
+      *)
+        echo "Usage: yistackctl runtime {info|images|ps}" >&2
+        exit 2
+        ;;
+    esac
     ;;
   database)
     shift
@@ -276,7 +349,7 @@ case "${1:-status}" in
     source "$CONFIG_FILE"
     set +a
     export YISTACK_SKIP_DOTENV=true
-    export YISTACK_INSTALL_DIR="${YISTACK_INSTALL_DIR:-/opt/yistack/current}"
+    export YISTACK_INSTALL_DIR="${YISTACK_INSTALL_DIR:-$CURRENT_RELEASE}"
     export YISTACK_MIGRATIONS_DIR="${YISTACK_MIGRATIONS_DIR:-$YISTACK_INSTALL_DIR/database/migrations}"
     exec "$YISTACK_INSTALL_DIR/bin/yistack-server" database "$database_command"
     ;;
@@ -296,7 +369,7 @@ case "${1:-status}" in
     ;;
   ephemeral)
     shift
-    exec /opt/yistack/current/bin/yistack-ephemeral-maintenance "${1:-status}"
+    exec "$CURRENT_RELEASE/bin/yistack-ephemeral-maintenance" "${1:-status}"
     ;;
   completion)
     shift

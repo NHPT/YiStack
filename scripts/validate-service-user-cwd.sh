@@ -40,6 +40,7 @@ set -euo pipefail
 printf 'pwd=%s\n' "$PWD"
 printf 'home=%s\n' "$HOME"
 printf 'runtime=%s\n' "$XDG_RUNTIME_DIR"
+printf 'bus=%s\n' "$DBUS_SESSION_BUS_ADDRESS"
 printf 'argument=%s\n' "${1:-}"
 EOF
 chmod 0755 "$mock_runuser" "$probe"
@@ -58,6 +59,7 @@ forced_output="$(
 grep -Fqx "pwd=$data_dir" <<< "$forced_output"
 grep -Fqx "home=$data_dir" <<< "$forced_output"
 grep -Fqx "runtime=/run/user/$service_uid" <<< "$forced_output"
+grep -Fqx "bus=unix:path=/run/user/$service_uid/bus" <<< "$forced_output"
 grep -Fqx 'argument=forced' <<< "$forced_output"
 
 direct_output="$(
@@ -69,6 +71,7 @@ direct_output="$(
 grep -Fqx "pwd=$data_dir" <<< "$direct_output"
 grep -Fqx "home=$data_dir" <<< "$direct_output"
 grep -Fqx "runtime=/run/user/$service_uid" <<< "$direct_output"
+grep -Fqx "bus=unix:path=/run/user/$service_uid/bus" <<< "$direct_output"
 grep -Fqx 'argument=direct' <<< "$direct_output"
 
 set +e
