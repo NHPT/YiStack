@@ -16,6 +16,29 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.6] - 2026-09-10
+
+### Added
+
+- Added `yistackctl runtime {info|images|ps}` to inspect the `yistack` user's rootless Podman runtime, images, and containers directly.
+
+### Changed
+
+- `install.sh --start`, `yistackctl start`, and `restart` now wait for frontend and backend health checks and report success only after startup and health verification pass. Failures return a nonzero status and print diagnostic entrypoints.
+- Installation now shares the lifecycle lock used by upgrade and uninstall, preventing concurrent Release, systemd, and runtime mutations.
+- The uninstaller preserves application files, data, and the service account for retry when container cleanup fails, and no longer prints success before final cleanup has succeeded.
+
+### Fixed
+
+- The service-user executor now sets `DBUS_SESSION_BUS_ADDRESS=/run/user/<uid>/bus` explicitly, preventing Podman from inheriting root's `/run/user/0/bus` and falling back to `cgroupfs`.
+- The PostgreSQL systemd unit and source installer now use the service-user executor for a stable working directory and rootless runtime environment.
+
+### Tests
+
+- Added dynamic control-command acceptance for health retries, failure reporting, runtime inspection from a root-only directory, and fail-closed uninstall behavior when runtime cleanup fails.
+
+
+
 ## [1.1.5] - 2026-09-10
 
 ### Fixed

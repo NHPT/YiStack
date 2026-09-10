@@ -16,11 +16,25 @@ WITH_POSTGRES=false
 POSTGRES_IMAGE_OVERRIDE=""
 START_SERVICES=false
 INSTALL_BROWSER=true
+LOCK_FILE="${YISTACK_UPGRADE_LOCK_FILE:-/run/lock/yistack-upgrade.lock}"
+LOCK_HELD="${YISTACK_INSTALL_LOCK_HELD:-false}"
+HEALTH_ATTEMPTS="${YISTACK_INSTALL_HEALTH_ATTEMPTS:-60}"
+HEALTH_SLEEP_SECONDS="${YISTACK_INSTALL_HEALTH_SLEEP_SECONDS:-1}"
 
 run_as_service_user() {
   YISTACK_SERVICE_USER="$SERVICE_USER" \
   YISTACK_DATA_DIR="$DATA_DIR" \
     "$RELEASE_DIR/bin/yistack-service-user-exec" "$@"
+}
+
+read_env_value() {
+  local key="$1"
+  local fallback="$2"
+  local value=""
+  if [ -r "$CONFIG_DIR/yistack.env" ]; then
+    value="$(sed -n "s/^${key}=//p" "$CONFIG_DIR/yistack.env" | tail -n 1)"
+  fi
+  printf '%s' "${value:-$fallback}"
 }
 
 usage() {
@@ -87,6 +101,22 @@ fi
 if [ "$(id -u)" -ne 0 ]; then
   echo "The deployment installer must run as root." >&2
   exit 1
+fi
+[[ "$HEALTH_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "YISTACK_INSTALL_HEALTH_ATTEMPTS must be a positive integer." >&2
+  exit 1
+}
+[[ "$HEALTH_SLEEP_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+  echo "YISTACK_INSTALL_HEALTH_SLEEP_SECONDS must be a non-negative number." >&2
+  exit 1
+}
+if [ "$LOCK_HELD" != "true" ]; then
+  mkdir -p "$(dirname "$LOCK_FILE")"
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || {
+    echo "Another YiStack installation, upgrade, or uninstall is running." >&2
+    exit 1
+  }
 fi
 if systemctl is-active --quiet yistack.target ||
   systemctl is-active --quiet yistack-backend.service; then
@@ -205,7 +235,7 @@ service_uid="$(id -u "$SERVICE_USER")"
 set_env_value "$CONFIG_DIR/yistack.env" \
   CONTAINER_SOCKET_PATH "/run/user/$service_uid/podman/podman.sock"
 
-loginctl enable-linger "$SERVICE_USER" || true
+loginctl enable-linger "$SERVICE_USER"
 systemctl start "user@${service_uid}.service"
 run_as_service_user systemctl --user enable --now podman.socket
 
@@ -250,13 +280,31 @@ fi
 
 systemctl enable yistack.target
 if [ "$START_SERVICES" = "true" ]; then
-  systemctl restart yistack.target
+  echo "Starting YiStack services and waiting for health checks..."
+  if ! YISTACK_HEALTH_ATTEMPTS="$HEALTH_ATTEMPTS" \
+    YISTACK_HEALTH_SLEEP_SECONDS="$HEALTH_SLEEP_SECONDS" \
+    "$RELEASE_DIR/bin/yistackctl" restart; then
+    echo "YiStack $VERSION was installed, but startup verification failed." >&2
+    echo "Inspect the failure with: sudo yistackctl status" >&2
+    echo "Follow service logs with: sudo yistackctl logs" >&2
+    exit 1
+  fi
 fi
 
-echo "YiStack $VERSION installed at $RELEASE_DIR"
+echo "YiStack $VERSION installation completed successfully."
+echo "Release: $RELEASE_DIR"
 echo "Configuration: $CONFIG_DIR/yistack.env"
 if [ "$START_SERVICES" = "false" ]; then
+  echo "Services: not started"
   echo "Review the configuration, then run: sudo yistackctl start"
 else
-  echo "Run 'sudo yistackctl health' to verify the deployment."
+  frontend_port="$(read_env_value FRONTEND_PORT 5000)"
+  echo "Services: started"
+  echo "Health check: passed"
+  echo "Local URL: http://127.0.0.1:$frontend_port"
+fi
+if [ "$WITH_POSTGRES" = "true" ]; then
+  echo "PostgreSQL: running as a rootless Podman container"
+  echo "Inspect it with: sudo yistackctl postgres status"
+  echo "List its image with: sudo yistackctl runtime images"
 fi

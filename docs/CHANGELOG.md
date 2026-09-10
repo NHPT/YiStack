@@ -14,6 +14,29 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 暂无公开变更。
 
+## [1.1.6] - 2026-09-10
+
+### 新增
+
+- 新增 `yistackctl runtime {info|images|ps}`，直接查看 `yistack` 用户的 rootless Podman 运行信息、镜像和容器。
+
+### 变更
+
+- `install.sh --start`、`yistackctl start` 和 `restart` 自动等待前后端健康检查，只有启动和健康验证全部通过后才报告成功；失败时返回非零状态并输出诊断入口。
+- 安装与升级、卸载共享生命周期文件锁，避免并发修改 Release、systemd 和运行时状态。
+- 卸载器在容器清理失败时保留应用、数据和服务账户供重试，并且不再在最终清理失败前输出成功消息。
+
+### 修复
+
+- 服务用户执行器显式设置 `DBUS_SESSION_BUS_ADDRESS=/run/user/<uid>/bus`，避免从 root shell 继承 `/run/user/0/bus` 后让 Podman 回退到 `cgroupfs`。
+- PostgreSQL systemd unit 和源码安装器统一使用服务用户执行器，固定工作目录与 rootless 运行环境。
+
+### 测试
+
+- 新增控制命令动态验收，覆盖健康检查重试、失败报告、root-only 目录下的 runtime 查询，以及卸载运行时清理失败的关闭失败行为。
+
+
+
 ## [1.1.5] - 2026-09-10
 
 ### 修复

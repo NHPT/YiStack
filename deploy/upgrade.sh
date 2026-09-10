@@ -462,7 +462,9 @@ main() {
     install_args+=(--skip-browser-install)
   fi
   install_attempted=true
-  "$INSTALLER_PATH" "${install_args[@]}"
+  YISTACK_INSTALL_LOCK_HELD=true \
+    YISTACK_UPGRADE_LOCK_FILE="$LOCK_FILE" \
+    "$INSTALLER_PATH" "${install_args[@]}"
   restore_target_enablement
 
   run_database_command "$INSTALL_ROOT/current" plan >/dev/null
@@ -487,7 +489,10 @@ main() {
   fi
   echo "YiStack upgraded from $current_version to $target_version."
   echo "Database backup retained at $backup_path"
-  if [ "$application_was_active" != "true" ]; then
+  if [ "$application_was_active" = "true" ]; then
+    echo "Services: restored"
+    echo "Health check: passed"
+  else
     echo "YiStack was stopped before the upgrade and remains stopped."
   fi
 }

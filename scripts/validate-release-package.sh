@@ -220,7 +220,7 @@ grep -Fq -- "--postgres-image IMAGE" <<< "$install_help" || {
 "$package_root/bin/yistack-uninstall" --help >/dev/null
 "$package_root/bin/yistack-ephemeral-maintenance" --help >/dev/null
 yistackctl_help="$("$package_root/bin/yistackctl" help)"
-for command in start stop restart status logs health postgres database upgrade uninstall ephemeral completion; do
+for command in start stop restart status logs health runtime postgres database upgrade uninstall ephemeral completion; do
   grep -Eq "^  ${command}( |$)" <<< "$yistackctl_help" || {
     echo "yistackctl help is missing the $command command." >&2
     exit 1
@@ -245,6 +245,19 @@ completion_result="$(
 )"
 grep -Fqx ephemeral <<< "$completion_result" || {
   echo "Bash completion does not expose the ephemeral command." >&2
+  exit 1
+}
+completion_result="$(
+  bash -c '
+    source "$1"
+    COMP_WORDS=(yistackctl runtime im)
+    COMP_CWORD=2
+    _yistackctl
+    printf "%s\n" "${COMPREPLY[@]}"
+  ' _ "$completion_script"
+)"
+grep -Fqx images <<< "$completion_result" || {
+  echo "Bash completion does not expose runtime images." >&2
   exit 1
 }
 completion_result="$(
@@ -281,10 +294,21 @@ cat > "$mock_bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
 EOF
-chmod 0755 "$mock_bin/systemctl"
+cat > "$mock_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+case "${!#}" in
+  */api/health)
+    printf '{"status":"ok"}'
+    ;;
+esac
+EOF
+chmod 0755 "$mock_bin/systemctl" "$mock_bin/curl"
 for command in start stop restart; do
-  PATH="$mock_bin:$PATH" SYSTEMCTL_LOG="$systemctl_log" \
-    "$package_root/bin/yistackctl" "$command"
+  PATH="$mock_bin:$PATH" \
+  SYSTEMCTL_LOG="$systemctl_log" \
+  YISTACK_HEALTH_ATTEMPTS=1 \
+  YISTACK_HEALTH_SLEEP_SECONDS=0 \
+    "$package_root/bin/yistackctl" "$command" >/dev/null
 done
 printf '%s\n' \
   'start yistack.target' \

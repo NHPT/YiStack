@@ -37,6 +37,7 @@ ENV_FILE="${ENV_FILE:-$CONFIG_DIR/yistack.env}"
 SOCKET_PATH="${SOCKET_PATH:-}"
 PODMAN_CONFIGURE_MIRRORS="${PODMAN_CONFIGURE_MIRRORS:-true}"
 PODMAN_DOCKER_IO_MIRRORS="${PODMAN_DOCKER_IO_MIRRORS:-https://docker.1ms.run https://docker.xuanyuan.me https://docker.1panel.live https://dockerproxy.net}"
+SERVICE_USER_EXEC="${YISTACK_SERVICE_USER_EXEC:-$ROOT_DIR/deploy/bin/yistack-service-user-exec}"
 OS_ID=""
 OS_VERSION_ID=""
 OS_VERSION_CODENAME=""
@@ -108,6 +109,13 @@ run_privileged() {
   fi
   echo "❌ 当前需要 root 或 sudo 权限执行安装: $*"
   exit 1
+}
+
+run_as_service_user() {
+  run_privileged env \
+    YISTACK_SERVICE_USER="$SERVICE_USER" \
+    YISTACK_DATA_DIR="$DATA_DIR" \
+    "$SERVICE_USER_EXEC" "$@"
 }
 
 default_socket_path() {
@@ -296,8 +304,8 @@ configure_podman_registry_mirrors() {
     local config_file="$config_dir/registries.conf"
     run_privileged mkdir -p "$config_dir"
     run_privileged chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$DATA_DIR/.config"
-    run_privileged runuser -u "$SERVICE_USER" -- mkdir -p "$config_dir"
-    run_privileged runuser -u "$SERVICE_USER" -- bash -c "$(declare -f write_podman_registry_config_file); PODMAN_DOCKER_IO_MIRRORS=\"$PODMAN_DOCKER_IO_MIRRORS\" write_podman_registry_config_file \"$config_file\""
+    run_as_service_user mkdir -p "$config_dir"
+    run_as_service_user bash -c "$(declare -f write_podman_registry_config_file); PODMAN_DOCKER_IO_MIRRORS=\"$PODMAN_DOCKER_IO_MIRRORS\" write_podman_registry_config_file \"$config_file\""
     run_privileged chown "$SERVICE_USER":"$SERVICE_GROUP" "$config_file"
     echo "✅ 已写入 Podman registry mirror 配置: $config_file"
     return
@@ -384,10 +392,8 @@ ensure_runtime_service() {
 
   echo "🔌 启动 Podman Socket..."
   if [ "$INSTALL_MODE" = "production" ]; then
-    local service_uid
-    service_uid="$(id -u "$SERVICE_USER")"
-    run_privileged loginctl enable-linger "$SERVICE_USER" || true
-    run_privileged runuser -u "$SERVICE_USER" -- env XDG_RUNTIME_DIR="/run/user/$service_uid" systemctl --user enable --now podman.socket || true
+    run_privileged loginctl enable-linger "$SERVICE_USER"
+    run_as_service_user systemctl --user enable --now podman.socket || true
     return
   fi
 
@@ -529,10 +535,7 @@ preheat_runtime_images() {
 
   echo "🔥 预热常用开发镜像..."
   if [ "$INSTALL_MODE" = "production" ]; then
-    local service_uid
-    service_uid="$(id -u "$SERVICE_USER")"
-    run_privileged runuser -u "$SERVICE_USER" -- env \
-      XDG_RUNTIME_DIR="/run/user/$service_uid" \
+    run_as_service_user env \
       CONTAINER_RUNTIME="$RUNTIME" \
       "$ROOT_DIR/scripts/preheat.sh" || true
     return
@@ -548,6 +551,11 @@ main() {
   echo "   Runtime: $RUNTIME"
   echo "   Install mode: $INSTALL_MODE"
   echo "   OS: ${OS_ID:-unknown} ${OS_VERSION_ID:-unknown} ${OS_VERSION_CODENAME:-}"
+
+  if [ "$INSTALL_MODE" = "production" ] && [ ! -x "$SERVICE_USER_EXEC" ]; then
+    echo "❌ 缺少服务用户执行器: $SERVICE_USER_EXEC"
+    exit 1
+  fi
 
   ensure_runtime
   ensure_service_user
@@ -568,7 +576,7 @@ main() {
     if [ "$INSTALL_MODE" = "production" ]; then
       echo "   请确认 $SERVICE_USER 用户的 rootless podman.socket 已启动。"
       echo "   可手动执行: sudo loginctl enable-linger $SERVICE_USER"
-      echo "             sudo runuser -u $SERVICE_USER -- systemctl --user enable --now podman.socket"
+      echo "             sudo env YISTACK_SERVICE_USER=$SERVICE_USER YISTACK_DATA_DIR=$DATA_DIR $SERVICE_USER_EXEC systemctl --user enable --now podman.socket"
     else
       echo "   请确认当前用户的 rootless podman.socket 已启动。"
     fi

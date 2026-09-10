@@ -52,6 +52,7 @@ cat > "$mock_bin/podman" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "${MOCK_PODMAN_LOG:?}"
+[ "${MOCK_PODMAN_FAIL:-false}" != true ] || exit 1
 case "$*" in
   "ps -aq --filter label=yistack.project_id")
     printf '%s\n' project-one project-two
@@ -125,6 +126,7 @@ run_uninstall() {
     cd "$case_root/root-only"
     env \
     PATH="$mock_bin:$PATH" \
+    MOCK_PODMAN_FAIL="${MOCK_PODMAN_FAIL:-false}" \
     MOCK_ACCOUNT_LOG="$case_root/account.log" \
     MOCK_LOGINCTL_LOG="$case_root/loginctl.log" \
     MOCK_FLOCK_LOG="$case_root/flock.log" \
@@ -172,6 +174,7 @@ grep -Fq 'stop --time 20 yistack-postgres' "$preserve_root/podman.log"
 [ ! -s "$preserve_root/account.log" ]
 grep -Fq "$service_user:100000:65536" "$preserve_root/subuid"
 [ -z "$(find "$preserve_root/tmp" -mindepth 1 -print -quit)" ]
+[ -f "$preserve_root/run/lock/yistack-upgrade.lock" ]
 
 purge_root="$root/purge"
 prepare_case "$purge_root"
@@ -187,6 +190,7 @@ grep -Fq "groupdel $service_group" "$purge_root/account.log"
 ! grep -Fq "$service_user:" "$purge_root/subuid"
 grep -Fq 'keep:200000:65536' "$purge_root/subuid"
 [ -z "$(find "$purge_root/tmp" -mindepth 1 -print -quit)" ]
+[ -f "$purge_root/run/lock/yistack-upgrade.lock" ]
 
 lock_root="$root/lock"
 prepare_case "$lock_root"
@@ -197,8 +201,25 @@ set -e
 [ "$lock_status" -ne 0 ]
 [ -d "$lock_root/install" ]
 [ ! -s "$lock_root/systemctl.log" ]
-grep -Fq 'another YiStack upgrade or uninstall is running' "$lock_root/output"
+grep -Fq 'another YiStack installation, upgrade, or uninstall is running' "$lock_root/output"
 [ -z "$(find "$lock_root/tmp" -mindepth 1 -print -quit)" ]
+
+cleanup_failure_root="$root/cleanup-failure"
+prepare_case "$cleanup_failure_root"
+set +e
+MOCK_PODMAN_FAIL=true \
+  run_uninstall "$cleanup_failure_root" --purge \
+  > "$cleanup_failure_root/output" 2>&1
+cleanup_failure_status="$?"
+set -e
+[ "$cleanup_failure_status" -ne 0 ]
+[ -d "$cleanup_failure_root/install" ]
+[ -d "$cleanup_failure_root/data" ]
+[ -d "$cleanup_failure_root/config" ]
+[ -e "$cleanup_failure_root/usr/local/bin/yistackctl" ]
+[ ! -s "$cleanup_failure_root/account.log" ]
+grep -Fq 'managed runtime cleanup failed' "$cleanup_failure_root/output"
+! grep -Fq 'local data, and service account removed' "$cleanup_failure_root/output"
 
 unsafe_root="$root/unsafe"
 prepare_case "$unsafe_root"

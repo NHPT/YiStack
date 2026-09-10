@@ -12,9 +12,11 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.5**, a service-user execution boundary fix for the
-> v1.1 series. Installation, upgrade, uninstall, and maintenance enter an accessible
-> data directory before switching to `yistack`, including when installing from `/root`. Its stability scope is limited to
+> Current release: **v1.1.6**, a deployment observability and result-reporting
+> fix for the v1.1 series. Installation and service startup wait for health
+> checks, rootless Podman uses an isolated service-user environment, and all
+> lifecycle commands support execution from restricted directories such as
+> `/root`. Its stability scope is limited to
 > the capabilities documented in this README and
 > [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the current
 > Release's `database/init.sql`; existing installations use the one-command
@@ -171,6 +173,7 @@ commands are only needed when diagnosing a specific unit:
 | `sudo yistackctl status` | Show frontend, backend, and browser worker status |
 | `sudo yistackctl logs [SINCE]` | Follow service logs, starting from today by default |
 | `sudo yistackctl health` | Verify frontend and backend health |
+| `sudo yistackctl runtime {info\|images\|ps}` | Inspect the `yistack` rootless Podman runtime, images, and containers |
 | `sudo yistackctl postgres {start\|init\|stop\|status\|logs}` | Manage the installer-provided PostgreSQL container |
 | `sudo yistackctl database {status\|plan\|migrate\|verify\|rollback}` | Manage database migrations |
 | `sudo yistackctl upgrade <release-directory\|release.tar.gz>` | Run a verified one-command upgrade |
@@ -179,9 +182,10 @@ commands are only needed when diagnosing a specific unit:
 | `sudo yistackctl ephemeral {snapshot\|reset\|cleanup\|enforce\|apply-schedule\|status}` | Manage Ephemeral Experience Mode |
 | `yistackctl help` | Show complete command help |
 
-`start`, `stop`, and `restart` control only the application services and leave
-PostgreSQL running. Manage the database container separately with
-`yistackctl postgres`.
+`start` and `restart` wait for frontend and backend health checks before
+reporting success; `stop` reports completion only after systemd succeeds. These
+commands control only the application services and leave PostgreSQL running.
+Manage the database container separately with `yistackctl postgres`.
 
 Configuration is separated by responsibility:
 
@@ -259,8 +263,19 @@ To run the YiStack control-plane database without Supabase, let the installer cr
 ```bash
 sudo ./install.sh --with-postgres --start
 sudo yistackctl postgres status
-sudo yistackctl health
+sudo yistackctl runtime images
 ```
+
+With `--start`, the installer waits for frontend and backend health checks and
+reports success only after installation, startup, and health verification all
+pass. Failures return a nonzero status and print status and log commands.
+
+The PostgreSQL image and container belong to the `yistack` user's rootless
+Podman runtime. Its default image store is
+`/var/lib/yistack/.local/share/containers/storage`. Running `podman images` as
+root inspects the separate `/var/lib/containers/storage`; use
+`sudo yistackctl runtime images` instead. The system-level
+`yistack-postgres.service` starts the database as `yistack`.
 
 The installer generates the database password in `/etc/yistack/postgres.env`, then applies the Supabase SQL compatibility layer and `database/init.sql`. This mode provides YiStack's own PostgreSQL database and traditional JWT authentication. It does not provide Supabase Auth, Storage, or other managed services; generated applications that depend on Supabase still need a separate Supabase project.
 
@@ -324,16 +339,16 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 The controllers installed by v1.1.0 and v1.1.1 still check for a colocated
 `.sha256` before reading a new Release and extract archives under a root-only
-temporary directory. For the first upgrade from either version to v1.1.5,
+temporary directory. For the first upgrade from either version to v1.1.6,
 extract the archive and pass the directory to the same public command. This
 path does not require a sidecar:
 
 ```bash
-tar -xzf yistack-v1.1.5-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.5-linux-amd64
+tar -xzf yistack-v1.1.6-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.6-linux-amd64
 ```
 
-After upgrading to v1.1.5, later upgrades can consume `.tar.gz` archives
+After upgrading to v1.1.6, later upgrades can consume `.tar.gz` archives
 directly without a colocated `.sha256`.
 
 The command verifies the Release and forward-only version direction, preflights

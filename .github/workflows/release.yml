@@ -143,6 +143,8 @@ jobs:
             "${{ matrix.arch }}"
           scripts/validate-service-user-cwd.sh \
             "dist/release/yistack-${{ github.ref_name }}-linux-${{ matrix.arch }}"
+          scripts/validate-release-control.sh \
+            "dist/release/yistack-${{ github.ref_name }}-linux-${{ matrix.arch }}"
           scripts/validate-release-postgres-runtime.sh \
             "dist/release/yistack-${{ github.ref_name }}-linux-${{ matrix.arch }}"
           scripts/validate-release-upgrade.sh \

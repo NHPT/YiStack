@@ -9,8 +9,9 @@ RemainAfterExit=yes
 User=yistack
 Group=yistack
 Environment=HOME=/var/lib/yistack
-ExecStart=/opt/yistack/current/bin/yistack-postgres start
-ExecStop=/opt/yistack/current/bin/yistack-postgres stop
+WorkingDirectory=/var/lib/yistack
+ExecStart=/opt/yistack/current/bin/yistack-service-user-exec /opt/yistack/current/bin/yistack-postgres start
+ExecStop=/opt/yistack/current/bin/yistack-service-user-exec /opt/yistack/current/bin/yistack-postgres stop
 TimeoutStartSec=180
 TimeoutStopSec=30
 
