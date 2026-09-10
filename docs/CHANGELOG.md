@@ -14,6 +14,17 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 暂无公开变更。
 
+## [1.1.5] - 2026-09-10
+
+### 修复
+
+- 修复从 `/root` 等仅 root 可访问目录执行安装时，`runuser` 继承调用者当前目录并导致 Podman、Playwright 或 PostgreSQL 初始化报 `cannot chdir` 的问题。
+- 安装、升级备份、`yistackctl postgres`、卸载和无痕维护统一通过包内服务用户执行器，在切换到 `yistack` 前进入 `/var/lib/yistack`。
+
+### 测试
+
+- 新增 `0700` 调用目录回归，动态验证 root → `yistack` 和已处于服务用户两条路径的 `PWD`、`HOME` 与 `XDG_RUNTIME_DIR`。
+
 ## [1.1.4] - 2026-09-09
 
 ### 新增

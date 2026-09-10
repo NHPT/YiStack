@@ -16,6 +16,17 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.5] - 2026-09-10
+
+### Fixed
+
+- Fixed `cannot chdir` failures in Podman, Playwright, or PostgreSQL initialization when installation starts from a root-only directory such as `/root` and `runuser` inherits the caller's working directory.
+- Installation, upgrade backups, `yistackctl postgres`, uninstall, and ephemeral maintenance now use one packaged service-user executor that enters `/var/lib/yistack` before switching to `yistack`.
+
+### Tests
+
+- Added a `0700` caller-directory regression that dynamically verifies `PWD`, `HOME`, and `XDG_RUNTIME_DIR` for both root-to-`yistack` and already-service-user execution.
+
 ## [1.1.4] - 2026-09-09
 
 ### Added

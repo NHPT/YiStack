@@ -13,6 +13,7 @@ for required_file in \
   VERSION \
   bin/yistack-database-backup \
   bin/yistack-postgres \
+  bin/yistack-service-user-exec \
   bin/yistack-server \
   bin/yistackctl \
   database/migrations/manifest.json \
@@ -139,6 +140,10 @@ cat > "$mock_root/runuser" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 filtered=()
+[ "$PWD" = "${MOCK_EXPECTED_SERVICE_CWD:?}" ] || {
+  echo "Service-user command inherited an unsafe working directory: $PWD" >&2
+  exit 1
+}
 if [ "${MOCK_DENY_PACKAGE_HELPER:-false}" = "true" ]; then
   for argument in "$@"; do
     [ "$argument" != "$YISTACK_PACKAGE_ROOT/bin/yistack-database-backup" ] || {
@@ -221,7 +226,9 @@ prepare_case() {
     "$case_root/install/releases/local-notes" \
     "$case_root/config" \
     "$case_root/data/database-backups" \
+    "$case_root/root-only" \
     "$case_root/systemd"
+  chmod 0700 "$case_root/root-only"
   printf 'v1.0.0\n' > "$old_release/VERSION"
   cp "$mock_root/old-yistackctl" "$old_release/bin/yistackctl"
   for unit in "$PACKAGE_ROOT"/systemd/*; do
@@ -251,8 +258,11 @@ EOF
 
 run_upgrade() {
   local case_root="$1"
-  env \
+  (
+    cd "$case_root/root-only"
+    env \
     MOCK_DENY_PACKAGE_HELPER="${MOCK_DENY_PACKAGE_HELPER:-false}" \
+    MOCK_EXPECTED_SERVICE_CWD="$case_root/data" \
     MOCK_NEW_HEALTH_FAIL="${MOCK_NEW_HEALTH_FAIL:-false}" \
     MOCK_NEW_YISTACKCTL="$mock_root/new-yistackctl" \
     MOCK_SYSTEMCTL_ENABLED="$case_root/systemctl.enabled" \
@@ -267,6 +277,7 @@ run_upgrade() {
     YISTACK_PACKAGE_ROOT="$PACKAGE_ROOT" \
     YISTACK_POSTGRES_ENV_FILE="$postgres_env" \
     YISTACK_RUNUSER_BIN="$mock_root/runuser" \
+    YISTACK_SERVICE_EXEC_SKIP_ROOT_CHECK=true \
     YISTACK_SERVICE_GROUP="$(id -gn)" \
     YISTACK_SERVICE_USER="$(id -un)" \
     YISTACK_SKIP_ROOT_CHECK=true \
@@ -276,6 +287,7 @@ run_upgrade() {
     YISTACK_UPGRADE_HEALTH_SLEEP_SECONDS=0 \
     YISTACK_UPGRADE_LOCK_FILE="$case_root/upgrade.lock" \
       "$PACKAGE_ROOT/upgrade.sh" --skip-browser-install
+  )
 }
 
 database_contract() {

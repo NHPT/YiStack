@@ -12,9 +12,9 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.4**, a deployment lifecycle update for the v1.1
-> series. Successful upgrades remove historical Releases, and uninstall commands
-> support either preserving or purging local data. Its stability scope is limited to
+> Current release: **v1.1.5**, a service-user execution boundary fix for the
+> v1.1 series. Installation, upgrade, uninstall, and maintenance enter an accessible
+> data directory before switching to `yistack`, including when installing from `/root`. Its stability scope is limited to
 > the capabilities documented in this README and
 > [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the current
 > Release's `database/init.sql`; existing installations use the one-command
@@ -139,6 +139,10 @@ tar -xzf yistack-vX.Y.Z-linux-amd64.tar.gz
 cd yistack-vX.Y.Z-linux-amd64
 sudo ./install.sh
 ```
+
+The package may be extracted under a root-only directory such as `/root`. After
+copying and verifying the Release, the installer enters `/var/lib/yistack` before
+every `yistack` command instead of inheriting the caller's root-only directory.
 
 The installer verifies the internal `MANIFEST.sha256`, creates the `yistack` system user, configures rootless Podman, installs the systemd units and Playwright Chromium, and uses these stable paths:
 
@@ -320,16 +324,16 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 The controllers installed by v1.1.0 and v1.1.1 still check for a colocated
 `.sha256` before reading a new Release and extract archives under a root-only
-temporary directory. For the first upgrade from either version to v1.1.4,
+temporary directory. For the first upgrade from either version to v1.1.5,
 extract the archive and pass the directory to the same public command. This
 path does not require a sidecar:
 
 ```bash
-tar -xzf yistack-v1.1.4-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.4-linux-amd64
+tar -xzf yistack-v1.1.5-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.5-linux-amd64
 ```
 
-After upgrading to v1.1.4, later upgrades can consume `.tar.gz` archives
+After upgrading to v1.1.5, later upgrades can consume `.tar.gz` archives
 directly without a colocated `.sha256`.
 
 The command verifies the Release and forward-only version direction, preflights
