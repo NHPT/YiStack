@@ -174,7 +174,6 @@ jobs:
           if-no-files-found: error
           path: |
             dist/release/yistack-${{ github.ref_name }}-linux-${{ matrix.arch }}.tar.gz
-            dist/release/yistack-${{ github.ref_name }}-linux-${{ matrix.arch }}.tar.gz.sha256
             dist/release/yistack-${{ github.ref_name }}-linux-${{ matrix.arch }}.spdx.json
 
   publish:
@@ -190,10 +189,6 @@ jobs:
           pattern: release-*
           path: release-assets
           merge-multiple: true
-
-      - name: Generate combined checksums
-        working-directory: release-assets
-        run: sha256sum *.tar.gz *.spdx.json > SHA256SUMS
 
       - name: Create or update GitHub Release
         env:

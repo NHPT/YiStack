@@ -274,7 +274,8 @@ if [ "$WITH_POSTGRES" = "true" ]; then
   set_env_value "$CONFIG_DIR/yistack.env" DB_PASSWORD "$postgres_password"
   set_env_value "$CONFIG_DIR/yistack.env" DB_NAME yistack
   set_env_value "$CONFIG_DIR/yistack.env" DB_SSL_MODE disable
-  systemctl enable --now yistack-postgres.service
+  systemctl enable yistack-postgres.service
+  systemctl restart yistack-postgres.service
   run_as_service_user "$RELEASE_DIR/bin/yistack-postgres" init
 fi
 

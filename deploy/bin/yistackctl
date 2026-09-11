@@ -92,7 +92,7 @@ _yistackctl() {
   case "$command" in
     postgres)
       mapfile -t COMPREPLY < <(
-        compgen -W "start init stop status logs" -- "$current"
+        compgen -W "start restart init stop status inspect logs" -- "$current"
       )
       ;;
     runtime)
@@ -142,7 +142,7 @@ Service commands:
 
 Runtime, database, and release commands:
   runtime {info|images|ps}       Inspect the yistack rootless Podman runtime
-  postgres {start|init|stop|status|logs}
+  postgres {start|restart|init|stop|status|inspect|logs}
   database {status|plan|migrate|verify|rollback}
   upgrade <release-directory|release.tar.gz>
   uninstall [--purge]           Remove YiStack; --purge also deletes local data
@@ -301,8 +301,29 @@ case "${1:-status}" in
     ;;
   postgres)
     shift
-    run_as_service_user \
-      "$CURRENT_RELEASE/bin/yistack-postgres" "${1:-status}"
+    postgres_command="${1:-status}"
+    case "$postgres_command" in
+      start)
+        systemctl start yistack-postgres.service
+        echo "YiStack PostgreSQL started and is ready."
+        ;;
+      restart)
+        systemctl restart yistack-postgres.service
+        echo "YiStack PostgreSQL restarted and is ready."
+        ;;
+      stop)
+        systemctl stop yistack-postgres.service
+        echo "YiStack PostgreSQL stopped."
+        ;;
+      init | status | inspect | logs)
+        run_as_service_user \
+          "$CURRENT_RELEASE/bin/yistack-postgres" "$postgres_command"
+        ;;
+      *)
+        echo "Usage: yistackctl postgres {start|restart|init|stop|status|inspect|logs}" >&2
+        exit 2
+        ;;
+    esac
     ;;
   runtime)
     shift

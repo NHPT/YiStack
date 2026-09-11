@@ -19,6 +19,7 @@ source "$CONFIG_FILE"
 : "${POSTGRES_DB:=yistack}"
 : "${POSTGRES_PORT:=5432}"
 : "${POSTGRES_DATA_DIR:=/var/lib/yistack/postgres}"
+: "${POSTGRES_LOG_DRIVER:=k8s-file}"
 
 if [ -z "${POSTGRES_PASSWORD:-}" ]; then
   echo "POSTGRES_PASSWORD must be configured in $CONFIG_FILE" >&2
@@ -31,6 +32,43 @@ container_exists() {
 
 container_running() {
   [ "$(podman inspect --format '{{.State.Running}}' "$POSTGRES_CONTAINER_NAME" 2>/dev/null || true)" = "true" ]
+}
+
+replace_container_with_legacy_log_driver() {
+  local replace_running="${1:-false}"
+  local container_role=""
+  local current_data_dir=""
+  local current_log_driver=""
+  local expected_data_dir=""
+
+  container_exists || return 0
+  current_log_driver="$(
+    podman inspect --format '{{.HostConfig.LogConfig.Type}}' \
+      "$POSTGRES_CONTAINER_NAME"
+  )"
+  [ "$current_log_driver" = "$POSTGRES_LOG_DRIVER" ] && return 0
+
+  container_role="$(
+    podman inspect --format '{{index .Config.Labels "io.yistack.role"}}' \
+      "$POSTGRES_CONTAINER_NAME"
+  )"
+  current_data_dir="$(
+    podman inspect --format \
+      '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Source}}{{end}}{{end}}' \
+      "$POSTGRES_CONTAINER_NAME"
+  )"
+  expected_data_dir="${POSTGRES_DATA_DIR%/}"
+  if [ "$container_role" != database ] ||
+    [ "$current_data_dir" != "$expected_data_dir" ]; then
+    echo "Refusing to replace PostgreSQL container with an unverified data mount: $POSTGRES_CONTAINER_NAME" >&2
+    return 1
+  fi
+  if container_running; then
+    [ "$replace_running" = "true" ] || return 0
+    podman stop --time 20 "$POSTGRES_CONTAINER_NAME" >/dev/null
+  fi
+  echo "Recreating PostgreSQL container to use $POSTGRES_LOG_DRIVER logs..." >&2
+  podman rm "$POSTGRES_CONTAINER_NAME" >/dev/null
 }
 
 wait_until_ready() {
@@ -48,28 +86,51 @@ wait_until_ready() {
   return 1
 }
 
-start_database() {
+create_database_container() {
+  local replace_running="${1:-false}"
+
   mkdir -p "$POSTGRES_DATA_DIR"
-  if container_exists; then
-    if ! container_running; then
-      podman start "$POSTGRES_CONTAINER_NAME" >/dev/null
-    fi
-  else
-    podman run \
-      --detach \
-      --name "$POSTGRES_CONTAINER_NAME" \
-      --label io.yistack.role=database \
-      --cpus 1 \
-      --memory 1g \
-      --pids-limit 256 \
-      --env "POSTGRES_USER=$POSTGRES_USER" \
-      --env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
-      --env "POSTGRES_DB=$POSTGRES_DB" \
-      --publish "127.0.0.1:${POSTGRES_PORT}:5432" \
-      --volume "$POSTGRES_DATA_DIR:/var/lib/postgresql/data:Z,U" \
-      "$POSTGRES_IMAGE" >/dev/null
+  replace_container_with_legacy_log_driver "$replace_running"
+  container_exists && return 0
+  podman create \
+    --name "$POSTGRES_CONTAINER_NAME" \
+    --label io.yistack.role=database \
+    --cpus 1 \
+    --memory 1g \
+    --pids-limit 256 \
+    --log-driver "$POSTGRES_LOG_DRIVER" \
+    --env "POSTGRES_USER=$POSTGRES_USER" \
+    --env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+    --env "POSTGRES_DB=$POSTGRES_DB" \
+    --publish "127.0.0.1:${POSTGRES_PORT}:5432" \
+    --volume "$POSTGRES_DATA_DIR:/var/lib/postgresql/data:Z,U" \
+    "$POSTGRES_IMAGE" >/dev/null
+}
+
+start_database() {
+  create_database_container false
+  if ! container_running; then
+    podman start "$POSTGRES_CONTAINER_NAME" >/dev/null
   fi
   wait_until_ready
+}
+
+supervise_database() {
+  create_database_container true
+  if container_running; then
+    exec podman attach --no-stdin --sig-proxy=false "$POSTGRES_CONTAINER_NAME"
+  fi
+  exec podman start --attach --sig-proxy=false "$POSTGRES_CONTAINER_NAME"
+}
+
+inspect_database() {
+  if ! container_exists; then
+    echo "missing"
+    return 3
+  fi
+  podman inspect --format \
+    'status={{.State.Status}} exit_code={{.State.ExitCode}} oom_killed={{.State.OOMKilled}} started_at={{.State.StartedAt}} finished_at={{.State.FinishedAt}} error={{.State.Error}}' \
+    "$POSTGRES_CONTAINER_NAME"
 }
 
 initialize_database() {
@@ -138,11 +199,24 @@ case "${1:-status}" in
       exit 3
     fi
     ;;
+  inspect)
+    inspect_database
+    ;;
+  supervise)
+    supervise_database
+    ;;
+  wait-ready)
+    wait_until_ready
+    ;;
   logs)
-    exec podman logs --tail 200 "$POSTGRES_CONTAINER_NAME"
+    if ! podman logs --tail 200 "$POSTGRES_CONTAINER_NAME"; then
+      echo "Unable to read PostgreSQL container logs; current container state:" >&2
+      inspect_database >&2 || true
+      exit 1
+    fi
     ;;
   *)
-    echo "Usage: yistack-postgres {start|init|stop|status|logs}" >&2
+    echo "Usage: yistack-postgres {start|init|stop|status|inspect|supervise|wait-ready|logs}" >&2
     exit 2
     ;;
 esac
