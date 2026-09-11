@@ -23,7 +23,7 @@ for required_file in \
     exit 1
   fi
 done
-for command in curl podman realpath; do
+for command in curl podman realpath sed timeout; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Missing PostgreSQL runtime validation command: $command" >&2
     exit 1
@@ -36,9 +36,12 @@ data_dir="$(mktemp -d "${TMPDIR:-/tmp}/yistack-release-pg.XXXXXX")"
 postgres_env="$(mktemp "${TMPDIR:-/tmp}/yistack-release-pg-env.XXXXXX")"
 backend_log="$(mktemp "${TMPDIR:-/tmp}/yistack-release-backend.XXXXXX")"
 health_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-health.XXXXXX")"
+unhealthy_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-unhealthy.XXXXXX")"
+supervisor_log="$(mktemp "${TMPDIR:-/tmp}/yistack-release-pg-supervisor.XXXXXX")"
 register_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-register.XXXXXX")"
 ephemeral_root="$(mktemp -d "${TMPDIR:-/tmp}/yistack-release-ephemeral.XXXXXX")"
 backend_pid=""
+supervisor_pid=""
 port_offset="$((RANDOM % 500))"
 postgres_port="$((55000 + port_offset))"
 backend_port="$((56000 + port_offset))"
@@ -48,9 +51,19 @@ cleanup() {
     kill "$backend_pid" >/dev/null 2>&1 || true
     wait "$backend_pid" >/dev/null 2>&1 || true
   fi
+  if [ -n "$supervisor_pid" ]; then
+    kill "$supervisor_pid" >/dev/null 2>&1 || true
+    wait "$supervisor_pid" >/dev/null 2>&1 || true
+  fi
   podman rm --force "$container_name" >/dev/null 2>&1 || true
   podman unshare rm -rf "$data_dir" >/dev/null 2>&1 || true
-  rm -f "$postgres_env" "$backend_log" "$health_body" "$register_body"
+  rm -f \
+    "$postgres_env" \
+    "$backend_log" \
+    "$health_body" \
+    "$unhealthy_body" \
+    "$supervisor_log" \
+    "$register_body"
   rm -rf "$ephemeral_root"
 }
 trap cleanup EXIT
@@ -62,12 +75,28 @@ printf '%s\n' \
   'POSTGRES_PASSWORD=release-runtime-test-password' \
   'POSTGRES_DB=yistack' \
   "POSTGRES_PORT=$postgres_port" \
-  "POSTGRES_DATA_DIR=$data_dir" > "$postgres_env"
+  "POSTGRES_DATA_DIR=$data_dir" \
+  'POSTGRES_LOG_DRIVER=none' > "$postgres_env"
+
+run_postgres() {
+  YISTACK_POSTGRES_ENV_FILE="$postgres_env" \
+    "$PACKAGE_ROOT/bin/yistack-postgres" "$@"
+}
+
+run_postgres start
+legacy_container_id="$(podman inspect --format '{{.Id}}' "$container_name")"
+[ "$(podman inspect --format '{{.HostConfig.LogConfig.Type}}' "$container_name")" = none ]
+run_postgres stop
+sed -i 's/^POSTGRES_LOG_DRIVER=none$/POSTGRES_LOG_DRIVER=k8s-file/' "$postgres_env"
 
 for _ in 1 2; do
-  YISTACK_POSTGRES_ENV_FILE="$postgres_env" \
-    "$PACKAGE_ROOT/bin/yistack-postgres" init
+  run_postgres init
 done
+current_container_id="$(podman inspect --format '{{.Id}}' "$container_name")"
+if [ "$current_container_id" = "$legacy_container_id" ]; then
+  echo "PostgreSQL container was not recreated to migrate its log driver." >&2
+  exit 1
+fi
 
 run_package_database() {
   YISTACK_SKIP_DOTENV=true \
@@ -253,6 +282,61 @@ if ! grep -q '"status":"ok"' "$health_body"; then
   exit 1
 fi
 
+assert_backend_unhealthy() {
+  local unhealthy_status=""
+  unhealthy_status="$(curl --silent --show-error \
+    --output "$unhealthy_body" \
+    --write-out '%{http_code}' \
+    "http://127.0.0.1:$backend_port/api/health")"
+  if [ "$unhealthy_status" != 503 ] ||
+    ! grep -q '"database":"unavailable"' "$unhealthy_body"; then
+    echo "Backend health did not report the stopped database:" >&2
+    cat "$unhealthy_body" >&2
+    return 1
+  fi
+}
+
+run_postgres stop
+assert_backend_unhealthy
+
+timeout 180s env \
+  YISTACK_POSTGRES_ENV_FILE="$postgres_env" \
+  "$PACKAGE_ROOT/bin/yistack-postgres" supervise \
+  > "$supervisor_log" 2>&1 &
+supervisor_pid=$!
+run_postgres wait-ready
+kill -0 "$supervisor_pid"
+curl --fail --silent --show-error \
+  "http://127.0.0.1:$backend_port/api/health" > "$health_body"
+grep -q '"database":"ok"' "$health_body"
+
+podman kill "$container_name" >/dev/null
+set +e
+wait "$supervisor_pid"
+supervisor_status="$?"
+set -e
+supervisor_pid=""
+if [ "$supervisor_status" -ne 137 ]; then
+  echo "PostgreSQL supervisor returned $supervisor_status after an exit-code 137 container failure." >&2
+  cat "$supervisor_log" >&2
+  exit 1
+fi
+stopped_state="$(run_postgres inspect)"
+case "$stopped_state" in
+  status=exited\ exit_code=137\ *)
+    ;;
+  *)
+    echo "Unexpected stopped PostgreSQL state: $stopped_state" >&2
+    exit 1
+    ;;
+esac
+assert_backend_unhealthy
+
+run_postgres start
+curl --fail --silent --show-error \
+  "http://127.0.0.1:$backend_port/api/health" > "$health_body"
+grep -q '"database":"ok"' "$health_body"
+
 register_status="$(curl --silent --show-error \
   --output "$register_body" \
   --write-out '%{http_code}' \
@@ -275,7 +359,10 @@ fi
 
 memory_limit="$(podman inspect --format '{{.HostConfig.Memory}}' "$container_name")"
 pids_limit="$(podman inspect --format '{{.HostConfig.PidsLimit}}' "$container_name")"
-if [ "$memory_limit" != "1073741824" ] || [ "$pids_limit" != "256" ]; then
+log_driver="$(podman inspect --format '{{.HostConfig.LogConfig.Type}}' "$container_name")"
+if [ "$memory_limit" != "1073741824" ] ||
+  [ "$pids_limit" != "256" ] ||
+  [ "$log_driver" != "k8s-file" ]; then
   echo "Unexpected PostgreSQL resource limits: memory=$memory_limit pids=$pids_limit" >&2
   exit 1
 fi

@@ -43,6 +43,7 @@ backup_name=""
 backup_path=""
 config_backup_path=""
 backup_helper_path=""
+managed_postgres=false
 
 usage() {
   cat <<'EOF'
@@ -92,6 +93,55 @@ run_database_command() {
     YISTACK_MIGRATIONS_DIR="$release_root/database/migrations" \
       "$release_root/bin/yistack-server" database "$command"
   )
+}
+
+read_config_value() {
+  local file="$1"
+  local key="$2"
+  local fallback="$3"
+  local value=""
+  if [ -r "$file" ]; then
+    value="$(sed -n "s/^${key}=//p" "$file" | tail -n 1)"
+  fi
+  printf '%s' "${value:-$fallback}"
+}
+
+detect_managed_postgres() {
+  local database_type=""
+  local database_host=""
+  database_type="$(read_config_value "$CONFIG_FILE" DB_TYPE supabase)"
+  database_host="$(read_config_value "$CONFIG_FILE" DB_HOST "")"
+  if [ "$database_type" = postgres ] &&
+    [ -r "$POSTGRES_CONFIG_FILE" ]; then
+    case "$database_host" in
+      127.0.0.1 | localhost | ::1)
+        managed_postgres=true
+        ;;
+    esac
+  fi
+}
+
+run_managed_postgres_command() {
+  local command="$1"
+  YISTACK_SERVICE_USER="$SERVICE_USER" \
+  YISTACK_DATA_DIR="$DATA_DIR" \
+  YISTACK_RUNUSER_BIN="$RUNUSER_BIN" \
+    "$SERVICE_USER_EXEC" env \
+    YISTACK_POSTGRES_ENV_FILE="$POSTGRES_CONFIG_FILE" \
+    "$PACKAGE_ROOT/bin/yistack-postgres" "$command"
+}
+
+ensure_managed_postgres_ready() {
+  local status=""
+  [ "$managed_postgres" = "true" ] || return 0
+  status="$(run_managed_postgres_command status 2>/dev/null || true)"
+  if [ "$status" != running ]; then
+    echo "Managed PostgreSQL is not running; starting it before the upgrade..."
+    run_managed_postgres_command start ||
+      die "managed PostgreSQL could not be started"
+  fi
+  run_managed_postgres_command wait-ready ||
+    die "managed PostgreSQL did not become ready"
 }
 
 run_backup_command() {
@@ -279,15 +329,34 @@ recover_failed_upgrade() {
   if [ -n "$config_backup_path" ] && [ -f "$config_backup_path" ]; then
     cp -a "$config_backup_path" "$CONFIG_FILE" || recovery_succeeded=false
   fi
+  if [ "$install_attempted" = "true" ] &&
+    [ "$managed_postgres" = "true" ]; then
+    "$SYSTEMCTL_BIN" stop yistack-postgres.service >/dev/null 2>&1 ||
+      recovery_succeeded=false
+  fi
+  if [ "$install_attempted" = "true" ]; then
+    restore_previous_release_files || recovery_succeeded=false
+  fi
+  if [ "$managed_postgres" = "true" ]; then
+    if [ "$install_attempted" = "true" ]; then
+      if ! "$SYSTEMCTL_BIN" start yistack-postgres.service >/dev/null 2>&1; then
+        recovery_succeeded=false
+        run_managed_postgres_command start >/dev/null 2>&1 ||
+          recovery_succeeded=false
+      fi
+    else
+      run_managed_postgres_command start >/dev/null 2>&1 ||
+        recovery_succeeded=false
+    fi
+    run_managed_postgres_command wait-ready >/dev/null 2>&1 ||
+      recovery_succeeded=false
+  fi
   if [ "$database_mutation_attempted" = "true" ] &&
     [ "$backup_created" = "true" ]; then
     restored_backup="$(run_backup_command restore)" || recovery_succeeded=false
     if [ -n "$restored_backup" ] && [ "$recovery_succeeded" = "true" ]; then
       echo "Database restored from $restored_backup" >&2
     fi
-  fi
-  if [ "$install_attempted" = "true" ]; then
-    restore_previous_release_files || recovery_succeeded=false
   fi
   if [ "$install_attempted" = "true" ]; then
     restore_target_enablement || recovery_succeeded=false
@@ -412,6 +481,8 @@ main() {
   [ "$highest_version" = "$target_version" ] ||
     die "downgrades are not supported: $current_version -> $target_version"
 
+  detect_managed_postgres
+  ensure_managed_postgres_ready
   echo "Preflighting database compatibility for $current_version -> $target_version..."
   run_database_command "$PACKAGE_ROOT" plan >/dev/null
 
@@ -466,6 +537,11 @@ main() {
     YISTACK_UPGRADE_LOCK_FILE="$LOCK_FILE" \
     "$INSTALLER_PATH" "${install_args[@]}"
   restore_target_enablement
+  if [ "$managed_postgres" = "true" ]; then
+    "$SYSTEMCTL_BIN" enable yistack-postgres.service
+    "$SYSTEMCTL_BIN" restart yistack-postgres.service
+    run_managed_postgres_command wait-ready
+  fi
 
   run_database_command "$INSTALL_ROOT/current" plan >/dev/null
   database_mutation_attempted=true

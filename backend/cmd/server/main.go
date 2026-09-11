@@ -88,6 +88,11 @@ func main() {
 	rateLimiter := middleware.NewRateLimiter(middleware.NewRateLimiterConfig(60))
 	h.Use(rateLimiter.RateLimit())
 
+	var healthDB *gorm.DB
+	if bootstrap.db != nil {
+		healthDB = bootstrap.db.GetDB()
+	}
+
 	// 注册路由
 	registerRoutes(
 		h,
@@ -103,6 +108,7 @@ func main() {
 		bootstrap.handlers.llmProviderHandler,
 		bootstrap.repositories.userRepo,
 		bootstrap.repositories.adminRepo,
+		healthDB,
 		bootstrap.capabilityProviderPreflight,
 		&cfg.JWT,
 	)
@@ -393,6 +399,7 @@ func registerRoutes(
 	llmProviderHandler *handler.LLMProviderHandler,
 	userRepo service.UserRepo,
 	adminRepo service.AdminRepo,
+	healthDB *gorm.DB,
 	capabilityProviderPreflight capabilityProviderPreflightSnapshot,
 	jwtCfg *config.JWTConfig,
 ) {
@@ -401,10 +408,33 @@ func registerRoutes(
 
 	// 健康检查（公开）
 	api.GET("/health", func(c context.Context, ctx *app.RequestContext) {
-		ctx.JSON(200, map[string]string{
+		health := map[string]string{
 			"service": "yistack-backend",
 			"status":  "ok",
-		})
+		}
+		if healthDB != nil {
+			sqlDB, err := healthDB.DB()
+			if err != nil {
+				ctx.JSON(503, map[string]string{
+					"service":  "yistack-backend",
+					"status":   "unhealthy",
+					"database": "unavailable",
+				})
+				return
+			}
+			healthContext, cancel := context.WithTimeout(c, 2*time.Second)
+			defer cancel()
+			if err := sqlDB.PingContext(healthContext); err != nil {
+				ctx.JSON(503, map[string]string{
+					"service":  "yistack-backend",
+					"status":   "unhealthy",
+					"database": "unavailable",
+				})
+				return
+			}
+			health["database"] = "ok"
+		}
+		ctx.JSON(200, health)
 	})
 
 	// Auth 路由（公开）

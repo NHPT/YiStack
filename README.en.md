@@ -12,11 +12,11 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.6**, a deployment observability and result-reporting
-> fix for the v1.1 series. Installation and service startup wait for health
-> checks, rootless Podman uses an isolated service-user environment, and all
-> lifecycle commands support execution from restricted directories such as
-> `/root`. Its stability scope is limited to
+> Current release: **v1.1.7**, a managed PostgreSQL reliability fix for the
+> v1.1 series. systemd continuously supervises the rootless PostgreSQL
+> container and recovers unexpected exits, backend health checks verify the
+> database connection, and upgrades restore local managed PostgreSQL before
+> preflight. Its stability scope is limited to
 > the capabilities documented in this README and
 > [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the current
 > Release's `database/init.sql`; existing installations use the one-command
@@ -124,9 +124,10 @@ Download the deployment archive from [GitHub Releases](https://github.com/NHPT/Y
 yistack-vX.Y.Z-linux-amd64.tar.gz
 ```
 
-Each Release also provides SHA-256 files for optional transfer-corruption
-checks, but a checksum stored beside an archive does not authenticate its
-source. To verify build provenance, use GitHub CLI before installation:
+GitHub Releases display an automatically generated SHA-256 digest for every
+asset, so separate checksum files are no longer published. Use the digest to
+check download integrity. To verify build provenance, use GitHub CLI before
+installation:
 
 ```bash
 gh attestation verify \
@@ -339,17 +340,17 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 The controllers installed by v1.1.0 and v1.1.1 still check for a colocated
 `.sha256` before reading a new Release and extract archives under a root-only
-temporary directory. For the first upgrade from either version to v1.1.6,
+temporary directory. For the first upgrade from either version to v1.1.7,
 extract the archive and pass the directory to the same public command. This
 path does not require a sidecar:
 
 ```bash
-tar -xzf yistack-v1.1.6-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.6-linux-amd64
+tar -xzf yistack-v1.1.7-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.7-linux-amd64
 ```
 
-After upgrading to v1.1.6, later upgrades can consume `.tar.gz` archives
-directly without a colocated `.sha256`.
+After completing this directory-based upgrade, later upgrades can consume
+`.tar.gz` archives directly without a colocated `.sha256`.
 
 The command verifies the Release and forward-only version direction, preflights
 the database, stops the application and ephemeral-experience timers, creates and
@@ -426,7 +427,7 @@ sudo yistackctl restart
 sudo yistackctl logs
 ```
 
-Each Release includes amd64/arm64 deployment archives, per-archive SHA-256 files, a combined `SHA256SUMS`, SPDX JSON SBOMs, and GitHub build provenance. The tag workflow creates or updates a Release only after the full quality gate and packaged-runtime acceptance pass.
+Each Release includes amd64/arm64 deployment archives and SPDX JSON SBOMs. GitHub displays a SHA-256 digest for every asset and provides build provenance for the archives and SBOMs. The tag workflow creates or updates a Release only after the full quality gate and packaged-runtime acceptance pass.
 
 The `database/init.sql` in each Release is the clean-install schema source for that version. It creates the provider catalog but enables no LLM provider by default. Configure and preflight at least one provider in the admin console after startup. Never commit API keys or include them in deployment archives.
 

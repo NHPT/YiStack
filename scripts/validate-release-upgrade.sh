@@ -106,10 +106,10 @@ case "$command" in
     unit="${!#}"
     grep -Fqx "$unit" "$enabled_file"
     ;;
-  start | stop)
+  start | stop | restart)
     for unit in "$@"; do
       [ "$unit" = "--quiet" ] && continue
-      if [ "$command" = "start" ]; then
+      if [ "$command" = "start" ] || [ "$command" = "restart" ]; then
         grep -Fqx "$unit" "$state_file" || printf '%s\n' "$unit" >> "$state_file"
       else
         grep -Fvx "$unit" "$state_file" > "$state_file.tmp" || true
@@ -311,12 +311,15 @@ assert_service_state() {
 
 success_root="$root/success"
 prepare_case "$success_root"
+podman stop --time 20 "$container_name" >/dev/null
 if ! MOCK_DENY_PACKAGE_HELPER=true \
   run_upgrade "$success_root" > "$success_root/upgrade.out" 2>&1; then
   echo "Successful upgrade acceptance failed:" >&2
   cat "$success_root/upgrade.out" >&2
   exit 1
 fi
+grep -Fq 'Managed PostgreSQL is not running; starting it before the upgrade' \
+  "$success_root/upgrade.out"
 [ "$(tr -d '[:space:]' < "$success_root/install/current/VERSION")" = "$target_version" ]
 [ ! -e "$success_root/install/releases/v1.0.0" ]
 [ ! -e "$success_root/install/releases/v0.9.0" ]
@@ -371,6 +374,8 @@ set -e
 [ -d "$failure_root/install/releases/v0.9.0" ]
 cmp "$failure_root/original-yistack.env" "$failure_root/config/yistack.env"
 assert_service_state "$failure_root"
+grep -Fq 'stop yistack-postgres.service' "$failure_root/systemctl.log"
+grep -Fq 'start yistack-postgres.service' "$failure_root/systemctl.log"
 for unit in "$failure_root/install/releases/v1.0.0/systemd/"*; do
   cmp "$unit" "$failure_root/systemd/$(basename "$unit")"
 done

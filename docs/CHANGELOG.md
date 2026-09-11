@@ -14,6 +14,25 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 暂无公开变更。
 
+## [1.1.7] - 2026-09-11
+
+### 变更
+
+- 本地受管 PostgreSQL 改由 systemd 持续监督；容器异常退出后自动重启，启动就绪前不再报告服务成功。
+- `yistackctl postgres start|restart|stop` 统一控制 systemd 服务，并新增 `postgres inspect` 输出容器退出码、OOM 状态和退出时间。
+- 旧 PostgreSQL 容器会在安全停止后迁移到 `k8s-file` 日志驱动，保留外置数据库目录，避免 journald cursor 损坏后无法读取日志。
+- Release 不再发布独立 `.sha256` 或 `SHA256SUMS` 附件，下载完整性直接使用 GitHub 为每个资产显示的 SHA-256 digest；包内 `MANIFEST.sha256` 和构建来源证明保持不变。
+
+### 修复
+
+- 修复 PostgreSQL 容器退出后 `yistack-postgres.service` 仍显示 `active (exited)` 且不会自动恢复的问题。
+- 后端健康检查现在验证 SQL 数据库连接，数据库不可用时返回 HTTP 503。
+- 升级 preflight 会识别并恢复本地受管 PostgreSQL，避免容器已退出时在数据库兼容性检查阶段直接失败。
+
+### 测试
+
+- 新增旧日志驱动迁移、异常退出码 137、数据库健康降级/恢复，以及停止数据库后执行升级的动态回归。
+
 ## [1.1.6] - 2026-09-10
 
 ### 新增

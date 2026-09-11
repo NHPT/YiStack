@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.6**。这是 v1.1 系列的部署可观测性与结果判定修复版本：安装和服务启动会自动等待健康检查，rootless Podman 使用隔离的服务用户环境，安装、升级、卸载和维护均支持从 `/root` 等受限目录执行；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.7**。这是 v1.1 系列的受管 PostgreSQL 可靠性修复版本：systemd 持续监督 rootless PostgreSQL 容器并在异常退出后自动恢复，后端健康检查验证数据库连接，升级会在预检前恢复本地受管数据库；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -104,8 +104,9 @@ YiStack 的 Web 使用界面可通过现代浏览器跨平台访问，项目源�
 yistack-vX.Y.Z-linux-amd64.tar.gz
 ```
 
-Release 同时提供 SHA-256 文件用于可选的传输损坏检查，但同目录 checksum 不能证明
-文件来源。需要验证构建来源时，应使用 GitHub CLI 校验发布工作流生成的 provenance：
+GitHub Release 页面会为每个资产自动显示 SHA-256 digest，因此不再额外发布 checksum
+文件。digest 可用于核对下载完整性；需要验证构建来源时，应使用 GitHub CLI 校验发布
+工作流生成的 provenance：
 
 ```bash
 gh attestation verify \
@@ -301,14 +302,14 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 v1.1.0 或 v1.1.1 的已安装控制器仍会在读取新 Release 前检查同目录
 `.sha256`，且会把压缩包解压到仅 root 可穿越的临时目录。从这两个版本首次升级到
-v1.1.6 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
+v1.1.7 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
 
 ```bash
-tar -xzf yistack-v1.1.6-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.6-linux-amd64
+tar -xzf yistack-v1.1.7-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.7-linux-amd64
 ```
 
-升级到 v1.1.6 后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
+完成该目录升级后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
 
 升级命令会校验 Release 和版本方向、预检数据库、停止应用及无痕体验模式 timer、
 创建并校验 PostgreSQL custom-format 备份、安装新 Release、执行并验证 migration、
@@ -378,7 +379,7 @@ sudo yistackctl restart
 sudo yistackctl logs
 ```
 
-Release 同时发布 amd64/arm64 部署包、独立 SHA-256、合并 `SHA256SUMS`、SPDX JSON SBOM 和 GitHub 构建来源证明。Tag 发布工作流仅在完整质量门禁和部署包运行时验收通过后创建或更新 Release。
+Release 同时发布 amd64/arm64 部署包和 SPDX JSON SBOM；GitHub 为每个资产显示 SHA-256 digest，并为部署包和 SBOM 提供构建来源证明。Tag 发布工作流仅在完整质量门禁和部署包运行时验收通过后创建或更新 Release。
 
 每个 Release 中的 `database/init.sql` 是该版本的全新安装真源。它会创建 Provider catalog，但默认不启用任何 LLM Provider。启动后应在管理端配置并预检至少一个 Provider；不要把 API Key 写入仓库或部署包。
 

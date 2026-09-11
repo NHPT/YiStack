@@ -2,16 +2,20 @@
 Description=Optional YiStack PostgreSQL container
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=simple
 User=yistack
 Group=yistack
 Environment=HOME=/var/lib/yistack
 WorkingDirectory=/var/lib/yistack
-ExecStart=/opt/yistack/current/bin/yistack-service-user-exec /opt/yistack/current/bin/yistack-postgres start
+ExecStart=/opt/yistack/current/bin/yistack-service-user-exec /opt/yistack/current/bin/yistack-postgres supervise
+ExecStartPost=/opt/yistack/current/bin/yistack-service-user-exec /opt/yistack/current/bin/yistack-postgres wait-ready
 ExecStop=/opt/yistack/current/bin/yistack-service-user-exec /opt/yistack/current/bin/yistack-postgres stop
+Restart=always
+RestartSec=5
 TimeoutStartSec=180
 TimeoutStopSec=30
 

@@ -16,6 +16,25 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.7] - 2026-09-11
+
+### Changed
+
+- Local managed PostgreSQL is now continuously supervised by systemd. The service restarts after an unexpected container exit and does not report successful startup before database readiness.
+- `yistackctl postgres start|restart|stop` now controls the systemd service, and `postgres inspect` reports the container exit code, OOM state, and exit time.
+- Legacy PostgreSQL containers migrate to the `k8s-file` log driver after a safe stop while preserving the external database directory, avoiding unreadable logs after journald cursor failures.
+- Releases no longer publish separate `.sha256` or `SHA256SUMS` assets. Download integrity uses the SHA-256 digest GitHub displays for each asset; the internal `MANIFEST.sha256` and build provenance remain unchanged.
+
+### Fixed
+
+- Fixed `yistack-postgres.service` remaining `active (exited)` without recovery after its PostgreSQL container exits.
+- Backend health checks now verify the SQL database connection and return HTTP 503 while the database is unavailable.
+- Upgrade preflight now detects and restores local managed PostgreSQL before database compatibility checks.
+
+### Tests
+
+- Added dynamic regressions for legacy log-driver migration, exit code 137, database health degradation and recovery, and upgrades that begin with a stopped database.
+
 ## [1.1.6] - 2026-09-10
 
 ### Added
