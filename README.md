@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.7**。这是 v1.1 系列的受管 PostgreSQL 可靠性修复版本：systemd 持续监督 rootless PostgreSQL 容器并在异常退出后自动恢复，后端健康检查验证数据库连接，升级会在预检前恢复本地受管数据库；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.8**。该版本强化安装与清理生命周期：安装器可复用并选择本地 PostgreSQL 镜像，Playwright 仅补齐缺失的精确 revision，无痕模式仅在磁盘达到阈值后执行压力清理，完全卸载会等待服务用户进程退出并避免半卸载；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -136,6 +136,8 @@ sudo ./install.sh
 /var/cache/yistack     缓存目录
 ```
 
+安装器会读取当前 Playwright 版本要求的 Chromium、Headless Shell 和 FFmpeg revision，并检查 `/var/lib/yistack/ms-playwright`。精确 revision 已存在时复用缓存，缺失或版本变化时才下载对应组件；`--skip-browser-install` 会跳过浏览器运行时和系统依赖检查。
+
 安装成功后，原始解压目录可以删除；不要删除 `/opt/yistack/releases`、
 `/opt/yistack/current`、`/etc/yistack` 或 `/var/lib/yistack`。
 
@@ -153,7 +155,7 @@ sudo ./install.sh
 | `sudo yistackctl logs [SINCE]` | 持续查看服务日志，默认从当天开始 |
 | `sudo yistackctl health` | 验证前端和后端健康状态 |
 | `sudo yistackctl runtime {info\|images\|ps}` | 查看 `yistack` 用户的 rootless Podman 信息、镜像和容器 |
-| `sudo yistackctl postgres {start\|init\|stop\|status\|logs}` | 管理安装器提供的 PostgreSQL 容器 |
+| `sudo yistackctl postgres {start\|restart\|init\|stop\|status\|inspect\|logs}` | 管理安装器提供的 PostgreSQL 容器 |
 | `sudo yistackctl database {status\|plan\|migrate\|verify\|rollback}` | 管理数据库 migration |
 | `sudo yistackctl upgrade <release-directory\|release.tar.gz>` | 执行受校验的一键升级 |
 | `sudo yistackctl uninstall` | 卸载程序和服务，保留配置与数据 |
@@ -241,11 +243,13 @@ sudo yistackctl runtime images
 
 PostgreSQL 镜像和容器属于 `yistack` 用户的 rootless Podman，默认镜像存储位于 `/var/lib/yistack/.local/share/containers/storage`。直接以 root 执行 `podman images` 查看的是 `/var/lib/containers/storage`，不会显示这套镜像；应使用 `sudo yistackctl runtime images`。数据库由系统级 `yistack-postgres.service` 以 `yistack` 用户启动。
 
+数据库启动前，安装器会在 `yistack` 用户的存储中显式检查配置的完整镜像引用。完整引用不存在且未传入 `--postgres-image` 时，安装器会按 `postgres:16-alpine` 名称和 tag 查找其他 registry 下的本地镜像：只有一个候选时直接复用，存在多个候选时让交互式用户选择，并将实际完整引用写入配置；无人值守安装存在多个候选时必须通过 `--postgres-image` 明确指定。没有可复用镜像时才执行 `podman pull`，随后以禁止隐式拉取的方式创建容器。已有数据库容器还必须通过受管标签、数据挂载和镜像身份校验，配置与容器镜像不一致时安装会停止，不会自动替换数据库容器。
+
 安装器会生成数据库密码，写入 `/etc/yistack/postgres.env`，并依次执行 Supabase SQL 兼容层和 `database/init.sql`。此模式提供 YiStack 自身的 PostgreSQL 数据库和传统 JWT 认证，不提供 Supabase Auth、Storage 或其他托管服务；生成的应用若依赖 Supabase，仍需单独配置 Supabase 项目。
 
 #### Docker Hub 不可达或受限网络
 
-安装器默认从 `docker.io/library/postgres:16-alpine` 拉取官方镜像。国内或其他受限网络应在首次安装前配置可信镜像源，避免 systemd 在镜像拉取阶段超时。YiStack 不保证第三方公共镜像站的可用性或供应链安全，生产环境应优先使用组织自建仓库、云厂商专属加速地址或已完成内容校验的镜像副本。
+安装器默认从 `docker.io/library/postgres:16-alpine` 拉取官方镜像。国内或其他受限网络应在首次安装前配置可信镜像源，避免镜像预拉取失败。YiStack 不保证第三方公共镜像站的可用性或供应链安全，生产环境应优先使用组织自建仓库、云厂商专属加速地址或已完成内容校验的镜像副本。
 
 最直接的方式是在安装命令中覆盖完整镜像地址：
 
@@ -302,11 +306,11 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 v1.1.0 或 v1.1.1 的已安装控制器仍会在读取新 Release 前检查同目录
 `.sha256`，且会把压缩包解压到仅 root 可穿越的临时目录。从这两个版本首次升级到
-v1.1.7 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
+v1.1.8 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
 
 ```bash
-tar -xzf yistack-v1.1.7-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.7-linux-amd64
+tar -xzf yistack-v1.1.8-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.8-linux-amd64
 ```
 
 完成该目录升级后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
@@ -328,31 +332,44 @@ Supabase 升级必须配置直连密码 `SUPABASE_DB_PASSWORD`。生产启动仍
 
 该模式运行在上述标准 PostgreSQL 生产部署上，无需维护独立应用分支。系统会按计划恢复至干净基线，清理普通用户、项目、容器、缓存和受管日志，同时保留基础镜像、管理员及 Provider 配置。重置前产生的数据仍会暂时持久化，请勿输入密钥或其他敏感信息。
 
-该模式只支持安装器管理的本地 PostgreSQL；检测到外部 Supabase 时会拒绝执行，避免对外部数据库进行不完整或不可逆的重置。先完成管理员、Provider 和系统策略配置，确认尚未创建普通用户或项目，再安装配置并采集干净基线：
+该模式只支持安装器管理的本地 PostgreSQL；检测到外部 Supabase 时会拒绝执行，避免对外部数据库进行不完整或不可逆的重置。
+
+#### 首次创建并启用配置
+
+以下配置初始化只需执行一次。`install` 会覆盖目标文件，因此配置已存在时不要重复复制，只需保留并编辑现有 `/etc/yistack/ephemeral-maintenance.env`：
 
 ```bash
-sudo install -m 0640 -o root -g yistack \
-  /opt/yistack/current/config/yistack-ephemeral-maintenance.env.example \
-  /etc/yistack/ephemeral-maintenance.env
+if sudo test ! -e /etc/yistack/ephemeral-maintenance.env; then
+  sudo install -m 0640 -o root -g yistack \
+    /opt/yistack/current/config/yistack-ephemeral-maintenance.env.example \
+    /etc/yistack/ephemeral-maintenance.env
+fi
+
 sudo sed -i 's/^EPHEMERAL_MAINTENANCE_ENABLED=false$/EPHEMERAL_MAINTENANCE_ENABLED=true/' \
   /etc/yistack/ephemeral-maintenance.env
-sudo yistackctl ephemeral snapshot
-sudo yistackctl ephemeral apply-schedule
+```
+
+#### 采集基线并启用计划
+
+先完成管理员密码、Provider 和系统策略配置，并确认没有普通用户、项目或项目工作区，再执行：
+
+```bash
+sudo yistackctl ephemeral snapshot &&
+  sudo yistackctl ephemeral apply-schedule &&
 sudo yistackctl ephemeral status
 ```
 
-`snapshot` 会在短暂停止应用和项目容器后保存 PostgreSQL dump、空项目工作区、Release commit 和 SHA-256 清单。若数据库中仍有普通用户、项目或关联业务记录，或项目工作区非空，它会拒绝创建基线。它不会复制 `/etc/yistack` 中的密钥。
+三条命令使用 `&&` 串联：只有 `snapshot` 成功后才会启用定时任务。`snapshot` 会在短暂停止应用和项目容器后保存 PostgreSQL dump、空项目工作区、Release commit 和 SHA-256 清单。若数据库中仍有普通用户、项目或关联业务记录，或项目工作区非空，它会拒绝创建基线；此时不要单独执行 `apply-schedule`。它不会复制 `/etc/yistack` 中的密钥。
 
 默认策略为：
 
 - 每天 04:00 后随机延迟最多 10 分钟恢复干净基线；
 - 每次每日重置删除全部普通用户及其关联数据库记录、项目工作区、带 `yistack.project_id` 标签的容器和网络、容器状态、生成证据、缓存和受管文件日志；
-- 每小时按 TTL 清理过期项目、已停止项目容器、生成证据、缓存和日志，作为每日重置之间的容量保护；
-- 磁盘达到 80% 时，从最旧的项目开始清理，直至降到 70%；
+- 每小时只检查磁盘使用率，低于 80% 时不删除任何内容；达到 80% 时才从最旧的项目开始清理，直至降到 70%；
 - 始终保留 Podman 基础镜像、`runtime/templates`、`ms-playwright`、管理员与 Provider 配置、配置目录和已安装 Release；
 - 不执行全局 `podman system prune`，不会删除供后续用户复用的镜像。
 
-重置时间、随机延迟、小时级清理时间、TTL 和磁盘水位都可在 `/etc/yistack/ephemeral-maintenance.env` 中配置。例如：
+重置时间、随机延迟、小时级磁盘检查时间、手动 `cleanup` 使用的 TTL 和磁盘水位都可在 `/etc/yistack/ephemeral-maintenance.env` 中配置。例如：
 
 ```bash
 EPHEMERAL_RESET_ON_CALENDAR="*-*-* 04:00:00"
@@ -371,6 +388,8 @@ sudo systemctl disable --now \
   yistack-ephemeral-reset.timer \
   yistack-ephemeral-cleanup.timer
 ```
+
+`sudo yistackctl ephemeral cleanup` 是显式人工维护命令，会按配置的 TTL 清理过期项目、已停止项目容器、生成证据、缓存和日志；每小时 timer 不会自动执行这组 TTL 清理。
 
 前端默认仅监听 `127.0.0.1:5000`，后端默认监听 `127.0.0.1:8080`。公网部署应在前端之前配置带 TLS 的 Caddy、Nginx 或等效反向代理。更新 `/etc/yistack/yistack.env` 后执行：
 

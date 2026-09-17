@@ -16,6 +16,15 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.8] - 2026-09-17
+
+### Changed
+
+- Before starting managed PostgreSQL, the installer now explicitly reuses or pulls images as `yistack`; when the configured reference is absent, it can reuse one same-name and same-tag local image or prompt for a choice among multiple candidates, while refusing to silently replace an existing database container with a different image identity.
+- Playwright installation now checks the Chromium, Headless Shell, and FFmpeg revisions required by the current version and reports whether it reuses cached components or downloads missing ones.
+- The hourly ephemeral-mode task now checks disk watermarks only and performs no TTL deletion below the high watermark; daily reset remains responsible for complete cleanup, while TTL cleanup is retained as an explicit operator command.
+- `uninstall --purge` now terminates and waits for service-user processes and removes the account before deleting local files; process or account cleanup failures retain data for a safe retry instead of leaving a partially removed installation.
+
 ## [1.1.7] - 2026-09-11
 
 ### Changed

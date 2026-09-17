@@ -1,5 +1,5 @@
 [Unit]
-Description=Run YiStack ephemeral experience cleanup each hour
+Description=Check YiStack ephemeral experience disk pressure each hour
 
 [Timer]
 OnCalendar=*-*-* *:30:00

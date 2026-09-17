@@ -29,6 +29,10 @@ cat > "$mock_bin/loginctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "${MOCK_LOGINCTL_LOG:?}"
+if [ "${1:-}" = terminate-user ]; then
+  [ "${MOCK_TERMINATE_USER_FAIL:-false}" != true ] || exit 1
+  : > "${MOCK_SERVICE_USER_PROCESSES_FILE:?}"
+fi
 EOF
 cat > "$mock_bin/flock" <<'EOF'
 #!/usr/bin/env bash
@@ -64,13 +68,22 @@ case "$*" in
     ;;
 esac
 EOF
-for command in userdel groupdel; do
-  cat > "$mock_bin/$command" <<'EOF'
+cat > "$mock_bin/ps" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s %s\n' "$(basename "$0")" "$*" >> "${MOCK_ACCOUNT_LOG:?}"
+cat "${MOCK_SERVICE_USER_PROCESSES_FILE:?}"
 EOF
-done
+cat > "$mock_bin/userdel" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'userdel %s\n' "$*" >> "${MOCK_ACCOUNT_LOG:?}"
+[ "${MOCK_USERDEL_FAIL:-false}" != true ]
+EOF
+cat > "$mock_bin/groupdel" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'groupdel %s\n' "$*" >> "${MOCK_ACCOUNT_LOG:?}"
+EOF
 chmod 0755 "$mock_bin/"*
 
 service_user="$(id -un)"
@@ -117,6 +130,7 @@ prepare_case() {
   : > "$case_root/flock.log"
   : > "$case_root/podman.log"
   : > "$case_root/account.log"
+  : > "$case_root/service-user-processes"
 }
 
 run_uninstall() {
@@ -127,6 +141,9 @@ run_uninstall() {
     env \
     PATH="$mock_bin:$PATH" \
     MOCK_PODMAN_FAIL="${MOCK_PODMAN_FAIL:-false}" \
+    MOCK_SERVICE_USER_PROCESSES_FILE="$case_root/service-user-processes" \
+    MOCK_TERMINATE_USER_FAIL="${MOCK_TERMINATE_USER_FAIL:-false}" \
+    MOCK_USERDEL_FAIL="${MOCK_USERDEL_FAIL:-false}" \
     MOCK_ACCOUNT_LOG="$case_root/account.log" \
     MOCK_LOGINCTL_LOG="$case_root/loginctl.log" \
     MOCK_FLOCK_LOG="$case_root/flock.log" \
@@ -142,6 +159,7 @@ run_uninstall() {
     YISTACK_INSTALL_ROOT="$case_root/install" \
     YISTACK_LOGINCTL_BIN="$mock_bin/loginctl" \
     YISTACK_LOG_DIR="$case_root/log" \
+    YISTACK_PS_BIN="$mock_bin/ps" \
     YISTACK_RUNUSER_BIN="$mock_bin/runuser" \
     YISTACK_SERVICE_EXEC_SKIP_ROOT_CHECK=true \
     YISTACK_SERVICE_GROUP="$service_group" \
@@ -151,6 +169,8 @@ run_uninstall() {
     YISTACK_SYSTEMCTL_BIN="$mock_bin/systemctl" \
     YISTACK_SYSTEMD_DIR="$case_root/systemd" \
     YISTACK_UNINSTALL_SKIP_ROOT_CHECK=true \
+    YISTACK_SERVICE_USER_STOP_ATTEMPTS=1 \
+    YISTACK_SERVICE_USER_STOP_SLEEP_SECONDS=0 \
     YISTACK_UNINSTALL_TMPDIR="$case_root/tmp" \
     YISTACK_UPGRADE_LOCK_FILE="$case_root/run/lock/yistack-upgrade.lock" \
     YISTACK_USERDEL_BIN="$mock_bin/userdel" \
@@ -178,6 +198,7 @@ grep -Fq "$service_user:100000:65536" "$preserve_root/subuid"
 
 purge_root="$root/purge"
 prepare_case "$purge_root"
+printf '431619\n' > "$purge_root/service-user-processes"
 run_uninstall "$purge_root" --purge
 for path in install config data log cache; do
   [ ! -e "$purge_root/$path" ]
@@ -187,6 +208,8 @@ grep -Fq 'rm --force yistack-postgres' "$purge_root/podman.log"
 grep -Fq 'network rm --force project-network' "$purge_root/podman.log"
 grep -Fq "userdel $service_user" "$purge_root/account.log"
 grep -Fq "groupdel $service_group" "$purge_root/account.log"
+grep -Fq "terminate-user $service_user" "$purge_root/loginctl.log"
+[ ! -s "$purge_root/service-user-processes" ]
 ! grep -Fq "$service_user:" "$purge_root/subuid"
 grep -Fq 'keep:200000:65536' "$purge_root/subuid"
 [ -z "$(find "$purge_root/tmp" -mindepth 1 -print -quit)" ]
@@ -220,6 +243,39 @@ set -e
 [ ! -s "$cleanup_failure_root/account.log" ]
 grep -Fq 'managed runtime cleanup failed' "$cleanup_failure_root/output"
 ! grep -Fq 'local data, and service account removed' "$cleanup_failure_root/output"
+
+process_failure_root="$root/process-failure"
+prepare_case "$process_failure_root"
+printf '431619\n' > "$process_failure_root/service-user-processes"
+set +e
+MOCK_TERMINATE_USER_FAIL=true \
+  run_uninstall "$process_failure_root" --purge \
+  > "$process_failure_root/output" 2>&1
+process_failure_status="$?"
+set -e
+[ "$process_failure_status" -ne 0 ]
+for path in install config data log cache; do
+  [ -d "$process_failure_root/$path" ]
+done
+[ ! -s "$process_failure_root/account.log" ]
+grep -Fq 'service-user processes could not be stopped' \
+  "$process_failure_root/output"
+
+account_failure_root="$root/account-failure"
+prepare_case "$account_failure_root"
+set +e
+MOCK_USERDEL_FAIL=true \
+  run_uninstall "$account_failure_root" --purge \
+  > "$account_failure_root/output" 2>&1
+account_failure_status="$?"
+set -e
+[ "$account_failure_status" -ne 0 ]
+for path in install config data log cache; do
+  [ -d "$account_failure_root/$path" ]
+done
+grep -Fq "userdel $service_user" "$account_failure_root/account.log"
+! grep -Fq "groupdel $service_group" "$account_failure_root/account.log"
+grep -Fq 'service-account cleanup failed' "$account_failure_root/output"
 
 unsafe_root="$root/unsafe"
 prepare_case "$unsafe_root"

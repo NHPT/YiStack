@@ -34,19 +34,10 @@ container_running() {
   [ "$(podman inspect --format '{{.State.Running}}' "$POSTGRES_CONTAINER_NAME" 2>/dev/null || true)" = "true" ]
 }
 
-replace_container_with_legacy_log_driver() {
-  local replace_running="${1:-false}"
+verify_managed_container() {
   local container_role=""
   local current_data_dir=""
-  local current_log_driver=""
-  local expected_data_dir=""
-
-  container_exists || return 0
-  current_log_driver="$(
-    podman inspect --format '{{.HostConfig.LogConfig.Type}}' \
-      "$POSTGRES_CONTAINER_NAME"
-  )"
-  [ "$current_log_driver" = "$POSTGRES_LOG_DRIVER" ] && return 0
+  local expected_data_dir="${POSTGRES_DATA_DIR%/}"
 
   container_role="$(
     podman inspect --format '{{index .Config.Labels "io.yistack.role"}}' \
@@ -57,12 +48,161 @@ replace_container_with_legacy_log_driver() {
       '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Source}}{{end}}{{end}}' \
       "$POSTGRES_CONTAINER_NAME"
   )"
-  expected_data_dir="${POSTGRES_DATA_DIR%/}"
   if [ "$container_role" != database ] ||
     [ "$current_data_dir" != "$expected_data_dir" ]; then
-    echo "Refusing to replace PostgreSQL container with an unverified data mount: $POSTGRES_CONTAINER_NAME" >&2
+    echo "Refusing to use PostgreSQL container with an unverified data mount: $POSTGRES_CONTAINER_NAME" >&2
     return 1
   fi
+}
+
+verify_container_image() {
+  local container_image_id=""
+  local container_image_name=""
+  local configured_image_id=""
+
+  container_image_id="$(
+    podman inspect --format '{{.Image}}' "$POSTGRES_CONTAINER_NAME"
+  )"
+  container_image_name="$(
+    podman inspect --format '{{.ImageName}}' "$POSTGRES_CONTAINER_NAME"
+  )"
+  if [ "$container_image_name" = "$POSTGRES_IMAGE" ]; then
+    return 0
+  fi
+  configured_image_id="$(
+    podman image inspect --format '{{.Id}}' "$POSTGRES_IMAGE" 2>/dev/null || true
+  )"
+  if [ -n "$configured_image_id" ] &&
+    [ "${container_image_id#sha256:}" = "${configured_image_id#sha256:}" ]; then
+    return 0
+  fi
+  echo "Existing PostgreSQL container uses $container_image_name, but configuration requests $POSTGRES_IMAGE." >&2
+  echo "Refusing to replace the database container with a different image automatically." >&2
+  return 1
+}
+
+ensure_database_image() {
+  if podman image exists "$POSTGRES_IMAGE"; then
+    echo "Reusing local PostgreSQL image: $POSTGRES_IMAGE"
+    return 0
+  fi
+  echo "Pulling PostgreSQL image: $POSTGRES_IMAGE"
+  podman pull "$POSTGRES_IMAGE"
+}
+
+list_compatible_database_images() {
+  local image=""
+  local image_output=""
+  local target_name="${POSTGRES_IMAGE##*/}"
+
+  image_output="$(podman images --format '{{.Repository}}:{{.Tag}}')" ||
+    return 1
+  while IFS= read -r image; do
+    [ -n "$image" ] || continue
+    [ "$image" != "<none>:<none>" ] || continue
+    [ "${image##*/}" = "$target_name" ] || continue
+    printf '%s\n' "$image"
+  done <<< "$image_output" |
+    LC_ALL=C sort -u
+}
+
+resolve_database_image() {
+  local candidate=""
+  local candidate_output=""
+  local configured_choice_index=""
+  local image_choice=""
+  local preselected_image="${1:-}"
+  local -a candidates=()
+
+  if podman image exists "$POSTGRES_IMAGE"; then
+    printf '%s\n' "$POSTGRES_IMAGE"
+    return 0
+  fi
+
+  candidate_output="$(list_compatible_database_images)" || return 1
+  if [ -n "$candidate_output" ]; then
+    mapfile -t candidates <<< "$candidate_output"
+  fi
+  case "${#candidates[@]}" in
+    0)
+      printf '%s\n' "$POSTGRES_IMAGE"
+      return 0
+      ;;
+    1)
+      echo "Reusing the only local PostgreSQL image matching ${POSTGRES_IMAGE##*/}: ${candidates[0]}" >&2
+      printf '%s\n' "${candidates[0]}"
+      return 0
+      ;;
+  esac
+
+  echo "Multiple local PostgreSQL images match ${POSTGRES_IMAGE##*/}:" >&2
+  for image_choice in "${!candidates[@]}"; do
+    printf '  %d) %s\n' "$((image_choice + 1))" "${candidates[$image_choice]}" >&2
+  done
+  configured_choice_index="$((${#candidates[@]} + 1))"
+  printf '  %d) Pull configured image %s\n' \
+    "$configured_choice_index" "$POSTGRES_IMAGE" >&2
+
+  if [ -n "$preselected_image" ]; then
+    image_choice="$preselected_image"
+  elif [ -t 0 ]; then
+    while true; do
+      printf 'Select a PostgreSQL image [1-%d]: ' "$configured_choice_index" >&2
+      IFS= read -r image_choice || return 1
+      [[ "$image_choice" =~ ^[0-9]+$ ]] &&
+        [ "$image_choice" -ge 1 ] &&
+        [ "$image_choice" -le "$configured_choice_index" ] &&
+        break
+      echo "Invalid PostgreSQL image selection: $image_choice" >&2
+    done
+  else
+    echo "No interactive terminal is available; rerun with --postgres-image IMAGE." >&2
+    return 1
+  fi
+
+  if [[ "$image_choice" =~ ^[0-9]+$ ]]; then
+    if [ "$image_choice" -eq "$configured_choice_index" ]; then
+      printf '%s\n' "$POSTGRES_IMAGE"
+      return 0
+    fi
+    if [ "$image_choice" -ge 1 ] &&
+      [ "$image_choice" -le "${#candidates[@]}" ]; then
+      printf '%s\n' "${candidates[$((image_choice - 1))]}"
+      return 0
+    fi
+  fi
+  for candidate in "${candidates[@]}"; do
+    if [ "$candidate" = "$image_choice" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  echo "Invalid PostgreSQL image selection: $image_choice" >&2
+  return 1
+}
+
+prepare_database_image() {
+  if container_exists; then
+    verify_managed_container
+    verify_container_image
+    echo "Reusing existing PostgreSQL container: $POSTGRES_CONTAINER_NAME"
+    return 0
+  fi
+  ensure_database_image
+}
+
+replace_container_with_legacy_log_driver() {
+  local replace_running="${1:-false}"
+  local current_log_driver=""
+
+  container_exists || return 0
+  current_log_driver="$(
+    podman inspect --format '{{.HostConfig.LogConfig.Type}}' \
+      "$POSTGRES_CONTAINER_NAME"
+  )"
+  [ "$current_log_driver" = "$POSTGRES_LOG_DRIVER" ] && return 0
+
+  verify_managed_container
   if container_running; then
     [ "$replace_running" = "true" ] || return 0
     podman stop --time 20 "$POSTGRES_CONTAINER_NAME" >/dev/null
@@ -90,9 +230,15 @@ create_database_container() {
   local replace_running="${1:-false}"
 
   mkdir -p "$POSTGRES_DATA_DIR"
+  if container_exists; then
+    verify_managed_container
+    verify_container_image
+  fi
   replace_container_with_legacy_log_driver "$replace_running"
   container_exists && return 0
+  ensure_database_image
   podman create \
+    --pull=never \
     --name "$POSTGRES_CONTAINER_NAME" \
     --label io.yistack.role=database \
     --cpus 1 \
@@ -180,6 +326,12 @@ initialize_database() {
 }
 
 case "${1:-status}" in
+  resolve-image)
+    resolve_database_image "${2:-}"
+    ;;
+  prepare-image)
+    prepare_database_image
+    ;;
   start)
     start_database
     ;;
@@ -216,7 +368,7 @@ case "${1:-status}" in
     fi
     ;;
   *)
-    echo "Usage: yistack-postgres {start|init|stop|status|inspect|supervise|wait-ready|logs}" >&2
+    echo "Usage: yistack-postgres {resolve-image|prepare-image|start|init|stop|status|inspect|supervise|wait-ready|logs}" >&2
     exit 2
     ;;
 esac
