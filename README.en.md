@@ -12,11 +12,12 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.7**, a managed PostgreSQL reliability fix for the
-> v1.1 series. systemd continuously supervises the rootless PostgreSQL
-> container and recovers unexpected exits, backend health checks verify the
-> database connection, and upgrades restore local managed PostgreSQL before
-> preflight. Its stability scope is limited to
+> Current release: **v1.1.8**, which hardens installation and cleanup
+> lifecycle behavior. The installer can reuse and select local PostgreSQL
+> images, Playwright downloads only missing exact revisions, ephemeral mode
+> performs pressure cleanup only after its disk threshold is reached, and
+> complete uninstall waits for service-user processes without leaving a
+> partial removal. Its stability scope is limited to
 > the capabilities documented in this README and
 > [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the current
 > Release's `database/init.sql`; existing installations use the one-command
@@ -344,13 +345,13 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 The controllers installed by v1.1.0 and v1.1.1 still check for a colocated
 `.sha256` before reading a new Release and extract archives under a root-only
-temporary directory. For the first upgrade from either version to v1.1.7,
+temporary directory. For the first upgrade from either version to v1.1.8,
 extract the archive and pass the directory to the same public command. This
 path does not require a sidecar:
 
 ```bash
-tar -xzf yistack-v1.1.7-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.7-linux-amd64
+tar -xzf yistack-v1.1.8-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.8-linux-amd64
 ```
 
 After completing this directory-based upgrade, later upgrades can consume

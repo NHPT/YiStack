@@ -14,6 +14,10 @@ starting with v1.0.0.
 
 ## [Unreleased]
 
+No public changes yet.
+
+## [1.1.8] - 2026-09-17
+
 ### Changed
 
 - Before starting managed PostgreSQL, the installer now explicitly reuses or pulls images as `yistack`; when the configured reference is absent, it can reuse one same-name and same-tag local image or prompt for a choice among multiple candidates, while refusing to silently replace an existing database container with a different image identity.

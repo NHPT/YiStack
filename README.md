@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.7**。这是 v1.1 系列的受管 PostgreSQL 可靠性修复版本：systemd 持续监督 rootless PostgreSQL 容器并在异常退出后自动恢复，后端健康检查验证数据库连接，升级会在预检前恢复本地受管数据库；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.8**。该版本强化安装与清理生命周期：安装器可复用并选择本地 PostgreSQL 镜像，Playwright 仅补齐缺失的精确 revision，无痕模式仅在磁盘达到阈值后执行压力清理，完全卸载会等待服务用户进程退出并避免半卸载；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -306,11 +306,11 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 v1.1.0 或 v1.1.1 的已安装控制器仍会在读取新 Release 前检查同目录
 `.sha256`，且会把压缩包解压到仅 root 可穿越的临时目录。从这两个版本首次升级到
-v1.1.7 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
+v1.1.8 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
 
 ```bash
-tar -xzf yistack-v1.1.7-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.7-linux-amd64
+tar -xzf yistack-v1.1.8-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.8-linux-amd64
 ```
 
 完成该目录升级后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。

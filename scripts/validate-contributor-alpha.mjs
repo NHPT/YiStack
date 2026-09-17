@@ -102,7 +102,7 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
-assert.equal(packageJSON.version, '1.1.7');
+assert.equal(packageJSON.version, '1.1.8');
 assert.match(packageJSON.description, /开源 AI 工程工作台/);
 assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
 assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
@@ -156,8 +156,8 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /当前版本：\*\*v1\.1\.7\*\*/);
-assert.match(readmeEnglish, /Current release: \*\*v1\.1\.7\*\*/);
+assert.match(readme, /当前版本：\*\*v1\.1\.8\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.1\.8\*\*/);
 assert.match(changelog, /## \[1\.1\.5\] - 2026-09-10/);
 assert.match(changelogEnglish, /## \[1\.1\.5\] - 2026-09-10/);
 assert.match(changelog, /## \[1\.1\.4\] - 2026-09-09/);
@@ -851,12 +851,12 @@ assert.match(
 );
 assert.match(
   readme,
-  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.7-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.7-linux-amd64/,
+  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.8-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.8-linux-amd64/,
   'README must document the sidecar-free upgrade path for older controllers',
 );
 assert.match(
   readmeEnglish,
-  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.7-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.7-linux-amd64/,
+  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.8-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.8-linux-amd64/,
   'English README must document the sidecar-free upgrade path for older controllers',
 );
 assert.match(readme, /yistackctl uninstall[\s\S]*yistackctl uninstall --purge[\s\S]*外部 Supabase 或 PostgreSQL/);
@@ -884,4 +884,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] v1.1.7 public release repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.1.8 public release repository contract valid (${requiredFiles.length} required files).`);

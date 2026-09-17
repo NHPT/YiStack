@@ -12,6 +12,10 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+暂无公开变更。
+
+## [1.1.8] - 2026-09-17
+
 ### 变更
 
 - 安装器会在启动受管 PostgreSQL 前以 `yistack` 用户显式复用或拉取镜像；配置引用缺失时可自动复用唯一的同名同 tag 本地镜像，存在多个候选时提供交互选择，并拒绝静默替换镜像身份不一致的已有数据库容器。
