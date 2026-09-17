@@ -163,6 +163,8 @@ jobs:
             dist/release/yistack-v1.1.7-linux-amd64
           scripts/validate-release-control.sh \
             dist/release/yistack-v1.1.7-linux-amd64
+          scripts/validate-release-postgres-image.sh \
+            dist/release/yistack-v1.1.7-linux-amd64/bin/yistack-postgres
           scripts/validate-release-postgres-runtime.sh \
             dist/release/yistack-v1.1.7-linux-amd64
           scripts/validate-release-upgrade.sh \

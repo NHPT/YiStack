@@ -16,6 +16,7 @@
     "validate:release:ephemeral": "bash ./scripts/validate-ephemeral-maintenance.sh",
     "validate:release": "bash ./scripts/validate-release-package.sh",
     "validate:release:postgres": "bash ./scripts/validate-release-postgres-runtime.sh",
+    "validate:release:postgres-image": "bash ./scripts/validate-release-postgres-image.sh",
     "validate:release:control": "bash ./scripts/validate-release-control.sh",
     "validate:release:upgrade": "bash ./scripts/validate-release-upgrade.sh",
     "validate:release:uninstall": "bash ./scripts/validate-release-uninstall.sh",

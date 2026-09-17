@@ -488,6 +488,7 @@ enforce_disk_watermarks() {
     return 0
   fi
 
+  ensure_postgres_running
   log "Disk usage ${usage}% reached the ${EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT}% high watermark"
   pause_application
   while IFS= read -r project_id; do
@@ -864,10 +865,7 @@ main() {
         snapshot) snapshot_baseline ;;
         reset) reset_to_baseline ;;
         cleanup) run_cleanup ;;
-        enforce)
-          run_cleanup
-          enforce_disk_watermarks
-          ;;
+        enforce) enforce_disk_watermarks ;;
       esac
       ;;
     -h | --help | help)

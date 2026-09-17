@@ -1,5 +1,5 @@
 [Unit]
-Description=Enforce YiStack ephemeral experience retention and disk limits
+Description=Enforce YiStack ephemeral experience disk watermarks
 After=network-online.target yistack-postgres.service
 Wants=network-online.target
 ConditionPathExists=/etc/yistack/ephemeral-maintenance.env

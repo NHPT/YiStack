@@ -54,6 +54,7 @@ const requiredFiles = [
   'scripts/capture-readme-screenshots.mjs',
   'scripts/validate-release-package.sh',
   'scripts/validate-release-control.sh',
+  'scripts/validate-release-postgres-image.sh',
   'scripts/validate-release-postgres-runtime.sh',
   'scripts/validate-release-upgrade.sh',
   'scripts/validate-release-uninstall.sh',
@@ -128,6 +129,7 @@ for (const script of [
   'eval:smoke:ci',
   'validate:release',
   'validate:release:postgres',
+  'validate:release:postgres-image',
   'validate:release:upgrade',
   'validate:release:uninstall',
   'validate:release:service-user-cwd',
@@ -336,6 +338,7 @@ for (const command of [
   'pnpm exec playwright install --with-deps chromium',
   'pnpm validate:database:migrations',
   'pnpm lint',
+  'scripts/validate-release-postgres-image.sh',
   'scripts/validate-release-upgrade.sh',
   'pnpm build',
   'pnpm yes:validate',
@@ -367,7 +370,7 @@ for (const result of ['needs.change_scope.result', 'needs.repository_contract.re
 }
 assert.match(
   workflow,
-  /name: Deployment package acceptance[\s\S]*pnpm validate:database:migrations[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-service-user-cwd\.sh[\s\S]*scripts\/validate-release-control\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh[\s\S]*scripts\/validate-release-upgrade\.sh[\s\S]*scripts\/validate-release-uninstall\.sh/,
+  /name: Deployment package acceptance[\s\S]*pnpm validate:database:migrations[\s\S]*pnpm build:release[\s\S]*scripts\/validate-release-package\.sh[\s\S]*scripts\/validate-service-user-cwd\.sh[\s\S]*scripts\/validate-release-control\.sh[\s\S]*scripts\/validate-release-postgres-image\.sh[\s\S]*scripts\/validate-release-postgres-runtime\.sh[\s\S]*scripts\/validate-release-upgrade\.sh[\s\S]*scripts\/validate-release-uninstall\.sh/,
 );
 assert.match(
   workflow,
@@ -429,6 +432,7 @@ assert.match(
 assert.match(releaseWorkflow, /runner: ubuntu-24\.04-arm/);
 assert.match(releaseWorkflow, /pnpm build:release/);
 assert.match(releaseWorkflow, /scripts\/validate-release-package\.sh/);
+assert.match(releaseWorkflow, /scripts\/validate-release-postgres-image\.sh/);
 assert.match(releaseWorkflow, /scripts\/validate-release-postgres-runtime\.sh/);
 assert.match(releaseWorkflow, /format: spdx-json/);
 assert.match(releaseWorkflow, /scripts\/validate-release-upgrade\.sh/);
@@ -508,6 +512,7 @@ assert.match(
 );
 
 const postgresRuntimeValidation = read('scripts/validate-release-postgres-runtime.sh');
+const postgresImageValidation = read('scripts/validate-release-postgres-image.sh');
 assert.match(
   postgresRuntimeValidation,
   /UPDATE public\.system_config SET value = 'false' WHERE key = 'container\.enabled'/,
@@ -560,6 +565,16 @@ assert.match(
   ephemeralMaintenance,
   /reset_to_baseline\(\)[\s\S]*remove_all_project_resources[\s\S]*restore_database[\s\S]*restore_workspaces[\s\S]*clear_directory_contents "\$LOG_DIR"/,
   'daily restoration must clear project resources, user state, caches, evidence, and managed logs',
+);
+assert.match(
+  ephemeralMaintenance,
+  /enforce_disk_watermarks\(\)[\s\S]*usage.*EPHEMERAL_DISK_HIGH_WATERMARK_PERCENT[\s\S]*return 0[\s\S]*ensure_postgres_running[\s\S]*oldest_project_ids/,
+  'scheduled disk enforcement must remain read-only below the high watermark and initialize PostgreSQL only for pressure cleanup',
+);
+assert.match(
+  ephemeralMaintenance,
+  /cleanup\) run_cleanup ;;[\s\S]*enforce\) enforce_disk_watermarks ;;/,
+  'TTL cleanup must remain explicit while scheduled enforcement only checks disk watermarks',
 );
 assert.match(
   ephemeralMaintenance,
@@ -703,6 +718,11 @@ const backendSystemdUnit = read('deploy/systemd/yistack-backend.service');
 const ephemeralCleanupSystemdUnit = read('deploy/systemd/yistack-ephemeral-cleanup.service');
 const ephemeralResetSystemdUnit = read('deploy/systemd/yistack-ephemeral-reset.service');
 const postgresSystemdUnit = read('deploy/systemd/yistack-postgres.service');
+assert.match(
+  ephemeralCleanupSystemdUnit,
+  /ExecStart=.*yistack-ephemeral-maintenance enforce/,
+  'the hourly ephemeral timer service must dispatch disk-watermark enforcement',
+);
 assert.match(migrationRunner, /checksum_sha256[\s\S]*database checksum mismatch/, 'migration history must verify recorded checksums');
 assert.match(databaseBackup, /SCHEMA - public[\s\S]*--single-transaction[\s\S]*--use-list/, 'database recovery must use a filtered custom-archive TOC in one transaction');
 assert.doesNotMatch(databaseBackup, /DROP SCHEMA[^\n]*public/i, 'database recovery must not cascade-drop the public schema');
@@ -732,7 +752,9 @@ for (const [name, script] of [
 ]) {
   assert.doesNotMatch(script, /runuser -u/, `${name} must delegate user switching to yistack-service-user-exec`);
 }
-assert.match(installer, /run_as_service_user systemctl --user[\s\S]*run_as_service_user env[\s\S]*PLAYWRIGHT_BROWSERS_PATH[\s\S]*run_as_service_user "\$RELEASE_DIR\/bin\/yistack-postgres" init/, 'installer service-user commands must use the cwd-safe executor');
+assert.match(installer, /install_browser_runtime\(\)[\s\S]*run_as_service_user env[\s\S]*PLAYWRIGHT_BROWSERS_PATH[\s\S]*install chromium/, 'browser installation must use the cwd-safe service-user executor');
+assert.match(installer, /resolve_postgres_image_reference\(\)[\s\S]*run_as_service_user "\$RELEASE_DIR\/bin\/yistack-postgres" resolve-image[\s\S]*set_env_value "\$CONFIG_DIR\/postgres\.env" POSTGRES_IMAGE/, 'PostgreSQL image resolution must use the cwd-safe service-user executor and persist the selected reference');
+assert.match(installer, /run_as_service_user systemctl --user[\s\S]*install_browser_runtime[\s\S]*resolve_postgres_image_reference[\s\S]*yistack-postgres" prepare-image[\s\S]*yistack-postgres" init/, 'installer runtime and PostgreSQL commands must use the cwd-safe service-user executor');
 assert.match(sourceInstaller, /run_as_service_user mkdir -p[\s\S]*run_as_service_user bash -c[\s\S]*run_as_service_user systemctl --user[\s\S]*run_as_service_user env/, 'source installer service-user commands must use the cwd-safe executor');
 assert.match(serviceUserCwdValidation, /chmod 0700 "\$root_only_dir"[\s\S]*EXPECTED_SERVICE_CWD[\s\S]*bus=unix:path=\/run\/user\/\$service_uid\/bus/, 'Release acceptance must verify cwd and D-Bus isolation from a root-only caller directory');
 assert.match(controlValidation, /MOCK_HEALTH_FAILURES=2[\s\S]*Health check: passed[\s\S]*runtime images[\s\S]*MOCK_HEALTH_FAILURES=3/, 'control acceptance must cover health retries, runtime inspection, and failed restart reporting');
@@ -771,16 +793,20 @@ assert.match(upgradeScript, /trap - EXIT[\s\S]*cleanup_historical_releases/, 'hi
 assert.match(upgradeValidation, /success_root[\s\S]*releases\/v1\.0\.0[\s\S]*failure_root[\s\S]*releases\/v1\.0\.0/, 'upgrade acceptance must remove old Releases on success and retain them on failure');
 assert.match(uninstallScript, /uninstall \[--purge\][\s\S]*External databases are[\s\S]*never deleted/, 'uninstall must expose preserve and explicit purge modes');
 assert.match(uninstallScript, /label=yistack\.project_id[\s\S]*POSTGRES_CONTAINER_NAME[\s\S]*validate_managed_directory/, 'purge must target only managed runtime resources and guarded directories');
-assert.match(uninstallValidation, /preserve_root[\s\S]*purge_root[\s\S]*cleanup_failure_root[\s\S]*refusing unsafe INSTALL_ROOT/, 'uninstall acceptance must cover preservation, purge, cleanup failure, and unsafe path rejection');
+assert.match(uninstallValidation, /preserve_root[\s\S]*purge_root[\s\S]*cleanup_failure_root[\s\S]*process_failure_root[\s\S]*account_failure_root[\s\S]*refusing unsafe INSTALL_ROOT/, 'uninstall acceptance must cover preservation, purge, runtime cleanup failure, residual service-user processes, account cleanup failure, and unsafe path rejection');
 assert.match(releaseValidation, /database\/migrations\/manifest\.json[\s\S]*rollback\/202609070001_migration_integrity\.sql/, 'Release validation must require the complete migration set');
 assert.match(yistackctl, /database\)[\s\S]*migrate \| rollback\)[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*systemctl is-active --quiet yistack-backend\.service[\s\S]*yistack-server" database/, 'database schema writes must require stopped application services');
 assert.match(migrationValidation, /advisory lock contention[\s\S]*tampered and unknown histories[\s\S]*Rolling back one version/, 'PostgreSQL acceptance must cover locking, integrity boundaries, and rollback');
 assert.match(installer, /flock -n[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*Stop YiStack before installing or upgrading/, 'Release installation must lock and reject a running application stack');
 assert.match(installer, /Starting YiStack services and waiting for health checks[\s\S]*YISTACK_HEALTH_ATTEMPTS[\s\S]*yistackctl" restart[\s\S]*Health check: passed/, 'Release installation with --start must wait for health before reporting success');
-assert.match(installer, /systemctl enable yistack-postgres\.service[\s\S]*systemctl restart yistack-postgres\.service[\s\S]*yistack-postgres" init/, 'PostgreSQL installation must replace legacy active-exited units with the supervised service');
+assert.match(installer, /resolve_postgres_image_reference[\s\S]*yistack-postgres" prepare-image[\s\S]*systemctl enable yistack-postgres\.service[\s\S]*systemctl restart yistack-postgres\.service[\s\S]*yistack-postgres" init/, 'PostgreSQL installation must resolve and persist a selected local image before replacing legacy active-exited units');
+assert.match(installer, /install --dry-run chromium[\s\S]*Install location:[\s\S]*INSTALLATION_COMPLETE[\s\S]*Reusing cached Playwright Chromium, Headless Shell, and FFmpeg components[\s\S]*install chromium/, 'browser installation must report whether the complete Playwright runtime revision is cached before installation');
 assert.match(yistackctl, /runtime\)[\s\S]*podman info[\s\S]*podman images[\s\S]*podman ps --all/, 'yistackctl must expose the service-user Podman runtime');
-assert.match(postgresScript, /create_database_container[\s\S]*--log-driver "\$POSTGRES_LOG_DRIVER"[\s\S]*supervise_database[\s\S]*podman attach --no-stdin --sig-proxy=false[\s\S]*podman start --attach --sig-proxy=false[\s\S]*inspect_database/, 'managed PostgreSQL must use durable logs and expose a supervised, inspectable container lifecycle');
-assert.match(postgresScript, /replace_container_with_legacy_log_driver[\s\S]*io\.yistack\.role[\s\S]*\.Mounts[\s\S]*Refusing to replace PostgreSQL container with an unverified data mount/, 'PostgreSQL log migration must verify container ownership and the external data mount before replacement');
+assert.match(postgresScript, /create_database_container[\s\S]*--pull=never[\s\S]*--log-driver "\$POSTGRES_LOG_DRIVER"[\s\S]*supervise_database[\s\S]*podman attach --no-stdin --sig-proxy=false[\s\S]*podman start --attach --sig-proxy=false[\s\S]*inspect_database/, 'managed PostgreSQL must use a prepared image, durable logs, and an inspectable supervised lifecycle');
+assert.match(postgresScript, /verify_managed_container[\s\S]*io\.yistack\.role[\s\S]*\.Mounts[\s\S]*Refusing to use PostgreSQL container with an unverified data mount/, 'PostgreSQL reuse and log migration must verify container ownership and the external data mount');
+assert.match(postgresScript, /verify_container_image[\s\S]*\.ImageName[\s\S]*podman image inspect[\s\S]*Refusing to replace the database container with a different image automatically[\s\S]*ensure_database_image[\s\S]*podman image exists[\s\S]*podman pull/, 'PostgreSQL image preparation must reuse only an exact reference or identical image ID and explicitly pull missing images');
+assert.match(postgresScript, /list_compatible_database_images[\s\S]*\$\{POSTGRES_IMAGE##\*\/\}[\s\S]*resolve_database_image[\s\S]*Multiple local PostgreSQL images match[\s\S]*Select a PostgreSQL image/, 'PostgreSQL image resolution must reuse a unique same-name local image and prompt when multiple candidates exist');
+assert.match(postgresImageValidation, /single-candidate[\s\S]*ambiguous non-interactive input[\s\S]*selected-candidate[\s\S]*pull \$target_image[\s\S]*cached-image-id[\s\S]*create --pull=never[\s\S]*shared-image-id[\s\S]*different existing container image/, 'PostgreSQL image acceptance must cover local selection, registry aliases, cache reuse, explicit pulls, and existing-container conflicts');
 assert.match(postgresSystemdUnit, /Type=simple[\s\S]*yistack-postgres supervise[\s\S]*ExecStartPost=[^\n]*yistack-postgres wait-ready[\s\S]*Restart=always/, 'PostgreSQL systemd execution must supervise and restart the container after verified readiness');
 assert.doesNotMatch(postgresSystemdUnit, /RemainAfterExit=yes|Type=oneshot/, 'PostgreSQL must not report active after its detached container exits');
 assert.match(postgresRuntimeValidation, /POSTGRES_LOG_DRIVER=none[\s\S]*POSTGRES_LOG_DRIVER=k8s-file[\s\S]*current_container_id[\s\S]*yistack-postgres" supervise[\s\S]*podman kill[\s\S]*exit_code=137[\s\S]*assert_backend_unhealthy[\s\S]*run_postgres start/, 'PostgreSQL acceptance must verify log migration, supervised failure detection, health degradation, and recovery');
@@ -835,6 +861,16 @@ assert.match(
 );
 assert.match(readme, /yistackctl uninstall[\s\S]*yistackctl uninstall --purge[\s\S]*外部 Supabase 或 PostgreSQL/);
 assert.match(readmeEnglish, /yistackctl uninstall[\s\S]*yistackctl uninstall --purge[\s\S]*external Supabase or PostgreSQL/);
+assert.match(
+  readme,
+  /首次创建并启用配置[\s\S]*test ! -e \/etc\/yistack\/ephemeral-maintenance\.env[\s\S]*采集基线并启用计划[\s\S]*ephemeral snapshot &&[\s\S]*ephemeral apply-schedule &&[\s\S]*ephemeral status/,
+  'README must separate one-time ephemeral configuration from fail-closed baseline scheduling',
+);
+assert.match(
+  readmeEnglish,
+  /Create and Enable the Configuration Once[\s\S]*test ! -e \/etc\/yistack\/ephemeral-maintenance\.env[\s\S]*Capture the Baseline and Enable the Schedule[\s\S]*ephemeral snapshot &&[\s\S]*ephemeral apply-schedule &&[\s\S]*ephemeral status/,
+  'English README must separate one-time ephemeral configuration from fail-closed baseline scheduling',
+);
 
 const envExample = read('.env.example');
 for (const key of [

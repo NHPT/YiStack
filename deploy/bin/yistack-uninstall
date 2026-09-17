@@ -22,7 +22,10 @@ RUNUSER_BIN="${YISTACK_RUNUSER_BIN:-runuser}"
 SERVICE_USER_EXEC="${YISTACK_SERVICE_USER_EXEC:-$INSTALL_ROOT/current/bin/yistack-service-user-exec}"
 USERDEL_BIN="${YISTACK_USERDEL_BIN:-userdel}"
 GROUPDEL_BIN="${YISTACK_GROUPDEL_BIN:-groupdel}"
+PS_BIN="${YISTACK_PS_BIN:-ps}"
 SKIP_ROOT_CHECK="${YISTACK_UNINSTALL_SKIP_ROOT_CHECK:-false}"
+SERVICE_USER_STOP_ATTEMPTS="${YISTACK_SERVICE_USER_STOP_ATTEMPTS:-40}"
+SERVICE_USER_STOP_SLEEP_SECONDS="${YISTACK_SERVICE_USER_STOP_SLEEP_SECONDS:-0.25}"
 PURGE=false
 cleanup_failed=false
 
@@ -162,6 +165,64 @@ remove_subordinate_ids() {
   sed -i "/^${SERVICE_USER}:/d" "$file"
 }
 
+service_user_pids() {
+  local service_uid="$1"
+  "$PS_BIN" -o pid= -u "$service_uid" 2>/dev/null |
+    awk '$1 ~ /^[0-9]+$/ { print $1 }'
+}
+
+wait_for_service_user_exit() {
+  local attempt=""
+  local service_uid="$1"
+  for attempt in $(seq 1 "$SERVICE_USER_STOP_ATTEMPTS"); do
+    [ -z "$(service_user_pids "$service_uid")" ] && return 0
+    sleep "$SERVICE_USER_STOP_SLEEP_SECONDS"
+  done
+  return 1
+}
+
+terminate_service_user_processes() {
+  local service_uid="$1"
+  local signal="$2"
+  local -a process_ids=()
+  mapfile -t process_ids < <(service_user_pids "$service_uid")
+  [ "${#process_ids[@]}" -gt 0 ] || return 0
+  kill "-$signal" "${process_ids[@]}" >/dev/null 2>&1 || true
+}
+
+stop_service_user_runtime() {
+  local service_uid="$1"
+
+  run_as_service_user "$SYSTEMCTL_BIN" --user disable --now \
+    podman.socket >/dev/null 2>&1 || true
+  "$LOGINCTL_BIN" disable-linger "$SERVICE_USER" >/dev/null 2>&1 || true
+  "$SYSTEMCTL_BIN" stop "user@${service_uid}.service" >/dev/null 2>&1 || true
+  "$LOGINCTL_BIN" terminate-user "$SERVICE_USER" >/dev/null 2>&1 || true
+  wait_for_service_user_exit "$service_uid" && return 0
+
+  terminate_service_user_processes "$service_uid" TERM
+  wait_for_service_user_exit "$service_uid" && return 0
+  terminate_service_user_processes "$service_uid" KILL
+  wait_for_service_user_exit "$service_uid" && return 0
+
+  echo "Processes still running as $SERVICE_USER:" >&2
+  service_user_pids "$service_uid" >&2 || true
+  return 1
+}
+
+remove_service_account() {
+  if id "$SERVICE_USER" >/dev/null 2>&1; then
+    if ! "$USERDEL_BIN" "$SERVICE_USER"; then
+      warn_failure "unable to remove service user $SERVICE_USER"
+      return 0
+    fi
+  fi
+  if getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
+    "$GROUPDEL_BIN" "$SERVICE_GROUP" ||
+      warn_failure "unable to remove service group $SERVICE_GROUP"
+  fi
+}
+
 main() {
   local service_uid=""
 
@@ -185,6 +246,10 @@ main() {
   if [ "$SKIP_ROOT_CHECK" != "true" ] && [ "$(id -u)" -ne 0 ]; then
     die "the uninstall command must run as root"
   fi
+  [[ "$SERVICE_USER_STOP_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] ||
+    die "YISTACK_SERVICE_USER_STOP_ATTEMPTS must be a positive integer"
+  [[ "$SERVICE_USER_STOP_SLEEP_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+    die "YISTACK_SERVICE_USER_STOP_SLEEP_SECONDS must be a non-negative number"
 
   for path_var in INSTALL_ROOT CONFIG_DIR DATA_DIR LOG_DIR CACHE_DIR; do
     validate_managed_directory "$path_var" "$path_var"
@@ -213,10 +278,16 @@ main() {
     stop_or_remove_managed_containers
     [ "$cleanup_failed" = "false" ] ||
       die "managed runtime cleanup failed; application files and local data were preserved for retry"
-    run_as_service_user "$SYSTEMCTL_BIN" --user disable --now \
-      podman.socket >/dev/null 2>&1 || true
-    "$LOGINCTL_BIN" disable-linger "$SERVICE_USER" >/dev/null 2>&1 || true
-    "$SYSTEMCTL_BIN" stop "user@${service_uid}.service" >/dev/null 2>&1 || true
+    stop_service_user_runtime "$service_uid" ||
+      die "service-user processes could not be stopped; application files and local data were preserved for retry"
+  fi
+
+  if [ "$PURGE" = "true" ]; then
+    remove_service_account
+    [ "$cleanup_failed" = "false" ] ||
+      die "service-account cleanup failed; application files and local data were preserved for retry"
+    remove_subordinate_ids "$SUBUID_FILE"
+    remove_subordinate_ids "$SUBGID_FILE"
   fi
 
   rm -rf --one-file-system -- "$INSTALL_ROOT"
@@ -225,16 +296,6 @@ main() {
 
   if [ "$PURGE" = "true" ]; then
     rm -rf --one-file-system -- "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR" "$CACHE_DIR"
-    remove_subordinate_ids "$SUBUID_FILE"
-    remove_subordinate_ids "$SUBGID_FILE"
-    if id "$SERVICE_USER" >/dev/null 2>&1; then
-      "$USERDEL_BIN" "$SERVICE_USER" || warn_failure "unable to remove service user $SERVICE_USER"
-    fi
-    if getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
-      "$GROUPDEL_BIN" "$SERVICE_GROUP" || warn_failure "unable to remove service group $SERVICE_GROUP"
-    fi
-    [ "$cleanup_failed" = "false" ] ||
-      die "local files were removed, but service-account cleanup was incomplete"
     echo "YiStack application files, local data, and service account removed."
   else
     echo "YiStack application files removed. Configuration and data were preserved."

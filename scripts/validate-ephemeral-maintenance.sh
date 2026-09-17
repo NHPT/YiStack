@@ -53,6 +53,12 @@ case "${1:-}" in
 esac
 EOF
 
+cat > "$TEMP_ROOT/bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf 'mock 100 26 74 %s%% /tmp\n' "${MOCK_DISK_USAGE_PERCENT:-26}"
+EOF
+
 cat > "$TEMP_ROOT/bin/podman" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "inspect" ]; then
@@ -71,6 +77,7 @@ fi
 exit 0
 EOF
 chmod 0755 \
+  "$TEMP_ROOT/bin/df" \
   "$TEMP_ROOT/bin/systemctl" \
   "$TEMP_ROOT/bin/systemd-analyze" \
   "$TEMP_ROOT/bin/podman"
@@ -129,6 +136,7 @@ EOF
 run_maintenance() {
   PATH="$TEMP_ROOT/bin:$PATH" \
     SYSTEMCTL_LOG="$TEMP_ROOT/systemctl.log" \
+    MOCK_DISK_USAGE_PERCENT="${MOCK_DISK_USAGE_PERCENT:-26}" \
     MOCK_USER_DATA_ROWS="${MOCK_USER_DATA_ROWS:-}" \
     YISTACK_ENV_FILE="$TEMP_ROOT/config/yistack.env" \
     YISTACK_POSTGRES_ENV_FILE="$TEMP_ROOT/config/postgres.env" \
@@ -140,6 +148,15 @@ run_maintenance status > "$TEMP_ROOT/status.out"
 grep -q '^enabled=true$' "$TEMP_ROOT/status.out" || fail "status did not report enabled mode"
 grep -q '^configured_reset_on_calendar=Mon..Fri \*-\*-\* 03:15:00$' "$TEMP_ROOT/status.out" ||
   fail "status did not report the configured daily reset schedule"
+: > "$TEMP_ROOT/systemctl.log"
+run_maintenance enforce
+[ -e "$TEMP_ROOT/data/runtime/generation-evidence/expired/evidence.txt" ] ||
+  fail "hourly disk check removed evidence below the high watermark"
+[ -e "$TEMP_ROOT/cache/expired/cache.txt" ] ||
+  fail "hourly disk check removed cache below the high watermark"
+if grep -Fq 'start yistack-postgres.service' "$TEMP_ROOT/systemctl.log"; then
+  fail "hourly disk check started PostgreSQL below the high watermark"
+fi
 run_maintenance cleanup
 
 [ ! -e "$TEMP_ROOT/data/runtime/generation-evidence/expired/evidence.txt" ] || fail "expired evidence was retained"

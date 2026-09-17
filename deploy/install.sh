@@ -37,6 +37,54 @@ read_env_value() {
   printf '%s' "${value:-$fallback}"
 }
 
+install_browser_runtime() {
+  local browser_download_required=false
+  local browser_location=""
+  local browser_plan=""
+  local node_bin="$RELEASE_DIR/runtime/node/bin/node"
+  local playwright_cli="$RELEASE_DIR/browser-worker/node_modules/playwright/cli.js"
+  local -a browser_locations=()
+
+  echo "Checking Playwright Chromium runtime cache..."
+  browser_plan="$(
+    run_as_service_user env \
+      PLAYWRIGHT_BROWSERS_PATH="$DATA_DIR/ms-playwright" \
+      "$node_bin" "$playwright_cli" install --dry-run chromium
+  )"
+  mapfile -t browser_locations < <(
+    printf '%s\n' "$browser_plan" |
+      sed -n 's/^[[:space:]]*Install location:[[:space:]]*//p'
+  )
+  [ "${#browser_locations[@]}" -gt 0 ] || {
+    echo "Unable to determine the required Playwright Chromium runtime." >&2
+    return 1
+  }
+  for browser_location in "${browser_locations[@]}"; do
+    case "$browser_location" in
+      "$DATA_DIR/ms-playwright"/*)
+        ;;
+      *)
+        echo "Playwright reported an unexpected browser location: $browser_location" >&2
+        return 1
+        ;;
+    esac
+    [ -f "$browser_location/INSTALLATION_COMPLETE" ] ||
+      browser_download_required=true
+  done
+
+  echo "Checking Playwright Chromium system dependencies..."
+  "$node_bin" "$playwright_cli" install-deps chromium
+  if [ "$browser_download_required" = "true" ]; then
+    echo "Downloading missing Playwright Chromium runtime components..."
+  else
+    echo "Reusing cached Playwright Chromium, Headless Shell, and FFmpeg components."
+  fi
+  run_as_service_user env \
+    PLAYWRIGHT_BROWSERS_PATH="$DATA_DIR/ms-playwright" \
+    "$node_bin" "$playwright_cli" install chromium
+  echo "Playwright Chromium runtime is ready."
+}
+
 usage() {
   cat <<'EOF'
 Usage: sudo ./install.sh [options]
@@ -217,6 +265,28 @@ set_env_value() {
   fi
 }
 
+resolve_postgres_image_reference() {
+  local configured_image=""
+  local resolved_image=""
+
+  [ -z "$POSTGRES_IMAGE_OVERRIDE" ] || return 0
+  configured_image="$(
+    sed -n 's/^POSTGRES_IMAGE=//p' "$CONFIG_DIR/postgres.env" | tail -n 1
+  )"
+  configured_image="${configured_image:-docker.io/library/postgres:16-alpine}"
+  resolved_image="$(
+    run_as_service_user "$RELEASE_DIR/bin/yistack-postgres" resolve-image
+  )"
+  [[ "$resolved_image" =~ ^[A-Za-z0-9][A-Za-z0-9._:/@-]*$ ]] || {
+    echo "Invalid resolved PostgreSQL image reference: $resolved_image" >&2
+    return 1
+  }
+  if [ "$resolved_image" != "$configured_image" ]; then
+    echo "Selected local PostgreSQL image: $resolved_image"
+    set_env_value "$CONFIG_DIR/postgres.env" POSTGRES_IMAGE "$resolved_image"
+  fi
+}
+
 if ! grep -q '^DB_AUTO_MIGRATE=' "$CONFIG_DIR/yistack.env"; then
   set_env_value "$CONFIG_DIR/yistack.env" DB_AUTO_MIGRATE false
 fi
@@ -245,12 +315,7 @@ done
 systemctl daemon-reload
 
 if [ "$INSTALL_BROWSER" = "true" ]; then
-  node_bin="$RELEASE_DIR/runtime/node/bin/node"
-  playwright_cli="$RELEASE_DIR/browser-worker/node_modules/playwright/cli.js"
-  "$node_bin" "$playwright_cli" install-deps chromium
-  run_as_service_user env \
-    PLAYWRIGHT_BROWSERS_PATH="$DATA_DIR/ms-playwright" \
-    "$node_bin" "$playwright_cli" install chromium
+  install_browser_runtime
 fi
 
 if [ "$WITH_POSTGRES" = "true" ]; then
@@ -266,6 +331,7 @@ if [ "$WITH_POSTGRES" = "true" ]; then
   if ! grep -Eq '^POSTGRES_PASSWORD=.{24,}$' "$CONFIG_DIR/postgres.env"; then
     set_env_value "$CONFIG_DIR/postgres.env" POSTGRES_PASSWORD "$(openssl rand -hex 24)"
   fi
+  resolve_postgres_image_reference
   postgres_password="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$CONFIG_DIR/postgres.env" | tail -n 1)"
   set_env_value "$CONFIG_DIR/yistack.env" DB_TYPE postgres
   set_env_value "$CONFIG_DIR/yistack.env" DB_HOST 127.0.0.1
@@ -274,6 +340,7 @@ if [ "$WITH_POSTGRES" = "true" ]; then
   set_env_value "$CONFIG_DIR/yistack.env" DB_PASSWORD "$postgres_password"
   set_env_value "$CONFIG_DIR/yistack.env" DB_NAME yistack
   set_env_value "$CONFIG_DIR/yistack.env" DB_SSL_MODE disable
+  run_as_service_user "$RELEASE_DIR/bin/yistack-postgres" prepare-image
   systemctl enable yistack-postgres.service
   systemctl restart yistack-postgres.service
   run_as_service_user "$RELEASE_DIR/bin/yistack-postgres" init
