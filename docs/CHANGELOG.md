@@ -14,6 +14,17 @@ YiStack 从 v1.0.0 起按照 [Semantic Versioning](https://semver.org/)
 
 暂无公开变更。
 
+## [1.1.9] - 2026-09-18
+
+### 修复
+
+- 修复 PostgreSQL 模式未装配管理员审计仓储，导致审计页面返回 `audit service not available`。
+- 修复默认 LLM Provider 切换触发 GORM `WHERE conditions required`，并阻止并发更新产生多个默认项或禁用默认项。
+
+### 测试
+
+- Release PostgreSQL 动态回归新增管理员审计写入/读取、并发默认 Provider 切换和默认状态一致性验证。
+
 ## [1.1.8] - 2026-09-17
 
 ### 变更

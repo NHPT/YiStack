@@ -16,6 +16,17 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.9] - 2026-09-18
+
+### Fixed
+
+- Fixed the missing administrator audit repository in PostgreSQL mode, which caused the audit page to return `audit service not available`.
+- Fixed default LLM Provider switching triggering GORM `WHERE conditions required`, while preventing concurrent updates from producing multiple defaults or a disabled default.
+
+### Tests
+
+- Extended the Release PostgreSQL runtime regression with administrator audit write/read coverage, concurrent default Provider switching, and default-state consistency checks.
+
 ## [1.1.8] - 2026-09-17
 
 ### Changed
