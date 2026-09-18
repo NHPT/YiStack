@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"yistack/config"
@@ -14,6 +15,7 @@ type providerManagerServiceRepoStub struct {
 	models            []model.LLMProviderModel
 	useCountByID      map[int64]int
 	lastUseProviderID int64
+	setDefaultErr     error
 }
 
 func (r *providerManagerServiceRepoStub) Create(ctx context.Context, provider *model.LLMProvider) error {
@@ -90,7 +92,9 @@ func (r *providerManagerServiceRepoStub) GetDefault(ctx context.Context) (*model
 func (r *providerManagerServiceRepoStub) Update(ctx context.Context, provider *model.LLMProvider) error {
 	for index := range r.providers {
 		if r.providers[index].ID == provider.ID {
+			isDefault := r.providers[index].IsDefault
 			r.providers[index] = *provider
+			r.providers[index].IsDefault = isDefault
 			return nil
 		}
 	}
@@ -148,6 +152,9 @@ func (r *providerManagerServiceRepoStub) DeleteModel(ctx context.Context, provid
 }
 
 func (r *providerManagerServiceRepoStub) SetDefault(ctx context.Context, id int64) error {
+	if r.setDefaultErr != nil {
+		return r.setDefaultErr
+	}
 	for index := range r.providers {
 		r.providers[index].IsDefault = r.providers[index].ID == id
 	}
@@ -232,6 +239,117 @@ func TestLLMProviderAdminServiceUpdateProviderPersistsType(t *testing.T) {
 	}
 	if repo.providers[0].Type != "cloud" {
 		t.Fatalf("expected persisted type cloud, got %q", repo.providers[0].Type)
+	}
+}
+
+func TestLLMProviderAdminServiceUpdateProviderRejectsDisabledDefault(t *testing.T) {
+	repo := &providerManagerServiceRepoStub{
+		providers: []model.LLMProvider{{
+			ID:        10,
+			Name:      "disabled-provider",
+			BaseURL:   "https://example.test",
+			Enabled:   false,
+			IsDefault: false,
+		}},
+	}
+	service := NewLLMProviderAdminService(repo, nil)
+	isDefault := true
+
+	if _, err := service.UpdateProvider(context.Background(), 10, &LLMProviderUpdateRequest{
+		IsDefault: &isDefault,
+	}); err == nil || err.Error() != "cannot set disabled provider as default" {
+		t.Fatalf("expected disabled default validation error, got %v", err)
+	}
+	if repo.providers[0].IsDefault {
+		t.Fatal("disabled provider must not become the default")
+	}
+}
+
+func TestLLMProviderAdminServiceCreateProviderRejectsDisabledDefault(t *testing.T) {
+	repo := &providerManagerServiceRepoStub{}
+	service := NewLLMProviderAdminService(repo, nil)
+
+	if _, err := service.CreateProvider(context.Background(), &LLMProviderCreateRequest{
+		Name:      "disabled-provider",
+		BaseURL:   "https://example.test",
+		Enabled:   false,
+		IsDefault: true,
+	}); err == nil || err.Error() != "cannot set disabled provider as default" {
+		t.Fatalf("expected disabled default validation error, got %v", err)
+	}
+	if len(repo.providers) != 0 {
+		t.Fatalf("disabled default provider must not be created, got %#v", repo.providers)
+	}
+}
+
+func TestLLMProviderAdminServiceCreateProviderCleansUpDefaultFailure(t *testing.T) {
+	repo := &providerManagerServiceRepoStub{
+		setDefaultErr: errors.New("set default failed"),
+	}
+	service := NewLLMProviderAdminService(repo, nil)
+
+	if _, err := service.CreateProvider(context.Background(), &LLMProviderCreateRequest{
+		Name:      "default-provider",
+		BaseURL:   "https://example.test",
+		Enabled:   true,
+		IsDefault: true,
+	}); !errors.Is(err, repo.setDefaultErr) {
+		t.Fatalf("expected default switch error, got %v", err)
+	}
+	if len(repo.providers) != 0 {
+		t.Fatalf("failed default provider must be removed, got %#v", repo.providers)
+	}
+}
+
+func TestLLMProviderAdminServiceUpdateProviderRejectsDisablingDefault(t *testing.T) {
+	repo := &providerManagerServiceRepoStub{
+		providers: []model.LLMProvider{{
+			ID:        10,
+			Name:      "default-provider",
+			BaseURL:   "https://example.test",
+			Enabled:   true,
+			IsDefault: true,
+		}},
+	}
+	service := NewLLMProviderAdminService(repo, nil)
+	enabled := false
+
+	if _, err := service.UpdateProvider(context.Background(), 10, &LLMProviderUpdateRequest{
+		Enabled: &enabled,
+	}); err == nil || err.Error() != "cannot disable default provider" {
+		t.Fatalf("expected default provider disable validation error, got %v", err)
+	}
+	if !repo.providers[0].Enabled || !repo.providers[0].IsDefault {
+		t.Fatalf("default provider state must remain unchanged, got %#v", repo.providers[0])
+	}
+}
+
+func TestLLMProviderAdminServiceUpdateProviderCanEnableDefault(t *testing.T) {
+	repo := &providerManagerServiceRepoStub{
+		providers: []model.LLMProvider{{
+			ID:        10,
+			Name:      "disabled-provider",
+			BaseURL:   "https://example.test",
+			Enabled:   false,
+			IsDefault: false,
+		}},
+	}
+	service := NewLLMProviderAdminService(repo, nil)
+	enabled := true
+	isDefault := true
+
+	provider, err := service.UpdateProvider(context.Background(), 10, &LLMProviderUpdateRequest{
+		Enabled:   &enabled,
+		IsDefault: &isDefault,
+	})
+	if err != nil {
+		t.Fatalf("expected enabled provider to become default, got %v", err)
+	}
+	if !provider.Enabled || !provider.IsDefault {
+		t.Fatalf("expected enabled default provider, got %#v", provider)
+	}
+	if !repo.providers[0].Enabled || !repo.providers[0].IsDefault {
+		t.Fatalf("expected enabled default provider to persist, got %#v", repo.providers[0])
 	}
 }
 

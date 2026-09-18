@@ -544,10 +544,12 @@ func (s *LLMProviderAdminService) CreateProvider(ctx context.Context, req *LLMPr
 		provider.Model = getDefaultLLMProviderModelID(models)
 	}
 
-	if req.IsDefault {
-		if err := s.repo.SetDefault(ctx, 0); err != nil {
-			return nil, err
-		}
+	setAsDefault := provider.IsDefault
+	if setAsDefault && !provider.Enabled {
+		return nil, fmt.Errorf("cannot set disabled provider as default")
+	}
+	if setAsDefault {
+		provider.IsDefault = false
 	}
 
 	if err := s.repo.Create(ctx, provider); err != nil {
@@ -562,6 +564,15 @@ func (s *LLMProviderAdminService) CreateProvider(ctx context.Context, req *LLMPr
 			provider.Model = getDefaultLLMProviderModelID(models)
 			_ = s.repo.Update(ctx, provider)
 		}
+	}
+	if setAsDefault {
+		if err := s.repo.SetDefault(ctx, provider.ID); err != nil {
+			if cleanupErr := s.repo.Delete(context.WithoutCancel(ctx), provider.ID); cleanupErr != nil {
+				return nil, fmt.Errorf("set default provider: %w; cleanup created provider: %v", err, cleanupErr)
+			}
+			return nil, err
+		}
+		provider.IsDefault = true
 	}
 
 	s.reloadProvidersAfterChange(ctx)
@@ -612,11 +623,15 @@ func (s *LLMProviderAdminService) UpdateProvider(ctx context.Context, id int64, 
 		provider.ExtraConfig = *req.ExtraConfig
 	}
 
+	if provider.IsDefault && !provider.Enabled {
+		return nil, fmt.Errorf("cannot disable default provider")
+	}
+	setAsDefault := false
 	if req.IsDefault != nil && *req.IsDefault {
-		if err := s.repo.SetDefault(ctx, provider.ID); err != nil {
-			return nil, err
+		if !provider.Enabled {
+			return nil, fmt.Errorf("cannot set disabled provider as default")
 		}
-		provider.IsDefault = true
+		setAsDefault = true
 	}
 	if req.Models != nil {
 		models := normalizeLLMProviderModelRequests(*provider, *req.Models)
@@ -633,6 +648,12 @@ func (s *LLMProviderAdminService) UpdateProvider(ctx context.Context, id int64, 
 		if err := s.repo.ReplaceProviderModels(ctx, provider.ID, models); err != nil {
 			return nil, err
 		}
+	}
+	if setAsDefault {
+		if err := s.repo.SetDefault(ctx, provider.ID); err != nil {
+			return nil, err
+		}
+		provider.IsDefault = true
 	}
 
 	s.reloadProvidersAfterChange(ctx)

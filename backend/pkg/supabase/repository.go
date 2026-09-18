@@ -281,7 +281,6 @@ func (r *LLMProviderRepository) Create(ctx context.Context, provider *model.LLMP
 		"base_url":     provider.BaseURL,
 		"model":        provider.Model,
 		"enabled":      provider.Enabled,
-		"is_default":   provider.IsDefault,
 		"priority":     provider.Priority,
 		"sort_order":   provider.SortOrder,
 		"extra_config": provider.ExtraConfig,

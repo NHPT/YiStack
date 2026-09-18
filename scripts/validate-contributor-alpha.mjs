@@ -102,7 +102,7 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
-assert.equal(packageJSON.version, '1.1.8');
+assert.equal(packageJSON.version, '1.1.9');
 assert.match(packageJSON.description, /开源 AI 工程工作台/);
 assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
 assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
@@ -156,8 +156,10 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /当前版本：\*\*v1\.1\.8\*\*/);
-assert.match(readmeEnglish, /Current release: \*\*v1\.1\.8\*\*/);
+assert.match(readme, /当前版本：\*\*v1\.1\.9\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.1\.9\*\*/);
+assert.match(changelog, /## \[1\.1\.9\] - 2026-09-18/);
+assert.match(changelogEnglish, /## \[1\.1\.9\] - 2026-09-18/);
 assert.match(changelog, /## \[1\.1\.5\] - 2026-09-10/);
 assert.match(changelogEnglish, /## \[1\.1\.5\] - 2026-09-10/);
 assert.match(changelog, /## \[1\.1\.4\] - 2026-09-09/);
@@ -513,6 +515,29 @@ assert.match(
 
 const postgresRuntimeValidation = read('scripts/validate-release-postgres-runtime.sh');
 const postgresImageValidation = read('scripts/validate-release-postgres-image.sh');
+const backendBootstrap = read('backend/cmd/server/bootstrap.go');
+const llmProviderRepository = read('backend/internal/repository/llm_provider_repository.go');
+const llmProviderAdminService = read('backend/internal/service/llm_provider_admin_service.go');
+assert.match(
+  backendBootstrap,
+  /repositories\.auditRepo = repository\.NewAdminAuditLogRepository\(db\)/,
+  'PostgreSQL bootstrap must provide the administrator audit repository',
+);
+assert.match(
+  llmProviderRepository,
+  /SetDefault\(ctx context\.Context, id int64\)[\s\S]*Transaction[\s\S]*Locking\{Strength: "UPDATE"\}[\s\S]*cannot set disabled provider as default[\s\S]*Where\("is_default = \?", true\)[\s\S]*Where\("id = \? AND enabled = \?", id, true\)/,
+  'default provider updates must serialize selection and require an enabled target inside one transaction',
+);
+assert.match(
+  llmProviderRepository,
+  /Update\(ctx context\.Context, provider \*model\.LLMProvider\)[\s\S]*Transaction[\s\S]*Locking\{Strength: "UPDATE"\}[\s\S]*current\.IsDefault && !provider\.Enabled[\s\S]*cannot disable default provider/,
+  'provider updates must lock the target before rejecting a concurrent default disable',
+);
+assert.match(
+  llmProviderAdminService,
+  /req\.IsDefault != nil && \*req\.IsDefault[\s\S]*if !provider\.Enabled[\s\S]*cannot set disabled provider as default[\s\S]*SetDefault\(ctx, provider\.ID\)/,
+  'provider updates must not make a disabled provider the default',
+);
 assert.match(
   postgresRuntimeValidation,
   /UPDATE public\.system_config SET value = 'false' WHERE key = 'container\.enabled'/,
@@ -537,6 +562,16 @@ assert.match(
   postgresRuntimeValidation,
   /podman image inspect[\s\S]*postgres_image_id_after[\s\S]*postgres_image_id_before/,
   'release validation must prove that reusable PostgreSQL images survive a reset',
+);
+assert.match(
+  postgresRuntimeValidation,
+  /api\/admin\/users\/\$ephemeral_user_id[\s\S]*api\/admin\/audit\?limit=10[\s\S]*"action":"update_user"/,
+  'release validation must prove PostgreSQL administrator audit writes and reads',
+);
+assert.match(
+  postgresRuntimeValidation,
+  /provider_update_pid_a[\s\S]*provider_update_pid_b[\s\S]*provider_default_contract[\s\S]*1:2/,
+  'release validation must prove concurrent default Provider updates retain one selected default',
 );
 
 const ephemeralMaintenance = read('deploy/bin/yistack-ephemeral-maintenance');
@@ -851,12 +886,12 @@ assert.match(
 );
 assert.match(
   readme,
-  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.8-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.8-linux-amd64/,
+  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.9-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.9-linux-amd64/,
   'README must document the sidecar-free upgrade path for older controllers',
 );
 assert.match(
   readmeEnglish,
-  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.8-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.8-linux-amd64/,
+  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.9-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.9-linux-amd64/,
   'English README must document the sidecar-free upgrade path for older controllers',
 );
 assert.match(readme, /yistackctl uninstall[\s\S]*yistackctl uninstall --purge[\s\S]*外部 Supabase 或 PostgreSQL/);
@@ -884,4 +919,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] v1.1.8 public release repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.1.9 public release repository contract valid (${requiredFiles.length} required files).`);
