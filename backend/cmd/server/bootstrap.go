@@ -165,6 +165,7 @@ func initRepositories(db database.Database, supabaseClient *supabase.Client, aut
 		repositories.systemConfigRepo = repository.NewSystemConfigRepository(db)
 		repositories.llmProviderRepo = repository.NewLLMProviderRepository(db)
 		repositories.adminRepo = repository.NewAdminRepository(db)
+		repositories.auditRepo = repository.NewAdminAuditLogRepository(db)
 
 		if err := initLLMProviders(repositories.llmProviderRepo); err != nil {
 			log.Printf("Init LLM providers failed: %v", err)

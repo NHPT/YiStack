@@ -39,6 +39,14 @@ health_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-health.XXXXXX")"
 unhealthy_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-unhealthy.XXXXXX")"
 supervisor_log="$(mktemp "${TMPDIR:-/tmp}/yistack-release-pg-supervisor.XXXXXX")"
 register_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-register.XXXXXX")"
+admin_login_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-login.XXXXXX")"
+admin_password_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-password.XXXXXX")"
+admin_user_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-user.XXXXXX")"
+admin_audit_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-audit.XXXXXX")"
+provider_update_body_a="$(mktemp "${TMPDIR:-/tmp}/yistack-release-provider-update-a.XXXXXX")"
+provider_update_body_b="$(mktemp "${TMPDIR:-/tmp}/yistack-release-provider-update-b.XXXXXX")"
+provider_update_status_a="$(mktemp "${TMPDIR:-/tmp}/yistack-release-provider-status-a.XXXXXX")"
+provider_update_status_b="$(mktemp "${TMPDIR:-/tmp}/yistack-release-provider-status-b.XXXXXX")"
 ephemeral_root="$(mktemp -d "${TMPDIR:-/tmp}/yistack-release-ephemeral.XXXXXX")"
 backend_pid=""
 supervisor_pid=""
@@ -63,7 +71,15 @@ cleanup() {
     "$health_body" \
     "$unhealthy_body" \
     "$supervisor_log" \
-    "$register_body"
+    "$register_body" \
+    "$admin_login_body" \
+    "$admin_password_body" \
+    "$admin_user_body" \
+    "$admin_audit_body" \
+    "$provider_update_body_a" \
+    "$provider_update_body_b" \
+    "$provider_update_status_a" \
+    "$provider_update_status_b"
   rm -rf "$ephemeral_root"
 }
 trap cleanup EXIT
@@ -349,6 +365,131 @@ if [ "$register_status" != "200" ] && [ "$register_status" != "201" ]; then
   exit 1
 fi
 
+ephemeral_user_id="$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' "$register_body" | head -n 1)"
+if ! [[ "$ephemeral_user_id" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+  echo "Unable to extract the registered release user ID." >&2
+  cat "$register_body" >&2
+  exit 1
+fi
+
+admin_login_status="$(curl --silent --show-error \
+  --output "$admin_login_body" \
+  --write-out '%{http_code}' \
+  --header 'content-type: application/json' \
+  --data '{"email":"admin@yistack.com","password":"admin123"}' \
+  "http://127.0.0.1:$backend_port/api/admin/auth/login")"
+if [ "$admin_login_status" != "200" ]; then
+  echo "Admin login returned HTTP $admin_login_status:" >&2
+  cat "$admin_login_body" >&2
+  exit 1
+fi
+admin_token="$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$admin_login_body" | head -n 1)"
+[ -n "$admin_token" ] || {
+  echo "Admin login did not return a token." >&2
+  cat "$admin_login_body" >&2
+  exit 1
+}
+
+admin_password_status="$(curl --silent --show-error \
+  --output "$admin_password_body" \
+  --write-out '%{http_code}' \
+  --request POST \
+  --header 'content-type: application/json' \
+  --header "authorization: Bearer $admin_token" \
+  --data '{"current_password":"admin123","new_password":"Release-Admin-Password-123!"}' \
+  "http://127.0.0.1:$backend_port/api/admin/auth/change-password")"
+if [ "$admin_password_status" != "200" ]; then
+  echo "Admin password rotation returned HTTP $admin_password_status:" >&2
+  cat "$admin_password_body" >&2
+  exit 1
+fi
+admin_token="$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$admin_password_body" | head -n 1)"
+[ -n "$admin_token" ] || {
+  echo "Admin password rotation did not return a token." >&2
+  cat "$admin_password_body" >&2
+  exit 1
+}
+
+admin_user_status="$(curl --silent --show-error \
+  --output "$admin_user_body" \
+  --write-out '%{http_code}' \
+  --request PUT \
+  --header 'content-type: application/json' \
+  --header "authorization: Bearer $admin_token" \
+  --data '{"role":"user","status":"active"}' \
+  "http://127.0.0.1:$backend_port/api/admin/users/$ephemeral_user_id")"
+if [ "$admin_user_status" != "200" ]; then
+  echo "Admin user update returned HTTP $admin_user_status:" >&2
+  cat "$admin_user_body" >&2
+  exit 1
+fi
+
+admin_audit_status="$(curl --silent --show-error \
+  --output "$admin_audit_body" \
+  --write-out '%{http_code}' \
+  --header "authorization: Bearer $admin_token" \
+  "http://127.0.0.1:$backend_port/api/admin/audit?limit=10")"
+if [ "$admin_audit_status" != "200" ] ||
+  ! grep -q '"action":"update_user"' "$admin_audit_body" ||
+  ! grep -q "\"target_id\":\"$ephemeral_user_id\"" "$admin_audit_body"; then
+  echo "PostgreSQL admin audit repository validation failed:" >&2
+  cat "$admin_audit_body" >&2
+  exit 1
+fi
+
+mapfile -t provider_ids < <(podman exec "$container_name" \
+  psql --quiet -At -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "SELECT id FROM public.llm_providers ORDER BY id LIMIT 2;")
+if [ "${#provider_ids[@]}" -ne 2 ] ||
+  ! [[ "${provider_ids[0]}" =~ ^[1-9][0-9]*$ ]] ||
+  ! [[ "${provider_ids[1]}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Unable to identify two seeded LLM providers." >&2
+  exit 1
+fi
+curl --silent --show-error \
+  --output "$provider_update_body_a" \
+  --write-out '%{http_code}' \
+  --request PUT \
+  --header 'content-type: application/json' \
+  --header "authorization: Bearer $admin_token" \
+  --data '{"enabled":true,"is_default":true}' \
+  "http://127.0.0.1:$backend_port/api/admin/llm/providers/${provider_ids[0]}" \
+  > "$provider_update_status_a" &
+provider_update_pid_a=$!
+curl --silent --show-error \
+  --output "$provider_update_body_b" \
+  --write-out '%{http_code}' \
+  --request PUT \
+  --header 'content-type: application/json' \
+  --header "authorization: Bearer $admin_token" \
+  --data '{"enabled":true,"is_default":true}' \
+  "http://127.0.0.1:$backend_port/api/admin/llm/providers/${provider_ids[1]}" \
+  > "$provider_update_status_b" &
+provider_update_pid_b=$!
+provider_update_exit_a=0
+provider_update_exit_b=0
+wait "$provider_update_pid_a" || provider_update_exit_a=$?
+wait "$provider_update_pid_b" || provider_update_exit_b=$?
+if [ "$provider_update_exit_a" -ne 0 ] ||
+  [ "$provider_update_exit_b" -ne 0 ] ||
+  [ "$(cat "$provider_update_status_a")" != "200" ] ||
+  [ "$(cat "$provider_update_status_b")" != "200" ]; then
+  echo "Concurrent default LLM provider updates failed:" >&2
+  cat "$provider_update_body_a" >&2
+  cat "$provider_update_body_b" >&2
+  exit 1
+fi
+provider_default_contract="$(podman exec "$container_name" \
+  psql --quiet -At -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "SELECT
+        (SELECT count(*) FROM public.llm_providers WHERE is_default) || ':' ||
+        (SELECT count(*) FROM public.llm_providers
+         WHERE id IN (${provider_ids[0]}, ${provider_ids[1]}) AND enabled);")"
+if [ "$provider_default_contract" != "1:2" ]; then
+  echo "Unexpected default LLM provider contract: $provider_default_contract" >&2
+  exit 1
+fi
+
 schema_contract="$(podman exec "$container_name" \
   psql -At -U postgres -d yistack \
   -c "SELECT (SELECT count(*) FROM public.schema_migrations) || ':' || (SELECT data_type || ':' || is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'instance_id');")"
@@ -420,13 +561,6 @@ esac
 exec "$real_podman" "\$@"
 EOF
 chmod 0755 "$ephemeral_root/bin/systemctl" "$ephemeral_root/bin/podman"
-
-ephemeral_user_id="$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' "$register_body" | head -n 1)"
-if ! [[ "$ephemeral_user_id" =~ ^[0-9a-fA-F-]{36}$ ]]; then
-  echo "Unable to extract the registered release user ID." >&2
-  cat "$register_body" >&2
-  exit 1
-fi
 
 cat > "$ephemeral_config/yistack.env" <<EOF
 DB_TYPE=postgres

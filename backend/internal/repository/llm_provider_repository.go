@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"yistack/internal/model"
 	"yistack/pkg/database"
@@ -48,7 +50,39 @@ func (r *LLMProviderRepository) CreateModel(ctx context.Context, providerModel *
 }
 
 func (r *LLMProviderRepository) Update(ctx context.Context, provider *model.LLMProvider) error {
-	return r.db.WithContext(ctx).Save(provider).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current model.LLMProvider
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "is_default").
+			Where("id = ?", provider.ID).
+			Take(&current).Error; err != nil {
+			return err
+		}
+		if current.IsDefault && !provider.Enabled {
+			return fmt.Errorf("cannot disable default provider")
+		}
+		result := tx.Model(&model.LLMProvider{}).
+			Where("id = ?", provider.ID).
+			Updates(map[string]interface{}{
+				"name":         provider.Name,
+				"display_name": provider.DisplayName,
+				"type":         provider.Type,
+				"api_key":      provider.APIKey,
+				"base_url":     provider.BaseURL,
+				"model":        provider.Model,
+				"enabled":      provider.Enabled,
+				"priority":     provider.Priority,
+				"sort_order":   provider.SortOrder,
+				"extra_config": provider.ExtraConfig,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
 }
 
 func (r *LLMProviderRepository) Delete(ctx context.Context, id int64) error {
@@ -168,10 +202,44 @@ func (r *LLMProviderRepository) GetDefault(ctx context.Context) (*model.LLMProvi
 }
 
 func (r *LLMProviderRepository) SetDefault(ctx context.Context, id int64) error {
-	if err := r.db.Model(&model.LLMProvider{}).Update("is_default", false).Error; err != nil {
-		return err
-	}
-	return r.db.Model(&model.LLMProvider{}).Where("id = ?", id).Update("is_default", true).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var providerIDs []int64
+		if err := tx.Model(&model.LLMProvider{}).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Order("id ASC").
+			Pluck("id", &providerIDs).Error; err != nil {
+			return err
+		}
+		if id != 0 {
+			var target model.LLMProvider
+			if err := tx.Select("id", "enabled").
+				Where("id = ?", id).
+				Take(&target).Error; err != nil {
+				return err
+			}
+			if !target.Enabled {
+				return fmt.Errorf("cannot set disabled provider as default")
+			}
+		}
+		if err := tx.Model(&model.LLMProvider{}).
+			Where("is_default = ?", true).
+			Update("is_default", false).Error; err != nil {
+			return err
+		}
+		if id == 0 {
+			return nil
+		}
+		result := tx.Model(&model.LLMProvider{}).
+			Where("id = ? AND enabled = ?", id, true).
+			Update("is_default", true)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
 }
 
 func (r *LLMProviderRepository) UpsertModel(ctx context.Context, providerModel *model.LLMProviderModel) error {
