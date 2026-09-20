@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -41,6 +42,38 @@ func getProjectRuntimePreparationLock(projectID string) *sync.Mutex {
 	return mutex
 }
 
+func lockProjectRuntimeCreation(projectIDs []string) func() {
+	normalized := make([]string, 0, len(projectIDs))
+	seen := make(map[string]struct{}, len(projectIDs))
+	for _, projectID := range projectIDs {
+		projectID = strings.TrimSpace(projectID)
+		if projectID == "" {
+			continue
+		}
+		if _, exists := seen[projectID]; exists {
+			continue
+		}
+		seen[projectID] = struct{}{}
+		normalized = append(normalized, projectID)
+	}
+	sort.Strings(normalized)
+
+	locks := make([]*sync.Mutex, 0, len(normalized))
+	for _, projectID := range normalized {
+		lock := getProjectRuntimeBaseEnsureLock(projectID)
+		if lock == nil {
+			continue
+		}
+		lock.Lock()
+		locks = append(locks, lock)
+	}
+	return func() {
+		for i := len(locks) - 1; i >= 0; i-- {
+			locks[i].Unlock()
+		}
+	}
+}
+
 // ensureProjectRuntimeBaseContainer 确保项目的开发运行时容器存在且处于可用状态，
 // 但不等待运行时环境安装完成。
 func ensureProjectRuntimeBaseContainer(
@@ -63,6 +96,20 @@ func ensureProjectRuntimeBaseContainer(
 	if lock := getProjectRuntimeBaseEnsureLock(project.ProjectID); lock != nil {
 		lock.Lock()
 		defer lock.Unlock()
+	}
+	if projectRepo != nil {
+		current, err := projectRepo.FindByProjectID(ctx, project.ProjectID)
+		if err != nil {
+			return nil, runtimeEnvironmentSpec{}, fmt.Errorf(
+				"project unavailable before runtime creation: %w",
+				err,
+			)
+		}
+		if current == nil {
+			return nil, runtimeEnvironmentSpec{}, errors.New(
+				"project unavailable before runtime creation",
+			)
+		}
 	}
 	if project.DirectoryPath == "" {
 		if containerCfg != nil && containerCfg.ProjectDir != "" {

@@ -38,6 +38,13 @@ func (r *authServiceUserRepoStub) UpdateLLMConfig(ctx context.Context, userID st
 	return nil
 }
 
+func (r *authServiceUserRepoStub) Delete(ctx context.Context, userID string) error {
+	return nil
+}
+func (r *authServiceUserRepoStub) DeleteWithAudit(context.Context, string, string, string, string) error {
+	return nil
+}
+
 func (r *authServiceUserRepoStub) List(ctx context.Context, offset, limit int) ([]model.User, int64, error) {
 	return nil, 0, nil
 }

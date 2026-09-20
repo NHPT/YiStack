@@ -58,6 +58,34 @@ func TestBuildPlanUserPromptIncludesFoundationContext(t *testing.T) {
 	}
 }
 
+func TestPlanPromptsRequireSimplifiedChineseWithConfiguredOverride(t *testing.T) {
+	override := "Custom architecture instructions."
+	prompts := map[string]string{
+		"analysis": BuildPlanAnalysisSystemPrompt(override),
+		"json":     BuildPlanJSONSystemPrompt(override),
+		"lines":    BuildPlanLineSystemPrompt(override),
+		"combined": BuildPlanSystemPrompt(override),
+	}
+
+	for name, value := range prompts {
+		if !strings.Contains(value, override) {
+			t.Errorf("%s prompt omitted the configured override", name)
+		}
+		if !strings.Contains(value, "简体中文") {
+			t.Errorf("%s prompt omitted the Simplified Chinese output contract", name)
+		}
+	}
+
+	for _, name := range []string{"json", "lines", "combined"} {
+		value := prompts[name]
+		for _, field := range []string{"name", "description", "architecture", "features", "reasoning"} {
+			if !strings.Contains(value, field) {
+				t.Errorf("%s prompt omitted the %s localization contract", name, field)
+			}
+		}
+	}
+}
+
 func TestBuildDiscussSystemPromptAppendsProjectFactsToOverride(t *testing.T) {
 	got := BuildDiscussSystemPrompt("custom discuss prompt", "YiStack", "node-nextjs", "web", "联网", "PROJECT_CONTEXT", "ONLINE_CONTEXT")
 

@@ -8,6 +8,35 @@ import (
 	"yistack/internal/service"
 )
 
+func (o *GenerateOrchestrator) executeBootstrapWorkflowStageWithProjectLifecycle(
+	ctx context.Context,
+	command GenerateCommand,
+	handler service.StreamEventHandler,
+) error {
+	if o == nil || o.projectService == nil {
+		return o.executeBootstrapWorkflowStage(ctx, command, handler)
+	}
+	unlockUserProjects, err := o.projectService.BeginUserProjectOperation(command.UserID)
+	if err != nil {
+		return err
+	}
+	defer unlockUserProjects()
+	if err := ensureOwnedProjectAccess(ctx, o.projectService, command.UserID, command.ProjectID); err != nil {
+		return err
+	}
+	operationCtx, finishMutation, err := o.projectService.BeginCancellableUserProjectMutation(
+		ctx,
+		command.UserID,
+		command.ProjectID,
+		true,
+	)
+	if err != nil {
+		return err
+	}
+	defer finishMutation()
+	return o.executeBootstrapWorkflowStage(operationCtx, command, handler)
+}
+
 func (o *GenerateOrchestrator) executeBootstrapWorkflowStage(ctx context.Context, command GenerateCommand, handler service.StreamEventHandler) error {
 	if o == nil || o.bootstrapOrchestrator == nil {
 		return ErrGenerateOrchestrationUnavailable

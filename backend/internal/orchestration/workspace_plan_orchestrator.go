@@ -11,6 +11,7 @@ import (
 type PlanOrchestrator struct {
 	planService    *service.PlanService
 	artifactLoader projectArtifactLoader
+	projectService *service.ProjectService
 }
 
 // NewPlanOrchestrator 创建方案链路编排入口。
@@ -25,8 +26,36 @@ func NewPlanOrchestrator(planService *service.PlanService, artifactLoaders ...pr
 	}
 }
 
+func NewPlanOrchestratorWithProjectService(
+	planService *service.PlanService,
+	projectService *service.ProjectService,
+	artifactLoaders ...projectArtifactLoader,
+) *PlanOrchestrator {
+	orchestrator := NewPlanOrchestrator(planService, artifactLoaders...)
+	orchestrator.projectService = projectService
+	return orchestrator
+}
+
 func (o *PlanOrchestrator) GeneratePlansStream(ctx context.Context, command GeneratePlansCommand, handler service.StreamEventHandler) (*service.GeneratePlansResponse, string, error) {
 	command = command.normalized()
+	if o != nil && o.projectService != nil {
+		finishUserOperation, err := o.projectService.BeginUserProjectOperation(command.UserID)
+		if err != nil {
+			return nil, "", err
+		}
+		defer finishUserOperation()
+		operationCtx, finishMutation, err := o.projectService.BeginCancellableUserProjectMutation(
+			ctx,
+			command.UserID,
+			command.ProjectID,
+			false,
+		)
+		if err != nil {
+			return nil, "", err
+		}
+		defer finishMutation()
+		ctx = operationCtx
+	}
 	ctx = withOrchestrationContext(ctx, command.Context)
 	state := BuildEngineeringState(command.Context).
 		withCurrentTask("分析需求并生成候选方案").

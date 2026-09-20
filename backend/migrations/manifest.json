@@ -1,7 +1,7 @@
 {
   "schema": "yistack.database-migrations.v1",
   "baseline_version": "000000000000_contributor_alpha",
-  "latest_version": "202609070001_migration_integrity",
+  "latest_version": "202609190002_resource_alert_action_claims",
   "migrations": [
     {
       "version": "000000000000_contributor_alpha",
@@ -23,6 +23,28 @@
       "reversible": true,
       "rollback_file": "rollback/202609070001_migration_integrity.sql",
       "rollback_sha256": "028aaf37b93eaf306601ba2969be30e06f38492c5d0ac1cc11f7b16107eede34",
+      "irreversible_recovery": ""
+    },
+    {
+      "version": "202609190001_admin_user_hard_delete",
+      "description": "Add transactional administrator user hard deletion",
+      "file": "202609190001_admin_user_hard_delete.sql",
+      "sha256": "02fcf5bfd172cec450869b28feae2b4167a4cd5ced63f3429055c73890524d51",
+      "minimum_source_version": "202609070001_migration_integrity",
+      "reversible": true,
+      "rollback_file": "rollback/202609190001_admin_user_hard_delete.sql",
+      "rollback_sha256": "e3c52f68b66127b55c92618a948c579598ae359a8b485691231a35bf44dd3d3f",
+      "irreversible_recovery": ""
+    },
+    {
+      "version": "202609190002_resource_alert_action_claims",
+      "description": "Add cross-instance resource alert action claims",
+      "file": "202609190002_resource_alert_action_claims.sql",
+      "sha256": "1893ce147476f621ddad5a74c87c7bf333bfcf6ad943a87ee3d2db229e467453",
+      "minimum_source_version": "202609190001_admin_user_hard_delete",
+      "reversible": true,
+      "rollback_file": "rollback/202609190002_resource_alert_action_claims.sql",
+      "rollback_sha256": "b373ab1245e67eb74e6d820b0657060ce39edf741f1fb357f7397eee99c8a50a",
       "irreversible_recovery": ""
     }
   ]

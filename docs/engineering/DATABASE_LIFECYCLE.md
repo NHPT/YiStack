@@ -13,7 +13,7 @@ Contributor Alpha 数据库基线版本为
 始终是该 Release 全新安装的单点真源。
 
 当前 main 分支的最新版本为
-`202609070001_migration_integrity`。
+`202609190001_admin_user_hard_delete`。
 
 基线标记不代表任意历史数据库都可以升级。只有最后记录的数据库结构版本和
 对应源码提交均已知时，现有数据库才属于支持范围。
@@ -73,18 +73,21 @@ sudo ./upgrade.sh
 sudo yistackctl upgrade <release-directory|release.tar.gz>
 ```
 
-压缩包入口要求同目录存在匹配的 `.sha256` 文件，并在临时目录中校验安全路径和
-symlink 后调用新 Release 的 `upgrade.sh`。升级只允许严格向前的 SemVer 版本，
-同版本重装和降级均关闭失败；`flock` 保证同一主机只有一个升级进程。
+当前控制器直接校验 Release 包内 `MANIFEST.sha256`，并在临时目录中校验安全路径
+和 symlink 后调用新 Release 的 `upgrade.sh`；v1.1.0/v1.1.1 的旧控制器首次升级
+需先手工解压并传入目录。升级只允许严格向前的 SemVer 版本，同版本重装和降级均
+关闭失败；`flock` 保证同一主机只有一个升级进程。
 
 一键升级按固定顺序执行：
 
 1. 校验 Release `MANIFEST.sha256`，并用新 runner 执行数据库兼容性预检；
-2. 记录应用服务和无痕体验模式 timer 的运行状态，停止所有数据库写入者；
+2. 记录应用服务、无痕体验模式配置和 timer 状态，停止所有数据库写入者；
 3. 为 YiStack 管理的 `public` schema 创建 PostgreSQL custom-format 备份，校验
    SHA-256 和 archive 目录，并保存当前配置与 systemd 单元；
 4. 原子切换新 Release，按 manifest 执行 migration 并运行 `verify`；
-5. 恢复升级前的服务和 timer 状态；原先已停止的服务保持停止；
+5. 恢复升级前的应用服务状态；若 `EPHEMERAL_MAINTENANCE_ENABLED=true`，自动在
+   新 Release 上采集排除普通用户和项目数据的新基线并恢复两个 timer，否则保持
+   正常模式；
 6. 对原先运行中的完整应用执行健康检查。
 
 备份默认位于 `/var/lib/yistack/database-backups`。它不包含 Supabase 托管的
@@ -94,8 +97,9 @@ Supabase 模式必须配置 `SUPABASE_DB_PASSWORD` 以建立 PostgreSQL 直连�
 
 升级在安装、migration、verify、服务恢复或健康检查阶段失败时，会停止新服务，
 恢复旧配置；若数据库已尝试变更，则在单事务中清理并恢复备份内由 YiStack 管理的
-`public` 对象；随后恢复旧 Release 指针、旧 systemd 单元和升级前运行状态。旧
-应用还要再次通过健康检查。任一步无法完成时，应用和临时体验 timer 保持停止，
+`public` 对象；随后恢复旧 Release 指针、旧 systemd 单元、无痕体验模式配置和
+升级前运行状态。旧应用还要再次通过健康检查。任一步无法完成时，应用和无痕体验
+timer 保持停止，
 命令输出已验证备份位置，禁止继续自动启动。
 
 runner 会拒绝 manifest 文件篡改、数据库 checksum 不匹配、版本历史断层、未知
@@ -126,7 +130,8 @@ runner 会拒绝 manifest 文件篡改、数据库 checksum 不匹配、版本�
 | 应用版本 | 必需数据库版本 | 支持的安装/来源 | 回退边界 |
 | --- | --- | --- | --- |
 | v1.0.0 | `000000000000_contributor_alpha` | 仅全新安装 | 仅删除 baseline 标记，不删除业务表 |
-| v1.1.0 | `202609070001_migration_integrity` | 全新安装；或从 v1.0.0 baseline 原地升级 | 可单步回退至 v1.0.0 baseline，保留业务数据 |
+| v1.1.0-v1.1.9 | `202609070001_migration_integrity` | 全新安装；或从 v1.0.0 baseline 原地升级 | 可单步回退至 v1.0.0 baseline，保留业务数据 |
+| v1.1.10 | `202609190002_resource_alert_action_claims` | 全新安装；或从已知 v1.0.0+ baseline 原地升级 | 可单步回退至 `202609190001_admin_user_hard_delete`；继续回退可到 `202609070001_migration_integrity`，保留业务数据 |
 
 ## 完整性与发布门禁
 
@@ -136,6 +141,8 @@ runner 会拒绝 manifest 文件篡改、数据库 checksum 不匹配、版本�
 | --- | --- |
 | `000000000000_contributor_alpha` | `a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871` |
 | `202609070001_migration_integrity` | `82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf` |
+| `202609190001_admin_user_hard_delete` | `02fcf5bfd172cec450869b28feae2b4167a4cd5ced63f3429055c73890524d51` |
+| `202609190002_resource_alert_action_claims` | `1893ce147476f621ddad5a74c87c7bf333bfcf6ad943a87ee3d2db229e467453` |
 
 仓库已提供带锁和 checksum 校验的 runner、支持来源的 upgrade/rollback 测试、
 版本兼容矩阵以及未知/更新版本的启动拒绝。Release 包必须携带完整 migration

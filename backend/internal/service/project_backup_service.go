@@ -325,6 +325,15 @@ func (s *ProjectService) RunProjectAutomaticBackup(ctx context.Context, projectI
 }
 
 func (s *ProjectService) createProjectBackupForProject(ctx context.Context, project *model.Project, source, recovery string) (*ProjectBackupResultRecord, error) {
+	if project == nil {
+		return nil, fmt.Errorf("project is required")
+	}
+	unlockProject, err := s.BeginProjectMutationContext(ctx, project.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockProject()
+
 	sourceDir, err := secureProjectHostDirectory(currentProjectRootDir(), project.ProjectID, project.DirectoryPath)
 	if err != nil {
 		return nil, err
@@ -598,7 +607,9 @@ func (s *ProjectService) GetProjectBackupRemoteStorageReadiness(ctx context.Cont
 	return readiness, nil
 }
 
-func (s *ProjectService) UploadProjectBackupToRemoteStorage(ctx context.Context, projectID, backupID string) (*ProjectBackupRemoteUploadResult, error) {
+func (s *ProjectService) UploadProjectBackupToRemoteStorage(ctx context.Context, projectID, userID, backupID string) (*ProjectBackupRemoteUploadResult, error) {
+	projectID = strings.TrimSpace(projectID)
+	userID = strings.TrimSpace(userID)
 	normalizedBackupID := strings.TrimSpace(backupID)
 	result := &ProjectBackupRemoteUploadResult{
 		Status:   "blocked",
@@ -610,6 +621,12 @@ func (s *ProjectService) UploadProjectBackupToRemoteStorage(ctx context.Context,
 		result.Message = "backup_id 为空或包含不安全字符"
 		return result, nil
 	}
+	operationCtx, finishOperation, err := s.BeginCancellableUserProjectMutation(ctx, userID, projectID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 
 	readiness, err := s.GetProjectBackupRemoteStorageReadiness(ctx, projectID)
 	if err != nil {
@@ -688,6 +705,14 @@ func (s *ProjectService) UploadProjectBackupToRemoteStorage(ctx context.Context,
 		result.Status = "failed"
 		result.Message = fmt.Sprintf("项目备份 manifest 远端上传失败：%s", err.Error())
 		result.Recovery = "归档可能已上传但 manifest 未确认完成；请检查远端对象状态后重试，避免把远端备份误判为完整可恢复。"
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(safeContext(ctx)), 10*time.Second)
+		cleanupErr := deleteProjectBackupS3Object(cleanupCtx, client, remote, result.ArchiveObjectKey)
+		cancelCleanup()
+		if cleanupErr == nil {
+			result.Recovery = "已删除本次上传的孤立归档；请修复远端存储后重新上传。"
+		} else {
+			result.Recovery = fmt.Sprintf("manifest 上传失败且孤立归档清理失败：%s；项目删除会继续尝试清理该项目的远端前缀。", cleanupErr.Error())
+		}
 		return result, nil
 	}
 
@@ -809,6 +834,11 @@ func (s *ProjectService) DownloadProjectBackupFromRemoteStorage(ctx context.Cont
 		result.Message = "backup_id 为空或包含不安全字符"
 		return result, nil
 	}
+	unlockProject, err := s.BeginProjectMutationContext(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockProject()
 
 	inventory, err := s.ListProjectBackupRemoteInventory(ctx, projectID)
 	if err != nil {
@@ -1221,6 +1251,12 @@ func (s *ProjectService) PrepareProjectBackupDownload(ctx context.Context, proje
 }
 
 func (s *ProjectService) RestoreProjectBackup(ctx context.Context, projectID, backupID string, confirmRestore bool) (*ProjectBackupRestoreResult, error) {
+	unlockProject, err := s.BeginProjectMutationContext(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockProject()
+
 	preflight, err := s.PreflightProjectBackupRestore(ctx, projectID, backupID)
 	if err != nil {
 		return nil, err
@@ -1533,6 +1569,7 @@ func checksumProjectBackupArchive(archivePath string) (string, error) {
 }
 
 type projectBackupS3RemoteConfig struct {
+	Prefix          string
 	Provider        string
 	Bucket          string
 	Endpoint        string
@@ -1558,15 +1595,89 @@ type projectBackupS3ListObjectsV2Response struct {
 	} `xml:"Contents"`
 }
 
-func buildProjectBackupRemoteObjectKey(prefix, projectID, backupID, fileName string) string {
-	parts := []string{}
-	for _, part := range []string{prefix, projectID, backupID, fileName} {
-		trimmed := strings.Trim(strings.TrimSpace(part), "/")
-		if trimmed != "" {
-			parts = append(parts, trimmed)
+func (s *ProjectService) deleteProjectBackupResources(ctx context.Context, projectID string) error {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return fmt.Errorf("project id is required")
+	}
+	projectCfg := s.projectBackupConfig(ctx)
+	if strings.TrimSpace(projectCfg.BackupDir) != "" {
+		backupRoot, err := resolveProjectBackupRoot(projectCfg.BackupDir, projectID)
+		if err != nil {
+			return fmt.Errorf("resolve project backup directory: %w", err)
+		}
+		if err := os.RemoveAll(backupRoot); err != nil {
+			return fmt.Errorf("remove project backup directory: %w", err)
 		}
 	}
-	return strings.Join(parts, "/")
+
+	provider := strings.ToLower(strings.TrimSpace(projectCfg.RemoteBackupProvider))
+	bucket := strings.TrimSpace(projectCfg.RemoteBackupBucket)
+	secretCfg := s.projectSecretConfig()
+	accessKeyID := strings.TrimSpace(secretCfg.RemoteBackupAccessKeyID)
+	secretAccessKey := strings.TrimSpace(secretCfg.RemoteBackupSecretAccessKey)
+	hasRemoteConfiguration := projectCfg.RemoteBackupEnabled ||
+		projectCfg.RemoteBackupCredentials ||
+		provider != "" ||
+		bucket != "" ||
+		accessKeyID != "" ||
+		secretAccessKey != ""
+	if !hasRemoteConfiguration {
+		return nil
+	}
+	if provider != "s3" {
+		return fmt.Errorf("remote backup provider is not supported for deletion: %s", provider)
+	}
+	if bucket == "" || accessKeyID == "" || secretAccessKey == "" {
+		return fmt.Errorf("remote backup deletion requires bucket and credentials")
+	}
+
+	remote := projectBackupS3RemoteConfig{
+		Provider:        provider,
+		Bucket:          bucket,
+		Endpoint:        strings.TrimSpace(projectCfg.RemoteBackupEndpoint),
+		Region:          strings.TrimSpace(projectCfg.RemoteBackupRegion),
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
+	}
+	client := s.backupRemoteHTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	objectPrefix := buildProjectBackupRemoteObjectKey(projectCfg.RemoteBackupPrefix, projectID, "", "")
+	if objectPrefix == "" {
+		return fmt.Errorf("remote backup deletion prefix is empty")
+	}
+	objectPrefix += "/"
+	objects, err := listProjectBackupS3Objects(ctx, client, remote, objectPrefix)
+	if err != nil {
+		return fmt.Errorf("list project remote backup objects: %w", err)
+	}
+	var deleteErrors []string
+	for _, object := range objects {
+		if !strings.HasPrefix(object.Key, objectPrefix) {
+			deleteErrors = append(deleteErrors, fmt.Sprintf("refuse object outside project prefix: %s", object.Key))
+			continue
+		}
+		if err := deleteProjectBackupS3Object(ctx, client, remote, object.Key); err != nil {
+			deleteErrors = append(deleteErrors, fmt.Sprintf("%s: %v", object.Key, err))
+		}
+	}
+	if len(deleteErrors) > 0 {
+		return fmt.Errorf("delete project remote backup objects: %s", strings.Join(deleteErrors, " | "))
+	}
+	return nil
+}
+
+func buildProjectBackupRemoteObjectKey(parts ...string) string {
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.Trim(strings.TrimSpace(part), "/")
+		if trimmed != "" {
+			normalized = append(normalized, trimmed)
+		}
+	}
+	return strings.Join(normalized, "/")
 }
 
 func buildProjectBackupRemoteInventoryRecords(prefix, projectID string, objects []projectBackupS3Object) []ProjectBackupRemoteInventoryRecord {
@@ -1816,13 +1927,46 @@ func uploadProjectBackupS3Object(ctx context.Context, client projectBackupRemote
 	return nil
 }
 
+func deleteProjectBackupS3Object(ctx context.Context, client projectBackupRemoteHTTPClient, remote projectBackupS3RemoteConfig, objectKey string) error {
+	if client == nil {
+		return fmt.Errorf("remote backup http client is not configured")
+	}
+	endpoint, err := buildProjectBackupS3ObjectURL(remote, objectKey)
+	if err != nil {
+		return err
+	}
+	payloadHash := emptyProjectBackupS3PayloadHash()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("build remote delete request: %w", err)
+	}
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	signProjectBackupS3Request(req, remote, payloadHash, time.Now().UTC())
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("remote delete request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if (resp.StatusCode < 200 || resp.StatusCode >= 300) && resp.StatusCode != http.StatusNotFound {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("remote delete returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+	return nil
+}
+
 func buildProjectBackupS3ObjectURL(remote projectBackupS3RemoteConfig, objectKey string) (string, error) {
 	bucket := strings.TrimSpace(remote.Bucket)
 	if bucket == "" {
 		return "", fmt.Errorf("remote backup bucket is not configured")
 	}
-	if strings.TrimSpace(objectKey) == "" {
+	objectKey = strings.Trim(strings.TrimSpace(objectKey), "/")
+	if objectKey == "" {
 		return "", fmt.Errorf("remote backup object key is not configured")
+	}
+	for _, segment := range strings.Split(objectKey, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return "", fmt.Errorf("remote backup object key contains an unsafe path segment")
+		}
 	}
 	endpoint := strings.TrimRight(strings.TrimSpace(remote.Endpoint), "/")
 	escapedKey := escapeProjectBackupS3ObjectKey(objectKey)
@@ -1831,7 +1975,7 @@ func buildProjectBackupS3ObjectURL(remote projectBackupS3RemoteConfig, objectKey
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 			return "", fmt.Errorf("remote backup endpoint is invalid")
 		}
-		parsed.Path = path.Join(parsed.Path, bucket, strings.Trim(objectKey, "/"))
+		parsed.Path = path.Join(parsed.Path, bucket, objectKey)
 		return parsed.String(), nil
 	}
 	region := strings.TrimSpace(remote.Region)
@@ -1901,8 +2045,33 @@ func signProjectBackupS3Request(req *http.Request, remote projectBackupS3RemoteC
 	req.Header.Set("Host", req.URL.Host)
 	req.Header.Set("X-Amz-Date", amzDate)
 
-	canonicalHeaders := fmt.Sprintf("host:%s\nx-amz-content-sha256:%s\nx-amz-date:%s\n", req.URL.Host, payloadHash, amzDate)
-	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	canonicalHeaderValues := map[string]string{"host": req.URL.Host}
+	for name, values := range req.Header {
+		lowerName := strings.ToLower(strings.TrimSpace(name))
+		if !strings.HasPrefix(lowerName, "x-amz-") {
+			continue
+		}
+		canonicalHeaderValues[lowerName] = strings.Join(
+			strings.Fields(strings.Join(values, ",")),
+			" ",
+		)
+	}
+	headerNames := make([]string, 0, len(canonicalHeaderValues))
+	for name := range canonicalHeaderValues {
+		headerNames = append(headerNames, name)
+	}
+	sort.Strings(headerNames)
+	var canonicalHeaderBuilder strings.Builder
+	for _, name := range headerNames {
+		fmt.Fprintf(
+			&canonicalHeaderBuilder,
+			"%s:%s\n",
+			name,
+			canonicalHeaderValues[name],
+		)
+	}
+	canonicalHeaders := canonicalHeaderBuilder.String()
+	signedHeaders := strings.Join(headerNames, ";")
 	canonicalRequest := strings.Join([]string{
 		req.Method,
 		req.URL.EscapedPath(),

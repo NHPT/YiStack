@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -66,6 +65,32 @@ func (r *ProjectRepository) ListByUserID(ctx context.Context, userID string, pag
 		return nil, 0, err
 	}
 	return projects, total, nil
+}
+
+// ListByUserIDIncludingDeleted returns every project owned by a user so
+// administrator deletion can purge runtime resources left by soft-deleted rows.
+func (r *ProjectRepository) ListByUserIDIncludingDeleted(ctx context.Context, userID string) ([]model.Project, error) {
+	var projects []model.Project
+	err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("created_at ASC, project_id ASC").
+		Find(&projects).Error
+	if err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
+func (r *ProjectRepository) ListSoftDeleted(ctx context.Context) ([]model.Project, error) {
+	var projects []model.Project
+	err := r.db.WithContext(ctx).
+		Where("deleted_at IS NOT NULL").
+		Order("deleted_at ASC, project_id ASC").
+		Find(&projects).Error
+	if err != nil {
+		return nil, err
+	}
+	return projects, nil
 }
 
 func (r *ProjectRepository) ListAll(ctx context.Context, page, pageSize int) ([]model.Project, int64, error) {
@@ -157,6 +182,20 @@ func (r *ProjectRepository) RestoreDeleted(ctx context.Context, projectID string
 	}).Error
 }
 
+func (r *ProjectRepository) FindByProjectIDIncludingDeletedByOwner(
+	ctx context.Context,
+	projectID string,
+	userID string,
+) (*model.Project, error) {
+	var project model.Project
+	if err := r.db.WithContext(ctx).Unscoped().
+		Where("project_id = ? AND user_id = ?", projectID, userID).
+		First(&project).Error; err != nil {
+		return nil, err
+	}
+	return &project, nil
+}
+
 func (r *ProjectRepository) RestoreDeletedByOwner(ctx context.Context, projectID, userID string) (*model.Project, error) {
 	var project model.Project
 	if err := r.db.WithContext(ctx).Unscoped().
@@ -165,9 +204,8 @@ func (r *ProjectRepository) RestoreDeletedByOwner(ctx context.Context, projectID
 		return nil, err
 	}
 	if project.DeletedAt == nil {
-		return nil, fmt.Errorf("project is not pending deletion")
+		return &project, nil
 	}
-
 	now := time.Now()
 	if err := r.db.WithContext(ctx).Model(&model.Project{}).Unscoped().
 		Where("project_id = ? AND user_id = ?", projectID, userID).

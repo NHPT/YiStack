@@ -22,6 +22,17 @@ type ProjectStoredMessage struct {
 type ProjectMessageService struct {
 	chatRepo             ChatMessageRepo
 	engineeringStateRepo EngineeringStateRepo
+	lifecycleCoordinator *ProjectLifecycleCoordinator
+}
+
+func NewProjectMessageServiceWithLifecycle(
+	chatRepo ChatMessageRepo,
+	engineeringStateRepo EngineeringStateRepo,
+	lifecycleCoordinator *ProjectLifecycleCoordinator,
+) *ProjectMessageService {
+	service := NewProjectMessageService(chatRepo, engineeringStateRepo)
+	service.lifecycleCoordinator = lifecycleCoordinator
+	return service
 }
 
 // NewProjectMessageService 创建项目消息服务。
@@ -108,6 +119,23 @@ func (s *ProjectMessageService) SaveProjectMessages(ctx context.Context, project
 	if s == nil || s.chatRepo == nil {
 		return nil
 	}
+	finishMutation := func() {}
+	if s.lifecycleCoordinator != nil {
+		var operationCtx context.Context
+		var err error
+		operationCtx, finishMutation, err =
+			s.lifecycleCoordinator.beginCancellableUserProjectMutation(
+				ctx,
+				userID,
+				projectID,
+				false,
+			)
+		if err != nil {
+			return err
+		}
+		ctx = operationCtx
+	}
+	defer finishMutation()
 
 	for _, item := range messages {
 		role := strings.ToLower(strings.TrimSpace(item.Role))

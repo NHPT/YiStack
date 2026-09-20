@@ -129,3 +129,39 @@ func TestProjectFileMutationEventIsPersistedWithRevision(t *testing.T) {
 		t.Fatalf("unexpected mutation event: %#v", event)
 	}
 }
+
+func TestProjectFileWriteRejectsActorDeletionBeforeMutation(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	repo := newR64CollaborationRepo()
+	repo.members[r64MemberKey("project-1", "editor")] = model.ProjectMember{
+		ProjectID: "project-1",
+		UserID:    "editor",
+		Role:      ProjectMemberRoleEditor,
+		Status:    "active",
+	}
+	projects := NewProjectService(ProjectServiceOptions{
+		ProjectRepo: &r64ProjectRepo{project: &model.Project{
+			ProjectID: "project-1",
+			UserID:    "owner",
+		}},
+		CollaborationRepo:    repo,
+		LifecycleCoordinator: coordinator,
+	})
+	_, finishDeletion, err := coordinator.startUserDeletion("editor")
+	if err != nil {
+		t.Fatalf("startUserDeletion() error = %v", err)
+	}
+	defer finishDeletion(false)
+
+	_, err = projects.WriteProjectFileAsUser(
+		context.Background(),
+		"editor",
+		"project-1",
+		"src/App.tsx",
+		"export default function App() { return null }",
+		"",
+	)
+	if !errors.Is(err, errUserDeletionInProgress) {
+		t.Fatalf("WriteProjectFileAsUser() error = %v, want user deletion in progress", err)
+	}
+}

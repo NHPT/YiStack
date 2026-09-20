@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"yistack/internal/model"
@@ -16,6 +15,13 @@ import (
 
 // GetProjectFileTree 获取项目的当前文件树。
 func (s *ProjectService) GetProjectFileTree(ctx context.Context, projectID string) (*file.FileNode, error) {
+	operationCtx, finishMutation, err := s.BeginCancellableProjectMutation(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishMutation()
+	ctx = operationCtx
+
 	project, err := s.getProject(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -36,6 +42,13 @@ func (s *ProjectService) GetProjectFileTree(ctx context.Context, projectID strin
 
 // ReadProjectFile 读取项目内指定文件的内容。
 func (s *ProjectService) ReadProjectFile(ctx context.Context, projectID, filePath string) (string, error) {
+	operationCtx, finishMutation, err := s.BeginCancellableProjectMutation(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	defer finishMutation()
+	ctx = operationCtx
+
 	project, err := s.getProject(ctx, projectID)
 	if err != nil {
 		return "", err
@@ -131,11 +144,11 @@ func normalizeExpectedProjectFileRevision(value string) (string, error) {
 	return value, nil
 }
 
-func (s *ProjectService) lockProjectMutation(projectID string) func() {
-	lockValue, _ := s.projectMutationLocks.LoadOrStore(projectID, &sync.Mutex{})
-	lock := lockValue.(*sync.Mutex)
-	lock.Lock()
-	return lock.Unlock
+func (s *ProjectService) lockProjectMutation(
+	ctx context.Context,
+	projectID string,
+) (func(), error) {
+	return s.BeginProjectMutationContext(ctx, projectID)
 }
 
 func (s *ProjectService) recordProjectMutationEvent(
@@ -186,8 +199,17 @@ func (s *ProjectService) writeProjectFile(
 		}
 		accessRole = decision.AccessRole
 	}
-	unlock := s.lockProjectMutation(projectID)
+	operationCtx, unlock, err := s.BeginCancellableUserProjectMutation(
+		ctx,
+		actorUserID,
+		projectID,
+		false,
+	)
+	if err != nil {
+		return nil, err
+	}
 	defer unlock()
+	ctx = operationCtx
 
 	normalizedPath, err := normalizeProjectRelativePath(filePath)
 	if err != nil {
@@ -312,8 +334,17 @@ func (s *ProjectService) performProjectFileOperation(
 		}
 		accessRole = decision.AccessRole
 	}
-	unlock := s.lockProjectMutation(projectID)
+	operationCtx, unlock, err := s.BeginCancellableUserProjectMutation(
+		ctx,
+		actorUserID,
+		projectID,
+		false,
+	)
+	if err != nil {
+		return nil, err
+	}
 	defer unlock()
+	ctx = operationCtx
 
 	project, err := s.getProject(ctx, projectID)
 	if err != nil {

@@ -3,11 +3,16 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
 
+	"yistack/config"
 	"yistack/internal/model"
 )
 
@@ -240,13 +245,33 @@ func (r *r64UserRepo) FindByUsername(_ context.Context, name string) (*model.Use
 }
 func (r *r64UserRepo) Update(context.Context, *model.User) error                          { return nil }
 func (r *r64UserRepo) UpdateLLMConfig(context.Context, string, string, string, int) error { return nil }
+func (r *r64UserRepo) Delete(_ context.Context, id string) error {
+	delete(r.users, id)
+	return nil
+}
+func (r *r64UserRepo) DeleteWithAudit(context.Context, string, string, string, string) error {
+	return nil
+}
+
 func (r *r64UserRepo) List(context.Context, int, int) ([]model.User, int64, error) {
 	return nil, 0, nil
 }
 
-type r64ProjectRepo struct{ project *model.Project }
+type r64ProjectRepo struct {
+	project       *model.Project
+	onCreate      func(*model.Project) error
+	hardDeleteErr error
+	createCalls   int
+}
 
-func (r *r64ProjectRepo) Create(_ context.Context, p *model.Project) error { r.project = p; return nil }
+func (r *r64ProjectRepo) Create(_ context.Context, p *model.Project) error {
+	r.createCalls++
+	r.project = p
+	if r.onCreate != nil {
+		return r.onCreate(p)
+	}
+	return nil
+}
 func (r *r64ProjectRepo) FindByID(context.Context, string) (*model.Project, error) {
 	return r.project, nil
 }
@@ -284,7 +309,15 @@ func (r *r64ProjectRepo) RestoreDeleted(context.Context, string) error          
 func (r *r64ProjectRepo) RestoreDeletedByOwner(context.Context, string, string) (*model.Project, error) {
 	return nil, errors.New("unused")
 }
-func (r *r64ProjectRepo) HardDelete(context.Context, string) error { return nil }
+func (r *r64ProjectRepo) HardDelete(_ context.Context, projectID string) error {
+	if r.hardDeleteErr != nil {
+		return r.hardDeleteErr
+	}
+	if r.project != nil && r.project.ProjectID == projectID {
+		r.project = nil
+	}
+	return nil
+}
 
 func TestProjectCollaborationMemberLifecycleAndRoles(t *testing.T) {
 	ctx := context.Background()
@@ -364,6 +397,321 @@ func TestOfficialTemplateRejectsUnsafePathAndTamperedChecksum(t *testing.T) {
 	repo.versions[version.ID] = version
 	if _, err := svc.RollbackTemplate(context.Background(), "admin", view.Template.ID, RollbackOfficialTemplateRequest{TargetVersionID: version.ID, ExpectedCurrentVersionID: version.ID, Confirm: true}); err == nil {
 		t.Fatal("expected checksum rejection")
+	}
+}
+
+func TestCreateProjectFromTemplateHoldsUserLeaseThroughMaterialization(t *testing.T) {
+	projectRoot := t.TempDir()
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+
+	_, filesJSON, manifestJSON, err := normalizeTemplateFiles([]OfficialTemplateFile{{
+		Path:    "blocking.txt",
+		Content: "template content",
+	}})
+	if err != nil {
+		t.Fatalf("normalizeTemplateFiles() error = %v", err)
+	}
+	collaborationRepo := newR64CollaborationRepo()
+	collaborationRepo.templates["template"] = model.OfficialProjectTemplate{
+		ID:               "template",
+		Slug:             "starter",
+		AppType:          "static-html",
+		CurrentVersionID: "version",
+	}
+	collaborationRepo.versions["version"] = model.OfficialProjectTemplateVersion{
+		ID:             "version",
+		TemplateID:     "template",
+		FilesJSON:      filesJSON,
+		ManifestJSON:   manifestJSON,
+		ChecksumSHA256: templateChecksum(filesJSON),
+	}
+
+	createdProject := make(chan *model.Project, 1)
+	projectRepo := &r64ProjectRepo{
+		onCreate: func(project *model.Project) error {
+			if err := os.MkdirAll(project.DirectoryPath, 0o755); err != nil {
+				return err
+			}
+			if err := syscall.Mkfifo(filepath.Join(project.DirectoryPath, "blocking.txt"), 0o600); err != nil {
+				return err
+			}
+			createdProject <- project
+			return nil
+		},
+	}
+	coordinator := NewProjectLifecycleCoordinator()
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:          projectRepo,
+		ContainerCfg:         &config.ContainerConfig{ProjectDir: projectRoot},
+		LifecycleCoordinator: coordinator,
+	})
+	collaborationService := NewProjectCollaborationService(collaborationRepo, projectService, nil)
+
+	createDone := make(chan error, 1)
+	go func() {
+		_, createErr := collaborationService.CreateProjectFromTemplate(
+			context.Background(),
+			"template-user",
+			CreateProjectFromTemplateRequest{
+				Slug:        "starter",
+				Name:        "Template project",
+				Description: "must hold the user lease",
+				Confirm:     true,
+			},
+		)
+		createDone <- createErr
+	}()
+	project := <-createdProject
+
+	createLock := projectService.getProjectCreateLock(project)
+	createLock.Lock()
+	createLock.Unlock()
+	projectGate := coordinator.projectGate(project.ProjectID)
+	projectGate.mu.Lock()
+	activeProjectMutations := projectGate.active
+	projectGate.mu.Unlock()
+	if activeProjectMutations != 1 {
+		t.Fatalf("active project mutations = %d, want template materialization lease", activeProjectMutations)
+	}
+
+	deletionReady := make(chan func(bool), 1)
+	deletionErr := make(chan error, 1)
+	go func() {
+		finish, beginErr := coordinator.beginUserDeletion(context.Background(), "template-user")
+		if beginErr != nil {
+			deletionErr <- beginErr
+			return
+		}
+		deletionReady <- finish
+	}()
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+		t.Fatal("user deletion crossed template materialization")
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	fifoPath := filepath.Join(project.DirectoryPath, "blocking.txt")
+	readDone := make(chan error, 1)
+	go func() {
+		file, openErr := os.Open(fifoPath)
+		if openErr != nil {
+			readDone <- openErr
+			return
+		}
+		removeErr := os.Remove(fifoPath)
+		_, readErr := io.ReadAll(file)
+		closeErr := file.Close()
+		if readErr != nil {
+			readDone <- readErr
+			return
+		}
+		if closeErr != nil {
+			readDone <- closeErr
+			return
+		}
+		readDone <- removeErr
+	}()
+	if err := <-readDone; err != nil {
+		t.Fatalf("release template materialization: %v", err)
+	}
+	if err := <-createDone; err != nil {
+		t.Fatalf("CreateProjectFromTemplate() error = %v", err)
+	}
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("user deletion did not continue after template creation completed")
+	}
+}
+
+func TestCreateProjectFromTemplateDoesNotReuseOrDeleteExistingProject(t *testing.T) {
+	projectRoot := t.TempDir()
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+
+	_, filesJSON, manifestJSON, err := normalizeTemplateFiles([]OfficialTemplateFile{{
+		Path:    "index.html",
+		Content: "<h1>{{project_name}}</h1>",
+	}})
+	if err != nil {
+		t.Fatalf("normalizeTemplateFiles() error = %v", err)
+	}
+	collaborationRepo := newR64CollaborationRepo()
+	collaborationRepo.templates["template"] = model.OfficialProjectTemplate{
+		ID:               "template",
+		Slug:             "starter",
+		AppType:          "static-html",
+		CurrentVersionID: "version",
+	}
+	collaborationRepo.versions["version"] = model.OfficialProjectTemplateVersion{
+		ID:             "version",
+		TemplateID:     "template",
+		FilesJSON:      filesJSON,
+		ManifestJSON:   manifestJSON,
+		ChecksumSHA256: templateChecksum(filesJSON),
+	}
+	projectRepo := &r64ProjectRepo{}
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:  projectRepo,
+		ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+	})
+	collaborationService := NewProjectCollaborationService(
+		collaborationRepo,
+		projectService,
+		nil,
+	)
+	request := CreateProjectFromTemplateRequest{
+		Slug:        "starter",
+		Name:        "Template project",
+		Description: "duplicate request",
+		Confirm:     true,
+	}
+
+	first, err := collaborationService.CreateProjectFromTemplate(
+		context.Background(),
+		"template-user",
+		request,
+	)
+	if err != nil {
+		t.Fatalf("first CreateProjectFromTemplate() error = %v", err)
+	}
+	second, err := collaborationService.CreateProjectFromTemplate(
+		context.Background(),
+		"template-user",
+		request,
+	)
+	if err != nil {
+		t.Fatalf("second CreateProjectFromTemplate() error = %v", err)
+	}
+	if first.ProjectID == second.ProjectID || projectRepo.createCalls != 2 {
+		t.Fatalf(
+			"template requests reused a project: first=%q second=%q creates=%d",
+			first.ProjectID,
+			second.ProjectID,
+			projectRepo.createCalls,
+		)
+	}
+	for _, project := range []*model.Project{first, second} {
+		if _, err := os.Stat(filepath.Join(project.DirectoryPath, "index.html")); err != nil {
+			t.Fatalf("template project %q workspace was not preserved: %v", project.ProjectID, err)
+		}
+	}
+}
+
+func TestCreateProjectFromTemplateDeletesProjectWhenWorkspaceStagingFails(t *testing.T) {
+	projectRoot := t.TempDir()
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+
+	filesJSON := `[{"path":"../outside.txt","content":"invalid"}]`
+	collaborationRepo := newR64CollaborationRepo()
+	collaborationRepo.templates["template"] = model.OfficialProjectTemplate{
+		ID:               "template",
+		Slug:             "starter",
+		AppType:          "static-html",
+		CurrentVersionID: "version",
+	}
+	collaborationRepo.versions["version"] = model.OfficialProjectTemplateVersion{
+		ID:             "version",
+		TemplateID:     "template",
+		FilesJSON:      filesJSON,
+		ManifestJSON:   `{}`,
+		ChecksumSHA256: templateChecksum(filesJSON),
+	}
+	projectRepo := &r64ProjectRepo{}
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:  projectRepo,
+		ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+	})
+	collaborationService := NewProjectCollaborationService(
+		collaborationRepo,
+		projectService,
+		nil,
+	)
+	stageErr := errors.New("template workspace staging failed")
+	collaborationService.stageProjectDirectory = func(
+		string, string, string, string,
+	) (*stagedProjectDirectory, error) {
+		return nil, stageErr
+	}
+
+	_, err := collaborationService.CreateProjectFromTemplate(
+		context.Background(),
+		"template-user",
+		CreateProjectFromTemplateRequest{
+			Slug:    "starter",
+			Name:    "Rollback project",
+			Confirm: true,
+		},
+	)
+	if !errors.Is(err, stageErr) {
+		t.Fatalf("CreateProjectFromTemplate() error = %v, want staging failure", err)
+	}
+	if projectRepo.project != nil {
+		t.Fatalf("staging failure retained visible project: %#v", projectRepo.project)
+	}
+	entries, readErr := os.ReadDir(projectRoot)
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("staging failure retained workspace entries=%v err=%v", entries, readErr)
+	}
+}
+
+func TestCreateProjectFromTemplateRestoresWorkspaceWhenCompensatingDeleteFails(t *testing.T) {
+	projectRoot := t.TempDir()
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+
+	filesJSON := `[{"path":"../outside.txt","content":"invalid"}]`
+	collaborationRepo := newR64CollaborationRepo()
+	collaborationRepo.templates["template"] = model.OfficialProjectTemplate{
+		ID:               "template",
+		Slug:             "starter",
+		AppType:          "static-html",
+		CurrentVersionID: "version",
+	}
+	collaborationRepo.versions["version"] = model.OfficialProjectTemplateVersion{
+		ID:             "version",
+		TemplateID:     "template",
+		FilesJSON:      filesJSON,
+		ManifestJSON:   `{}`,
+		ChecksumSHA256: templateChecksum(filesJSON),
+	}
+	deleteErr := errors.New("template compensation delete failed")
+	projectRepo := &r64ProjectRepo{hardDeleteErr: deleteErr}
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:  projectRepo,
+		ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+	})
+	collaborationService := NewProjectCollaborationService(
+		collaborationRepo,
+		projectService,
+		nil,
+	)
+
+	_, err := collaborationService.CreateProjectFromTemplate(
+		context.Background(),
+		"template-user",
+		CreateProjectFromTemplateRequest{
+			Slug:    "starter",
+			Name:    "Rollback project",
+			Confirm: true,
+		},
+	)
+	if !errors.Is(err, deleteErr) {
+		t.Fatalf("CreateProjectFromTemplate() error = %v, want compensation failure", err)
+	}
+	if projectRepo.project == nil {
+		t.Fatal("failed compensating delete removed the project record")
+	}
+	if _, statErr := os.Stat(projectRepo.project.DirectoryPath); statErr != nil {
+		t.Fatalf("failed compensating delete did not restore workspace: %v", statErr)
 	}
 }
 

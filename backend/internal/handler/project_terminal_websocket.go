@@ -144,7 +144,7 @@ func (h *ProjectHandler) handleTerminalWebSocket(w http.ResponseWriter, r *http.
 	}
 	defer conn.Close()
 
-	info, err := h.projectService.CreateTerminalSession(r.Context(), claims.ProjectID, claims.Rows, claims.Cols)
+	info, err := h.projectService.CreateTerminalSession(r.Context(), claims.UserID, claims.ProjectID, claims.Rows, claims.Cols)
 	if err != nil {
 		_ = writeTerminalWSJSON(conn, terminalWSServerMessage{
 			Type:    "error",

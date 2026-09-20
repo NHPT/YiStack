@@ -566,6 +566,22 @@ func (ProjectResourceAlertEvent) TableName() string {
 	return "project_resource_alert_events"
 }
 
+// ProjectResourceAlertActionClaim serializes externally visible alert actions
+// across service instances while the event table remains append-only.
+type ProjectResourceAlertActionClaim struct {
+	ProjectID     string    `gorm:"primaryKey;size:64;not null" json:"project_id"`
+	SourceEventID int64     `gorm:"primaryKey;not null" json:"source_event_id"`
+	Action        string    `gorm:"primaryKey;size:32;not null" json:"action"`
+	Status        string    `gorm:"index;size:32;not null" json:"status"`
+	ActorUserID   string    `gorm:"index;type:uuid" json:"actor_user_id"`
+	ClaimedAt     time.Time `json:"claimed_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+func (ProjectResourceAlertActionClaim) TableName() string {
+	return "project_resource_alert_action_claims"
+}
+
 // ============================================
 // 方案相关模型（AI 生成方案）
 // ============================================

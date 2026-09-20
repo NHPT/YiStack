@@ -853,9 +853,11 @@ const promptManagementMigration = backendInitSql;
 const projectResourceAlertEventsMigration = backendInitSql;
 const projectService = fs.readFileSync('backend/internal/service/project_service.go', 'utf8');
 const projectBackupService = fs.readFileSync('backend/internal/service/project_backup_service.go', 'utf8');
+const projectRemoteBackupDeletion = fs.readFileSync('backend/internal/service/project_remote_backup_deletion.go', 'utf8');
+const projectLifecycleCoordinator = fs.readFileSync('backend/internal/service/project_lifecycle_coordinator.go', 'utf8');
 const projectBackupLocalFlowService = projectBackupService
   .replace(
-    /func \(s \*ProjectService\) UploadProjectBackupToRemoteStorage\(ctx context\.Context, projectID, backupID string\) \(\*ProjectBackupRemoteUploadResult, error\) \{[\s\S]*?\n\}\n\n(?=func \(s \*ProjectService\) PreflightProjectBackupRestore)/,
+    /func \(s \*ProjectService\) UploadProjectBackupToRemoteStorage\(ctx context\.Context, projectID, userID, backupID string\) \(\*ProjectBackupRemoteUploadResult, error\) \{[\s\S]*?\n\}\n\n(?=func \(s \*ProjectService\) PreflightProjectBackupRestore)/,
     '',
   )
   .replace(
@@ -885,6 +887,7 @@ const containerManagerTest = fs.readFileSync('backend/pkg/container/container_te
 const podmanClient = fs.readFileSync('backend/pkg/container/podman.go', 'utf8');
 const workspaceContainerOps = fs.readFileSync('backend/internal/service/workspace_container_ops.go', 'utf8');
 const projectServiceAdminTest = fs.readFileSync('backend/internal/service/project_service_admin_test.go', 'utf8');
+const projectUserDeletionTest = fs.readFileSync('backend/internal/service/project_user_deletion_test.go', 'utf8');
 const generationApplyService = fs.readFileSync('backend/internal/service/generation_apply_service.go', 'utf8');
 const generationApplyServiceTest = fs.readFileSync('backend/internal/service/generation_apply_service_test.go', 'utf8');
 const projectTemplatesService = fs.readFileSync('backend/internal/service/project_templates.go', 'utf8');
@@ -1526,7 +1529,7 @@ assert.match(
 );
 assert.match(
   projectBackupService,
-  /func \(s \*ProjectService\) UploadProjectBackupToRemoteStorage\(ctx context\.Context, projectID, backupID string\) \(\*ProjectBackupRemoteUploadResult, error\) \{[\s\S]*isSafeProjectBackupIdentity\(normalizedBackupID\)[\s\S]*s\.GetProjectBackupRemoteStorageReadiness\(ctx, projectID\)[\s\S]*readiness\.Status != "ready"[\s\S]*RemoteBackupAccessKeyID[\s\S]*RemoteBackupSecretAccessKey[\s\S]*s\.PrepareProjectBackupDownload\(ctx, projectID, normalizedBackupID\)[\s\S]*os\.ReadFile\(manifestPath\)[\s\S]*buildProjectBackupRemoteObjectKey[\s\S]*uploadProjectBackupS3Object\(ctx, client, remote, result\.ArchiveObjectKey[\s\S]*uploadProjectBackupS3Object\(ctx, client, remote, result\.ManifestObjectKey[\s\S]*Status = "uploaded"[\s\S]*Uploaded = true/,
+  /func \(s \*ProjectService\) UploadProjectBackupToRemoteStorage\(ctx context\.Context, projectID, userID, backupID string\) \(\*ProjectBackupRemoteUploadResult, error\) \{[\s\S]*isSafeProjectBackupIdentity\(normalizedBackupID\)[\s\S]*BeginCancellableUserProjectMutation\(ctx, userID, projectID, false\)[\s\S]*s\.GetProjectBackupRemoteStorageReadiness\(ctx, projectID\)[\s\S]*readiness\.Status != "ready"[\s\S]*RemoteBackupAccessKeyID[\s\S]*RemoteBackupSecretAccessKey[\s\S]*s\.PrepareProjectBackupDownload\(ctx, projectID, normalizedBackupID\)[\s\S]*os\.ReadFile\(manifestPath\)[\s\S]*buildProjectBackupRemoteObjectKey[\s\S]*uploadProjectBackupS3Object\(ctx, client, remote, result\.ArchiveObjectKey[\s\S]*uploadProjectBackupS3Object\(ctx, client, remote, result\.ManifestObjectKey[\s\S]*deleteProjectBackupS3Object\(cleanupCtx, client, remote, result\.ArchiveObjectKey\)[\s\S]*Status = "uploaded"[\s\S]*Uploaded = true/,
   'backend project backup remote upload should require explicit backup_id, readiness ready, internal credentials, trusted local archive verification, and upload both archive and manifest',
 );
 assert.match(
@@ -1616,7 +1619,7 @@ assert.match(
 );
 assert.match(
   projectResourceMonitoringService,
-  /type ProjectResourceAlertEventCreateResult struct \{[\s\S]*EventCreated\s+bool\s+`json:"event_created"`[\s\S]*EventID\s+int64\s+`json:"event_id"`[\s\S]*EvaluationPreview\s+\*ProjectResourceAlertEvaluationPreview\s+`json:"evaluation_preview"`[\s\S]*func \(s \*ProjectService\) CreateProjectResourceAlertEvent\(ctx context\.Context, projectID, userID string, confirmCreate bool\) \(\*ProjectResourceAlertEventCreateResult, error\) \{[\s\S]*if !confirmCreate[\s\S]*s\.resourceAlertEventRepo == nil[\s\S]*s\.GetProjectResourceAlertEvaluationPreview\(ctx, projectID\)[\s\S]*if !preview\.WouldCreateAlert[\s\S]*json\.Marshal\(preview\.TriggeredThresholds\)[\s\S]*json\.Marshal\(preview\)[\s\S]*model\.ProjectResourceAlertEvent[\s\S]*Status:\s+"created"[\s\S]*未发送通知、未执行硬配额、未启动或停止容器、未写项目目录、未执行 Git[\s\S]*s\.resourceAlertEventRepo\.Create\(ctx, event\)[\s\S]*EventCreated = true/,
+  /type ProjectResourceAlertEventCreateResult struct \{[\s\S]*EventCreated\s+bool\s+`json:"event_created"`[\s\S]*EventID\s+int64\s+`json:"event_id"`[\s\S]*EvaluationPreview\s+\*ProjectResourceAlertEvaluationPreview\s+`json:"evaluation_preview"`[\s\S]*func \(s \*ProjectService\) CreateProjectResourceAlertEvent\(ctx context\.Context, projectID, userID string, confirmCreate bool\) \(\*ProjectResourceAlertEventCreateResult, error\) \{[\s\S]*if !confirmCreate[\s\S]*BeginCancellableUserProjectMutation\(ctx, userID, projectID, false\)[\s\S]*s\.resourceAlertEventRepo == nil[\s\S]*s\.GetProjectResourceAlertEvaluationPreview\(ctx, projectID\)[\s\S]*if !preview\.WouldCreateAlert[\s\S]*json\.Marshal\(preview\.TriggeredThresholds\)[\s\S]*json\.Marshal\(preview\)[\s\S]*model\.ProjectResourceAlertEvent[\s\S]*Status:\s+"created"[\s\S]*未发送通知、未执行硬配额、未启动或停止容器、未写项目目录、未执行 Git[\s\S]*s\.resourceAlertEventRepo\.Create\(ctx, event\)[\s\S]*EventCreated = true/,
   'backend resource alert event creation should require explicit confirmation, re-run the preview, only persist when would_alert is true, and avoid notifications, quota, runtime and project directory mutations',
 );
 assert.match(
@@ -1646,17 +1649,42 @@ assert.match(
 );
 assert.match(
   projectResourceMonitoringService,
-  /(?=[\s\S]*type ProjectResourceAlertNotificationSendResult struct \{[\s\S]*NotificationSent\s+bool\s+`json:"notification_sent"`[\s\S]*NotificationEventCreated\s+bool\s+`json:"notification_event_created"`[\s\S]*HTTPStatusCode\s+int\s+`json:"http_status_code"`)(?=[\s\S]*func \(s \*ProjectService\) SendProjectResourceAlertNotification\(ctx context\.Context, projectID, userID string, confirmSend bool\) \(\*ProjectResourceAlertNotificationSendResult, error\) \{[\s\S]*if !confirmSend[\s\S]*GetProjectResourceAlertNotificationReadiness\(ctx, projectID\)[\s\S]*readiness\.Status != "ready"[\s\S]*ListByProjectID\(ctx, readiness\.ProjectID, "created", 0, 1\)[\s\S]*ListByProjectID\(ctx, readiness\.ProjectID, "notification_sent", 0, 20\)[\s\S]*http\.NewRequestWithContext)(?=[\s\S]*notification_failed)(?=[\s\S]*notification_sent)(?=[\s\S]*未更新源告警事件、未重新评估资源、未执行硬配额)/,
+  /(?=[\s\S]*type ProjectResourceAlertNotificationSendResult struct \{[\s\S]*NotificationSent\s+bool\s+`json:"notification_sent"`[\s\S]*NotificationEventCreated\s+bool\s+`json:"notification_event_created"`[\s\S]*HTTPStatusCode\s+int\s+`json:"http_status_code"`)(?=[\s\S]*func \(s \*ProjectService\) SendProjectResourceAlertNotification\(ctx context\.Context, projectID, userID string, confirmSend bool\) \(\*ProjectResourceAlertNotificationSendResult, error\) \{[\s\S]*if !confirmSend[\s\S]*BeginCancellableUserProjectMutation\(ctx, userID, projectID, false\)[\s\S]*GetProjectResourceAlertNotificationReadiness\(ctx, projectID\)[\s\S]*readiness\.Status != "ready"[\s\S]*ListByProjectID\(ctx, readiness\.ProjectID, "created", 0, 1\)[\s\S]*ListByProjectID\(ctx, readiness\.ProjectID, "", 0, 100\)[\s\S]*latestProjectResourceAlertActionStatus\(deliveryEvents, sourceEvent, "notification_pending", "notification_failed", "notification_sent"\)[\s\S]*http\.NewRequestWithContext)(?=[\s\S]*notification_failed)(?=[\s\S]*notification_sent)(?=[\s\S]*未更新源告警事件、未重新评估资源、未执行硬配额)/,
   'backend resource alert notification send should require explicit confirmation, reuse readiness, send webhook, and append notification_sent/failed records without updating source events or re-evaluating resources',
 );
 assert.match(
+  backendRepoInterfaces,
+  /ProjectResourceAlertEventRepo interface \{[\s\S]*ClaimAction\(ctx context\.Context, claim \*model\.ProjectResourceAlertActionClaim, pendingEvent \*model\.ProjectResourceAlertEvent\) \(bool, error\)[\s\S]*CompleteAction\(/,
+  'resource alert repositories must expose atomic action claim and completion operations',
+);
+assert.match(
+  projectResourceAlertEventRepository,
+  /func \(r \*ProjectResourceAlertEventRepository\) ClaimAction\([\s\S]*pendingEvent \*model\.ProjectResourceAlertEvent[\s\S]*Transaction\([\s\S]*tx\.Create\(pendingEvent\)[\s\S]*clause\.OnConflict\{DoNothing: true\}[\s\S]*"failed"[\s\S]*func \(r \*ProjectResourceAlertEventRepository\) CompleteAction/,
+  'GORM resource alert actions must atomically claim the unique action row and persist the pending event in one transaction',
+);
+assert.match(
+  supabaseRepository,
+  /rpc\/claim_project_resource_alert_action[\s\S]*rpc\/complete_project_resource_alert_action/,
+  'Supabase resource alert actions must use database RPCs for atomic claims',
+);
+assert.match(
   projectResourceMonitoringService,
-  /(?=[\s\S]*func buildProjectResourceAlertNotificationWebhookPayload\(event model\.ProjectResourceAlertEvent\)[\s\S]*SourceEventID[\s\S]*TriggeredThresholds[\s\S]*Thresholds)(?=[\s\S]*func hasNotificationDeliveryForCandidate[\s\S]*source_event_id=%d)(?=[\s\S]*webhook 请求失败)(?=[\s\S]*func \(s \*ProjectService\) recordProjectResourceAlertNotificationFailure)(?=[\s\S]*func \(s \*ProjectService\) createProjectResourceAlertNotificationDeliveryEvent[\s\S]*Status:\s+status[\s\S]*Message:\s+fmt\.Sprintf\("%s；source_event_id=%d")/,
+  /buildProjectResourceAlertActionEvent\([\s\S]*"notification_pending"[\s\S]*claimProjectResourceAlertAction\([\s\S]*"notification"[\s\S]*pendingEvent[\s\S]*if !claimAcquired[\s\S]*CompleteAction\([\s\S]*"notification"[\s\S]*"succeeded"/,
+  'notification delivery must atomically claim the source event and persist pending intent before calling the webhook',
+);
+assert.match(
+  backendInitSql,
+  /CREATE TABLE IF NOT EXISTS public\.project_resource_alert_action_claims[\s\S]*PRIMARY KEY \(project_id, source_event_id, action\)[\s\S]*CREATE OR REPLACE FUNCTION public\.claim_project_resource_alert_action/,
+  'fresh schema must include the unique cross-instance action claim table and RPC',
+);
+assert.match(
+  projectResourceMonitoringService,
+  /(?=[\s\S]*func latestProjectResourceAlertActionStatus[\s\S]*projectResourceAlertEventReferencesSource\(\*record, candidate\.ID\))(?=[\s\S]*func projectResourceAlertEventReferencesSource[\s\S]*source_event_id=%d)(?=[\s\S]*webhook 请求结果未知，已阻止自动重放)(?=[\s\S]*func \(s \*ProjectService\) recordProjectResourceAlertNotificationFailure)(?=[\s\S]*func buildProjectResourceAlertActionEvent[\s\S]*Status:\s+status[\s\S]*Message:\s+fmt\.Sprintf\("%s；source_event_id=%d")/,
   'backend resource alert notification send helpers should build non-secret payloads, detect duplicate sends and write append-only delivery events',
 );
 assert.match(
   projectResourceMonitoringServiceTest,
-  /TestSendProjectResourceAlertNotificationRequiresExplicitConfirmation[\s\S]*repo\.listCallCount != 0 \|\| httpClient\.requests != 0[\s\S]*TestSendProjectResourceAlertNotificationDoesNotSendWhenReadinessDisabled[\s\S]*result\.Status != "disabled"[\s\S]*TestSendProjectResourceAlertNotificationSendsWebhookAndAppendsEvent[\s\S]*notification_sent[\s\S]*TestSendProjectResourceAlertNotificationBlocksDuplicateSentEvent[\s\S]*httpClient\.requests != 0[\s\S]*TestSendProjectResourceAlertNotificationRecordsFailedWithoutLeakingWebhookURL[\s\S]*notification_failed[\s\S]*hooks\.example/,
+  /TestSendProjectResourceAlertNotificationRequiresExplicitConfirmation[\s\S]*repo\.listCallCount != 0 \|\| httpClient\.requests != 0[\s\S]*TestSendProjectResourceAlertNotificationDoesNotSendWhenReadinessDisabled[\s\S]*result\.Status != "disabled"[\s\S]*TestSendProjectResourceAlertNotificationSendsWebhookAndAppendsEvent[\s\S]*notification_sent[\s\S]*TestSendProjectResourceAlertNotificationPendingIntentBlocksReplayAfterSuccessPersistenceFailure[\s\S]*notification_pending[\s\S]*httpClient\.requests != 1[\s\S]*TestSendProjectResourceAlertNotificationBlocksDuplicateSentEvent[\s\S]*httpClient\.requests != 0[\s\S]*TestSendProjectResourceAlertNotificationRecordsFailedWithoutLeakingWebhookURL[\s\S]*notification_failed[\s\S]*hooks\.example/,
   'backend resource alert notification send tests should lock confirmation, readiness blocking, success append, duplicate guard and no webhook URL leakage',
 );
 assert.match(
@@ -1681,18 +1709,23 @@ assert.match(
 );
 assert.match(
   projectResourceMonitoringService,
-  /(?=[\s\S]*func \(s \*ProjectService\) ExecuteProjectResourceAlertEnforcement\(ctx context\.Context, projectID, userID string, confirmExecute bool\) \(\*ProjectResourceAlertEnforcementExecuteResult, error\) \{)(?=[\s\S]*if !confirmExecute)(?=[\s\S]*GetProjectResourceAlertEnforcementReadiness\(ctx, projectID\))(?=[\s\S]*readiness\.Status != "ready" \|\| !readiness\.WouldEnforce)(?=[\s\S]*readiness\.EnforcementMode != "stop_container")(?=[\s\S]*ListByProjectID\(ctx, readiness\.ProjectID, "created", 0, 1\))(?=[\s\S]*len\(createdEvents\) == 0 \|\| createdEvents\[0\]\.ID != readiness\.CandidateEventID)(?=[\s\S]*ListByProjectID\(ctx, readiness\.ProjectID, "enforcement_executed", 0, 20\))(?=[\s\S]*hasEnforcementExecutionForCandidate\(executedEvents, sourceEvent\))(?=[\s\S]*StopProjectContainer\(ctx, readiness\.ProjectID\))(?=[\s\S]*createProjectResourceAlertEnforcementExecutionEvent\(ctx, sourceEvent, userID, stopResult\))(?=[\s\S]*result\.Status = "executed")/,
+  /(?=[\s\S]*func \(s \*ProjectService\) ExecuteProjectResourceAlertEnforcement\(ctx context\.Context, projectID, userID string, confirmExecute bool\) \(\*ProjectResourceAlertEnforcementExecuteResult, error\) \{)(?=[\s\S]*if !confirmExecute)(?=[\s\S]*BeginCancellableUserProjectMutation\(ctx, userID, projectID, false\))(?=[\s\S]*GetProjectResourceAlertEnforcementReadiness\(ctx, projectID\))(?=[\s\S]*readiness\.Status != "ready" \|\| !readiness\.WouldEnforce)(?=[\s\S]*readiness\.EnforcementMode != "stop_container")(?=[\s\S]*ListByProjectID\(ctx, readiness\.ProjectID, "created", 0, 1\))(?=[\s\S]*ListByProjectID\(ctx, readiness\.ProjectID, "", 0, 100\))(?=[\s\S]*latestProjectResourceAlertActionStatus\(actionEvents, sourceEvent, "enforcement_pending", "enforcement_failed", "enforcement_executed"\))(?=[\s\S]*createProjectResourceAlertActionEvent\([\s\S]*"enforcement_pending")(?=[\s\S]*stopProjectContainerUnderMutation\(ctx, readiness\.ProjectID\))(?=[\s\S]*createProjectResourceAlertEnforcementExecutionEvent\(persistCtx, sourceEvent, userID, stopResult\))(?=[\s\S]*result\.Status = "executed")/,
   'backend resource alert enforcement execute should require explicit confirmation, reuse readiness, re-check candidate event, block duplicate executions, reuse StopProjectContainer and append an execution event only after stop succeeds',
 );
 assert.match(
   projectResourceMonitoringService,
-  /(?=[\s\S]*func hasEnforcementExecutionForCandidate\(records \[\]model\.ProjectResourceAlertEvent, candidate model\.ProjectResourceAlertEvent\) bool \{[\s\S]*source_event_id=%d[\s\S]*record\.Status != "enforcement_executed"[\s\S]*record\.EvaluationID != candidate\.EvaluationID)(?=[\s\S]*func \(s \*ProjectService\) createProjectResourceAlertEnforcementExecutionEvent\(ctx context\.Context, sourceEvent model\.ProjectResourceAlertEvent, userID string, stopResult \*ProjectContainerStopResult\) \(\*model\.ProjectResourceAlertEvent, error\) \{[\s\S]*Status:\s+"enforcement_executed"[\s\S]*Message:\s+fmt\.Sprintf\("项目资源告警硬配额 stop_container 已受控执行；source_event_id=%d；stop_status=%s；container_status=%s"[\s\S]*未更新源告警事件、未重新评估资源、未写项目目录、未执行 Git)/,
+  /(?=[\s\S]*func projectResourceAlertEventReferencesSource[\s\S]*source_event_id=%d)(?=[\s\S]*func \(s \*ProjectService\) createProjectResourceAlertEnforcementExecutionEvent\(ctx context\.Context, sourceEvent model\.ProjectResourceAlertEvent, userID string, stopResult \*ProjectContainerStopResult\) \(\*model\.ProjectResourceAlertEvent, error\) \{[\s\S]*createProjectResourceAlertActionEvent\([\s\S]*"enforcement_executed"[\s\S]*stop_status=%s；container_status=%s[\s\S]*未更新源告警事件、未重新评估资源、未写项目目录、未执行 Git)/,
   'backend resource alert enforcement execute helpers should detect same-candidate executions and write append-only enforcement_executed evidence without mutating source alert events',
 );
 assert.match(
   projectResourceMonitoringServiceTest,
-  /TestExecuteProjectResourceAlertEnforcementRequiresExplicitConfirmation[\s\S]*ExecuteProjectResourceAlertEnforcement\(context\.Background\(\), projectID, "user-alert", false\)[\s\S]*repo\.listCallCount != 0[\s\S]*TestExecuteProjectResourceAlertEnforcementBlocksWhenReadinessBlocked[\s\S]*result\.Status != "blocked" \|\| result\.EnforcementExecuted \|\| result\.StopResult != nil[\s\S]*TestExecuteProjectResourceAlertEnforcementStopFailureDoesNotAppendExecutedEvent[\s\S]*notification_sent[\s\S]*result\.Status != "failed" \|\| result\.EnforcementExecuted \|\| result\.StopResult == nil[\s\S]*record\.Status == "enforcement_executed"/,
+  /TestExecuteProjectResourceAlertEnforcementRequiresExplicitConfirmation[\s\S]*ExecuteProjectResourceAlertEnforcement\(context\.Background\(\), projectID, "user-alert", false\)[\s\S]*repo\.listCallCount != 0[\s\S]*TestExecuteProjectResourceAlertEnforcementBlocksWhenReadinessBlocked[\s\S]*result\.Status != "blocked" \|\| result\.EnforcementExecuted \|\| result\.StopResult != nil[\s\S]*TestExecuteProjectResourceAlertEnforcementPendingIntentBlocksReplay[\s\S]*enforcement_pending[\s\S]*result\.Status != "uncertain"[\s\S]*TestExecuteProjectResourceAlertEnforcementStopFailureDoesNotAppendExecutedEvent[\s\S]*hasPending[\s\S]*hasFailed[\s\S]*record\.Status == "enforcement_executed"/,
   'backend resource alert enforcement execute tests should lock explicit confirmation, readiness blocking and no execution event when container stop fails',
+);
+assert.match(
+  projectResourceMonitoringServiceTest,
+  /TestProjectSideEffectOperationsRejectedDuringProjectDeletion[\s\S]*UploadProjectBackupToRemoteStorage[\s\S]*StopProjectContainer[\s\S]*UpdateProject[\s\S]*CreateProjectResourceAlertEvent[\s\S]*SendProjectResourceAlertNotification[\s\S]*ExecuteProjectResourceAlertEnforcement[\s\S]*errProjectDeletionInProgress[\s\S]*TestProjectSideEffectOperationsRejectedDuringUserDeletion[\s\S]*errUserDeletionInProgress[\s\S]*TestUserDeletionCancelsActiveResourceAlertNotification[\s\S]*user deletion completed before the canceled notification exited/,
+  'backend project side-effect tests should reject backup and alert mutations during project or user deletion and prove active webhook cancellation remains inside the user deletion barrier',
 );
 assert.match(
   projectResourceAlertEventsMigration,
@@ -1801,8 +1834,38 @@ assert.match(
 );
 assert.match(
   projectBackupServiceTest,
-  /TestUploadProjectBackupToRemoteStorageUploadsArchiveAndManifest[\s\S]*UploadProjectBackupToRemoteStorage\(context\.Background\(\), projectID, backup\.BackupID\)[\s\S]*Status != "uploaded"[\s\S]*ArchiveObjectKey[\s\S]*ManifestObjectKey[\s\S]*len\(fakeClient\.requests\) != 2[\s\S]*http\.MethodPut[\s\S]*authorization == ""[\s\S]*TestUploadProjectBackupToRemoteStorageBlockedDoesNotCallRemote[\s\S]*Status != "blocked"[\s\S]*len\(fakeClient\.requests\) != 0/,
+  /TestUploadProjectBackupToRemoteStorageUploadsArchiveAndManifest[\s\S]*UploadProjectBackupToRemoteStorage\(context\.Background\(\), projectID, "backup-user", backup\.BackupID\)[\s\S]*Status != "uploaded"[\s\S]*ArchiveObjectKey[\s\S]*ManifestObjectKey[\s\S]*len\(fakeClient\.requests\) != 2[\s\S]*http\.MethodPut[\s\S]*authorization == ""[\s\S]*TestUploadProjectBackupToRemoteStorageRemovesOrphanWhenManifestUploadFails[\s\S]*http\.MethodDelete[\s\S]*孤立归档[\s\S]*TestUploadProjectBackupToRemoteStorageBlockedDoesNotCallRemote[\s\S]*Status != "blocked"[\s\S]*len\(fakeClient\.requests\) != 0/,
   'project backup remote upload tests should prove archive and manifest PUT upload plus readiness-blocked no-remote-call behavior',
+);
+assert.match(
+  projectBackupService,
+  /func \(s \*ProjectService\) deleteProjectBackupResources\(ctx context\.Context, projectID string\) error \{[\s\S]*os\.RemoveAll\(backupRoot\)[\s\S]*listProjectBackupS3Objects\(ctx, client, remote, objectPrefix\)[\s\S]*deleteProjectBackupS3Object\(ctx, client, remote, object\.Key\)[\s\S]*func deleteProjectBackupS3Object[\s\S]*http\.MethodDelete/,
+  'project deletion should remove local backup archives and every signed S3 object under the exact project prefix',
+);
+assert.match(
+  projectUserDeletionTest,
+  /TestDeleteUserWithProjectResourcesBlocksDatabaseDeleteWhenRemoteBackupCleanupFails[\s\S]*DeleteUserWithProjectResources[\s\S]*remote delete returned status 500[\s\S]*database deletion ran after remote backup cleanup failed[\s\S]*staged local data was not restored/,
+  'administrator user deletion should block database deletion and restore staged local data when remote backup cleanup fails',
+);
+assert.match(
+  projectRemoteBackupDeletion,
+  /stageUserProjectRemoteBackups[\s\S]*copyProjectBackupS3Object[\s\S]*deleteProjectBackupS3Object[\s\S]*restoreStagedProjectRemoteBackups[\s\S]*recoverProjectRemoteDeletionStaging[\s\S]*func copyProjectBackupS3Object[\s\S]*xml\.Unmarshal[\s\S]*case "Error"[\s\S]*projectBackupS3ObjectExists/,
+  'administrator user deletion must validate CopyObject XML and HEAD-confirm recoverable remote staging before removing source objects',
+);
+assert.match(
+  projectUserDeletionTest,
+  /TestCopyProjectBackupS3ObjectRejectsEmbeddedError[\s\S]*embedded error InternalError[\s\S]*TestCopyProjectBackupS3ObjectRequiresVisibleTarget[\s\S]*target is missing/,
+  'remote backup copy tests must reject embedded S3 errors and missing copy targets',
+);
+assert.match(
+  projectUserDeletionTest,
+  /TestDeleteUserWithProjectResourcesRestoresRemoteBackupsWhenDatabaseDeleteFails[\s\S]*database delete failed[\s\S]*copySource[\s\S]*projectRemoteDeletionKeySegment[\s\S]*TestRecoverPendingUserDeletionStagingRestoresRemoteBackupObjects/,
+  'remote backup deletion tests must prove database rollback and startup recovery restore staged objects',
+);
+assert.match(
+  projectBackupServiceTest,
+  /TestDeleteProjectBackupResourcesRemovesLocalAndRemoteObjects[\s\S]*http\.MethodGet[\s\S]*http\.MethodDelete[\s\S]*TestDeleteProjectBackupResourcesReturnsRemoteDeleteFailure[\s\S]*remote delete returned status 500/,
+  'project backup deletion tests should prove local cleanup, signed remote deletion, disabled-policy cleanup and remote failure propagation',
 );
 assert.match(
   projectBackupServiceTest,
@@ -2021,7 +2084,7 @@ assert.match(
 );
 assert.match(
   projectBackupHandler,
-  /type projectBackupRemoteUploadRequest struct \{[\s\S]*BackupID string `json:"backup_id"`[\s\S]*func \(h \*ProjectHandler\) UploadBackupToRemoteStorage\(c context\.Context, ctx \*app\.RequestContext\) \{[\s\S]*ctx\.Bind\(&req\)[\s\S]*strings\.TrimSpace\(req\.BackupID\) == ""[\s\S]*projectService, _, ok := h\.requireOwnedProject\(c, ctx, projectID\)[\s\S]*projectService\.UploadProjectBackupToRemoteStorage\(c, projectID, req\.BackupID\)[\s\S]*"Failed to upload project backup to remote storage"[\s\S]*"data":\s+result/,
+  /type projectBackupRemoteUploadRequest struct \{[\s\S]*BackupID string `json:"backup_id"`[\s\S]*func \(h \*ProjectHandler\) UploadBackupToRemoteStorage\(c context\.Context, ctx \*app\.RequestContext\) \{[\s\S]*ctx\.Bind\(&req\)[\s\S]*strings\.TrimSpace\(req\.BackupID\) == ""[\s\S]*projectService, _, ok := h\.requireOwnedProject\(c, ctx, projectID\)[\s\S]*projectService\.UploadProjectBackupToRemoteStorage\([\s\S]*h\.currentUserIDValue\(ctx\)[\s\S]*req\.BackupID[\s\S]*"Failed to upload project backup to remote storage"[\s\S]*"data":\s+result/,
   'project backup handler should expose an owned-project controlled backup remote upload endpoint with explicit backup_id body',
 );
 assert.match(
@@ -2066,7 +2129,7 @@ assert.match(
 );
 assert.match(
   projectRuntimeHandler,
-  /(?=[\s\S]*type projectResourceAlertEventCreateRequest struct \{[\s\S]*ConfirmCreate bool `json:"confirm_create"`)(?=[\s\S]*func \(h \*ProjectHandler\) CreateResourceAlertEvent\(c context\.Context, ctx \*app\.RequestContext\) \{[\s\S]*ctx\.Bind\(&req\)[\s\S]*projectService, project, ok := h\.requireOwnedProject\(c, ctx, projectID\)[\s\S]*projectService\.CreateProjectResourceAlertEvent\(c, projectID, project\.UserID, req\.ConfirmCreate\)[\s\S]*"Failed to create project resource alert event"[\s\S]*"data":\s+result)/,
+  /(?=[\s\S]*type projectResourceAlertEventCreateRequest struct \{[\s\S]*ConfirmCreate bool `json:"confirm_create"`)(?=[\s\S]*func \(h \*ProjectHandler\) CreateResourceAlertEvent\(c context\.Context, ctx \*app\.RequestContext\) \{[\s\S]*ctx\.Bind\(&req\)[\s\S]*projectService, _, ok := h\.requireOwnedProject\(c, ctx, projectID\)[\s\S]*projectService\.CreateProjectResourceAlertEvent\(c, projectID, h\.currentUserIDValue\(ctx\), req\.ConfirmCreate\)[\s\S]*"Failed to create project resource alert event"[\s\S]*"data":\s+result)/,
   'project runtime handler should expose an owned-project controlled resource alert event create endpoint with confirm_create body',
 );
 assert.match(
@@ -2081,7 +2144,7 @@ assert.match(
 );
 assert.match(
   projectRuntimeHandler,
-  /(?=[\s\S]*type projectResourceAlertNotificationSendRequest struct \{[\s\S]*ConfirmSend bool `json:"confirm_send"`)(?=[\s\S]*func \(h \*ProjectHandler\) SendResourceAlertNotification\(c context\.Context, ctx \*app\.RequestContext\) \{[\s\S]*ctx\.Bind\(&req\)[\s\S]*projectService, project, ok := h\.requireOwnedProject\(c, ctx, projectID\)[\s\S]*projectService\.SendProjectResourceAlertNotification\(c, projectID, project\.UserID, req\.ConfirmSend\)[\s\S]*"Failed to send project resource alert notification"[\s\S]*"data":\s+result)/,
+  /(?=[\s\S]*type projectResourceAlertNotificationSendRequest struct \{[\s\S]*ConfirmSend bool `json:"confirm_send"`)(?=[\s\S]*func \(h \*ProjectHandler\) SendResourceAlertNotification\(c context\.Context, ctx \*app\.RequestContext\) \{[\s\S]*ctx\.Bind\(&req\)[\s\S]*projectService, _, ok := h\.requireOwnedProject\(c, ctx, projectID\)[\s\S]*projectService\.SendProjectResourceAlertNotification\(c, projectID, h\.currentUserIDValue\(ctx\), req\.ConfirmSend\)[\s\S]*"Failed to send project resource alert notification"[\s\S]*"data":\s+result)/,
   'project runtime handler should expose an owned-project controlled project resource alert notification send endpoint with explicit confirmation',
 );
 assert.match(
@@ -2091,7 +2154,7 @@ assert.match(
 );
 assert.match(
   projectRuntimeHandler,
-  /(?=[\s\S]*type projectResourceAlertEnforcementExecuteRequest struct \{[\s\S]*ConfirmExecute bool `json:"confirm_execute"`)(?=[\s\S]*func \(h \*ProjectHandler\) ExecuteResourceAlertEnforcement\(c context\.Context, ctx \*app\.RequestContext\) \{[\s\S]*ctx\.Bind\(&req\)[\s\S]*projectService, project, ok := h\.requireOwnedProject\(c, ctx, projectID\)[\s\S]*projectService\.ExecuteProjectResourceAlertEnforcement\(c, projectID, project\.UserID, req\.ConfirmExecute\)[\s\S]*"Failed to execute project resource alert enforcement"[\s\S]*"data":\s+result)/,
+  /(?=[\s\S]*type projectResourceAlertEnforcementExecuteRequest struct \{[\s\S]*ConfirmExecute bool `json:"confirm_execute"`)(?=[\s\S]*func \(h \*ProjectHandler\) ExecuteResourceAlertEnforcement\(c context\.Context, ctx \*app\.RequestContext\) \{[\s\S]*ctx\.Bind\(&req\)[\s\S]*projectService, _, ok := h\.requireOwnedProject\(c, ctx, projectID\)[\s\S]*projectService\.ExecuteProjectResourceAlertEnforcement\(c, projectID, h\.currentUserIDValue\(ctx\), req\.ConfirmExecute\)[\s\S]*"Failed to execute project resource alert enforcement"[\s\S]*"data":\s+result)/,
   'project runtime handler should expose an owned-project controlled resource alert enforcement execute endpoint with confirm_execute body',
 );
 assert.match(
@@ -2846,7 +2909,7 @@ assert.match(
 );
 assert.match(
   libTypes,
-  /export type ProjectResourceAlertNotificationSendStatus =[\s\S]*\| 'sent'[\s\S]*\| 'failed'[\s\S]*\| 'blocked'[\s\S]*\| 'empty'[\s\S]*\| 'disabled'[\s\S]*\| 'unavailable';[\s\S]*export interface ProjectResourceAlertNotificationSendResult \{[\s\S]*status: ProjectResourceAlertNotificationSendStatus;[\s\S]*provider: ProjectResourceAlertNotificationProvider;[\s\S]*webhook_configured: boolean;[\s\S]*notification_sent: boolean;[\s\S]*notification_event_created: boolean;[\s\S]*notification_event_id: number;[\s\S]*candidate_event_id: number;[\s\S]*candidate_evaluation_id: string;[\s\S]*http_status_code: number;[\s\S]*readiness: ProjectResourceAlertNotificationReadiness \| null;[\s\S]*message: string;[\s\S]*recovery: string;[\s\S]*\}/,
+  /export type ProjectResourceAlertNotificationSendStatus =[\s\S]*\| 'sent'[\s\S]*\| 'failed'[\s\S]*\| 'uncertain'[\s\S]*\| 'blocked'[\s\S]*\| 'empty'[\s\S]*\| 'disabled'[\s\S]*\| 'unavailable';[\s\S]*export interface ProjectResourceAlertNotificationSendResult \{[\s\S]*status: ProjectResourceAlertNotificationSendStatus;[\s\S]*provider: ProjectResourceAlertNotificationProvider;[\s\S]*webhook_configured: boolean;[\s\S]*notification_sent: boolean;[\s\S]*notification_event_created: boolean;[\s\S]*notification_event_id: number;[\s\S]*candidate_event_id: number;[\s\S]*candidate_evaluation_id: string;[\s\S]*http_status_code: number;[\s\S]*readiness: ProjectResourceAlertNotificationReadiness \| null;[\s\S]*message: string;[\s\S]*recovery: string;[\s\S]*\}/,
   'frontend shared types should model controlled project resource alert notification send results through named notification send status and provider contracts',
 );
 assert.doesNotMatch(
@@ -2891,7 +2954,7 @@ assert.doesNotMatch(
 );
 assert.match(
   libTypes,
-  /export type ProjectResourceAlertEnforcementExecuteStatus =[\s\S]*\| 'executed'[\s\S]*\| 'failed'[\s\S]*\| 'blocked'[\s\S]*\| 'disabled'[\s\S]*\| 'empty'[\s\S]*\| 'unavailable';[\s\S]*export interface ProjectResourceAlertEnforcementExecuteResult \{[\s\S]*status: ProjectResourceAlertEnforcementExecuteStatus;[\s\S]*project_id: string;[\s\S]*enforcement_executed: boolean;[\s\S]*enforcement_event_created: boolean;[\s\S]*enforcement_event_id: number;[\s\S]*candidate_event_id: number;[\s\S]*candidate_evaluation_id: string;[\s\S]*mode: ProjectResourceAlertEnforcementMode;[\s\S]*readiness: ProjectResourceAlertEnforcementReadiness \| null;[\s\S]*stop_result: ProjectContainerStopResponse \| null;[\s\S]*message: string;[\s\S]*recovery: string;[\s\S]*created_at: string;[\s\S]*\}/,
+  /export type ProjectResourceAlertEnforcementExecuteStatus =[\s\S]*\| 'executed'[\s\S]*\| 'failed'[\s\S]*\| 'uncertain'[\s\S]*\| 'blocked'[\s\S]*\| 'disabled'[\s\S]*\| 'empty'[\s\S]*\| 'unavailable';[\s\S]*export interface ProjectResourceAlertEnforcementExecuteResult \{[\s\S]*status: ProjectResourceAlertEnforcementExecuteStatus;[\s\S]*project_id: string;[\s\S]*enforcement_executed: boolean;[\s\S]*enforcement_event_created: boolean;[\s\S]*enforcement_event_id: number;[\s\S]*candidate_event_id: number;[\s\S]*candidate_evaluation_id: string;[\s\S]*mode: ProjectResourceAlertEnforcementMode;[\s\S]*readiness: ProjectResourceAlertEnforcementReadiness \| null;[\s\S]*stop_result: ProjectContainerStopResponse \| null;[\s\S]*message: string;[\s\S]*recovery: string;[\s\S]*created_at: string;[\s\S]*\}/,
   'frontend shared types should model controlled project resource alert enforcement execution through named enforcement execute status and mode contracts',
 );
 assert.doesNotMatch(
@@ -3490,7 +3553,7 @@ assert.doesNotMatch(
 assert.match(
   workspaceTypes,
   /export type AdminUsersPageSnapshotStatus = 'loading' \| 'load_failed' \| 'empty' \| 'ready' \| 'editing' \| 'saving' \| 'save_failed' \| 'delete_confirming' \| 'deleting' \| 'delete_failed';[\s\S]*export type AdminUsersPageSnapshotSource = 'user_list' \| 'user_status' \| 'user_role' \| 'user_edit' \| 'user_save' \| 'user_delete';[\s\S]*export type AdminUserEditingId = AdminUserId;[\s\S]*export type AdminUserDeletingId = AdminUserId;[\s\S]*export type AdminUserEditableSnapshotStatus = 'none' \| 'active' \| 'disabled';[\s\S]*export type AdminUserEditableSnapshotRole = 'none' \| 'user' \| 'admin' \| 'super_admin';[\s\S]*export type AdminUserDeleteSnapshotStatus = 'none' \| 'active' \| 'disabled' \| 'deleted' \| 'unknown';[\s\S]*export type AdminUserSaveConfirmationSnapshotStatus = 'closed' \| 'awaiting_confirmation' \| 'confirming' \| 'save_failed';[\s\S]*export type AdminUserSaveConfirmationSnapshotSource = 'dialog_state' \| 'user_save' \| 'role_update' \| 'status_update';[\s\S]*export type AdminUserSaveConfirmationRiskLevel = 'none' \| 'medium' \| 'high';[\s\S]*export type AdminUserDeleteConfirmationSnapshotStatus = 'closed' \| 'awaiting_confirmation' \| 'confirming' \| 'delete_failed';[\s\S]*export type AdminUserDeleteConfirmationSnapshotSource = 'dialog_state' \| 'user_delete';[\s\S]*export type AdminUserDeleteConfirmationRiskLevel = 'none' \| 'high';[\s\S]*export type AdminUsersPageSnapshot = \{[\s\S]*status: AdminUsersPageSnapshotStatus;[\s\S]*source: AdminUsersPageSnapshotSource;[\s\S]*userCount: number;[\s\S]*activeUserCount: number;[\s\S]*disabledUserCount: number;[\s\S]*deletedUserCount: number;[\s\S]*unknownStatusCount: number;[\s\S]*unknownRoleCount: number;[\s\S]*unknownStatusValues: AdminUnknownRawValueList;[\s\S]*unknownRoleValues: AdminUnknownRawValueList;[\s\S]*namedUserCount: number;[\s\S]*adminRoleCount: number;[\s\S]*editingUserId: AdminUserEditingId \| null;[\s\S]*deletingUserId: AdminUserDeletingId \| null;[\s\S]*selectedRole: AdminUserEditableSnapshotRole;[\s\S]*selectedStatus: AdminUserEditableSnapshotStatus;[\s\S]*isLoading: boolean;[\s\S]*isSaving: boolean;[\s\S]*isDeleting: boolean;[\s\S]*hasError: boolean;[\s\S]*canStartEdit: boolean;[\s\S]*canSave: boolean;[\s\S]*canCancel: boolean;[\s\S]*canDelete: boolean;[\s\S]*canReload: boolean;[\s\S]*recovery: string;[\s\S]*export type AdminUserDeleteConfirmationSnapshot = \{[\s\S]*status: AdminUserDeleteConfirmationSnapshotStatus;[\s\S]*source: AdminUserDeleteConfirmationSnapshotSource;[\s\S]*userId: AdminUserId \| null;[\s\S]*userEmail: string;[\s\S]*userStatus: AdminUserDeleteSnapshotStatus;[\s\S]*isDeleting: boolean;[\s\S]*hasError: boolean;[\s\S]*canConfirm: boolean;[\s\S]*canCancel: boolean;[\s\S]*riskLevel: AdminUserDeleteConfirmationRiskLevel;[\s\S]*recovery: string;[\s\S]*export type AdminUserSaveConfirmationSnapshot = \{[\s\S]*status: AdminUserSaveConfirmationSnapshotStatus;[\s\S]*source: AdminUserSaveConfirmationSnapshotSource;[\s\S]*userId: AdminUserId \| null;[\s\S]*userEmail: string;[\s\S]*userRole: AdminUserEditableSnapshotRole;[\s\S]*userStatus: AdminUserEditableSnapshotStatus;[\s\S]*isSaving: boolean;[\s\S]*hasError: boolean;[\s\S]*canConfirm: boolean;[\s\S]*canCancel: boolean;[\s\S]*riskLevel: AdminUserSaveConfirmationRiskLevel;[\s\S]*recovery: string;/,
-  'workspace types should model the Admin Users page, save confirmation and soft-delete confirmation as structured snapshots with explicit phase/source/editable/delete/risk contracts across user loading, editing, saving, deleting, status/role enum diagnostics and reload capability',
+  'workspace types should model the Admin Users page, save confirmation and permanent-delete confirmation as structured snapshots with explicit phase/source/editable/delete/risk contracts across user loading, editing, saving, deleting, status/role enum diagnostics and reload capability',
 );
 assert.match(
   adminApi,
@@ -6499,17 +6562,17 @@ assert.match(
 );
 assert.match(
   projectListPageSnapshot,
-  /(?=[\s\S]*const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'resource_alert_notification_sent'[\s\S]*'resource_alert_notification_failed'[\s\S]*'resource_alert_notification_send_blocked'[\s\S]*'resource_alert_notification_send_unavailable')(?=[\s\S]*export function buildProjectListPageSnapshot\([\s\S]*sendingResourceAlertNotificationProjectId)(?=[\s\S]*status === 'resource_alert_notification_sent')(?=[\s\S]*status === 'resource_alert_notification_send_unavailable')(?=[\s\S]*notification_sent 事件)(?=[\s\S]*webhook provider)(?=[\s\S]*重复发送证据)(?=[\s\S]*直接执行硬配额)(?=[\s\S]*const sendingResourceAlertNotificationProjectIdLabel = getProjectListPageSnapshotLabel\(snapshot\.sendingResourceAlertNotificationProjectId, 'none'\);)(?=[\s\S]*SendingResourceAlertNotification: \{sendingResourceAlertNotificationProjectIdLabel\})/,
+  /(?=[\s\S]*const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'resource_alert_notification_sent'[\s\S]*'resource_alert_notification_failed'[\s\S]*'resource_alert_notification_uncertain'[\s\S]*'resource_alert_notification_send_blocked'[\s\S]*'resource_alert_notification_send_unavailable')(?=[\s\S]*export function buildProjectListPageSnapshot\([\s\S]*sendingResourceAlertNotificationProjectId)(?=[\s\S]*status === 'resource_alert_notification_sent')(?=[\s\S]*status === 'resource_alert_notification_send_unavailable')(?=[\s\S]*notification_sent 事件)(?=[\s\S]*webhook provider)(?=[\s\S]*重复发送证据)(?=[\s\S]*直接执行硬配额)(?=[\s\S]*const sendingResourceAlertNotificationProjectIdLabel = getProjectListPageSnapshotLabel\(snapshot\.sendingResourceAlertNotificationProjectId, 'none'\);)(?=[\s\S]*SendingResourceAlertNotification: \{sendingResourceAlertNotificationProjectIdLabel\})/,
   'Shared Project List page snapshot should expose controlled project resource alert notification send status, recovery guidance and in-flight project id through a stable UI target',
 );
 assert.match(
   projectListPageSnapshot,
-  /const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'resource_alert_notification_ready'[\s\S]*'resource_alert_notification_unavailable'[\s\S]*'resource_alert_notification_sent'[\s\S]*'resource_alert_notification_failed'[\s\S]*'resource_alert_notification_send_blocked'[\s\S]*'resource_alert_notification_send_unavailable'[\s\S]*\];[\s\S]*function resolveProjectListPageSnapshotSource\(status: ProjectListPageSnapshotStatus\): ProjectListPageSnapshotSource[\s\S]*isProjectListPageStatusIn\(status, PROJECT_RESOURCE_SOURCE_STATUSES\)[\s\S]*return 'project_resource'/,
+  /const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'resource_alert_notification_ready'[\s\S]*'resource_alert_notification_unavailable'[\s\S]*'resource_alert_notification_sent'[\s\S]*'resource_alert_notification_failed'[\s\S]*'resource_alert_notification_uncertain'[\s\S]*'resource_alert_notification_send_blocked'[\s\S]*'resource_alert_notification_send_unavailable'[\s\S]*\];[\s\S]*function resolveProjectListPageSnapshotSource\(status: ProjectListPageSnapshotStatus\): ProjectListPageSnapshotSource[\s\S]*isProjectListPageStatusIn\(status, PROJECT_RESOURCE_SOURCE_STATUSES\)[\s\S]*return 'project_resource'/,
   'Project List resource alert notification send statuses should derive project_resource source instead of falling back to project_list_state',
 );
 assert.match(
   projectsPage,
-  /(?=[\s\S]*const \[sendingResourceAlertNotificationProjectId, setSendingResourceAlertNotificationProjectId\] = useState<string \| null>\(null\);)(?=[\s\S]*sendingResourceAlertNotificationProjectId,)(?=[\s\S]*formatProjectResourceAlertNotificationSendNotice)(?=[\s\S]*sendProjectResourceAlertNotification)(?=[\s\S]*kind: 'resource_alert_notification_send')(?=[\s\S]*confirmProjectResourceAlertNotification)(?=[\s\S]*projectApi\.sendResourceAlertNotification\(projectId, true\))(?=[\s\S]*'resource_alert_notification_sent')(?=[\s\S]*'resource_alert_notification_failed')(?=[\s\S]*'resource_alert_notification_send_blocked')(?=[\s\S]*'resource_alert_notification_send_unavailable')(?=[\s\S]*sendingResourceAlertNotificationProjectId === projectId)(?=[\s\S]*发送结果未确认)(?=[\s\S]*data-testid="project-card-resource-alert-notification-send")/,
+  /(?=[\s\S]*const \[sendingResourceAlertNotificationProjectId, setSendingResourceAlertNotificationProjectId\] = useState<string \| null>\(null\);)(?=[\s\S]*sendingResourceAlertNotificationProjectId,)(?=[\s\S]*formatProjectResourceAlertNotificationSendNotice)(?=[\s\S]*sendProjectResourceAlertNotification)(?=[\s\S]*kind: 'resource_alert_notification_send')(?=[\s\S]*confirmProjectResourceAlertNotification)(?=[\s\S]*projectApi\.sendResourceAlertNotification\(projectId, true\))(?=[\s\S]*'resource_alert_notification_sent')(?=[\s\S]*'resource_alert_notification_failed')(?=[\s\S]*'resource_alert_notification_uncertain')(?=[\s\S]*'resource_alert_notification_send_blocked')(?=[\s\S]*'resource_alert_notification_send_unavailable')(?=[\s\S]*sendingResourceAlertNotificationProjectId === projectId)(?=[\s\S]*发送结果未确认)(?=[\s\S]*data-testid="project-card-resource-alert-notification-send")/,
   'Project List page should expose a controlled project resource alert notification send action with structured confirmation, status, notice, error and busy state',
 );
 assert.match(
@@ -6524,17 +6587,17 @@ assert.match(
 );
 assert.match(
   projectListPageSnapshot,
-  /(?=[\s\S]*const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'resource_alert_enforcement_executed'[\s\S]*'resource_alert_enforcement_failed'[\s\S]*'resource_alert_enforcement_execute_blocked')(?=[\s\S]*export function buildProjectListPageSnapshot\([\s\S]*executingResourceAlertEnforcementProjectId)(?=[\s\S]*status === 'resource_alert_enforcement_executed')(?=[\s\S]*status === 'resource_alert_enforcement_execute_blocked')(?=[\s\S]*readiness 只说明可执行 stop_container)(?=[\s\S]*enforcement_executed 事件)(?=[\s\S]*StopProjectContainer)(?=[\s\S]*重复执行证据)(?=[\s\S]*const executingResourceAlertEnforcementProjectIdLabel = getProjectListPageSnapshotLabel\(snapshot\.executingResourceAlertEnforcementProjectId, 'none'\);)(?=[\s\S]*ExecutingResourceAlertEnforcement: \{executingResourceAlertEnforcementProjectIdLabel\})/,
+  /(?=[\s\S]*const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'resource_alert_enforcement_executed'[\s\S]*'resource_alert_enforcement_failed'[\s\S]*'resource_alert_enforcement_uncertain'[\s\S]*'resource_alert_enforcement_execute_blocked')(?=[\s\S]*export function buildProjectListPageSnapshot\([\s\S]*executingResourceAlertEnforcementProjectId)(?=[\s\S]*status === 'resource_alert_enforcement_executed')(?=[\s\S]*status === 'resource_alert_enforcement_uncertain')(?=[\s\S]*status === 'resource_alert_enforcement_execute_blocked')(?=[\s\S]*readiness 只说明可执行 stop_container)(?=[\s\S]*enforcement_executed 事件)(?=[\s\S]*pending 意图)(?=[\s\S]*重复执行证据)(?=[\s\S]*const executingResourceAlertEnforcementProjectIdLabel = getProjectListPageSnapshotLabel\(snapshot\.executingResourceAlertEnforcementProjectId, 'none'\);)(?=[\s\S]*ExecutingResourceAlertEnforcement: \{executingResourceAlertEnforcementProjectIdLabel\})/,
   'Shared Project List page snapshot should expose controlled project resource alert enforcement execution status, recovery guidance and in-flight project id through a stable UI target',
 );
 assert.match(
   projectListPageSnapshot,
-  /const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'resource_alert_enforcement_ready'[\s\S]*'resource_alert_enforcement_unavailable'[\s\S]*'resource_alert_enforcement_executed'[\s\S]*'resource_alert_enforcement_failed'[\s\S]*'resource_alert_enforcement_execute_blocked'[\s\S]*\];[\s\S]*function resolveProjectListPageSnapshotSource\(status: ProjectListPageSnapshotStatus\): ProjectListPageSnapshotSource[\s\S]*isProjectListPageStatusIn\(status, PROJECT_RESOURCE_SOURCE_STATUSES\)[\s\S]*return 'project_resource'/,
+  /const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'resource_alert_enforcement_ready'[\s\S]*'resource_alert_enforcement_unavailable'[\s\S]*'resource_alert_enforcement_executed'[\s\S]*'resource_alert_enforcement_failed'[\s\S]*'resource_alert_enforcement_uncertain'[\s\S]*'resource_alert_enforcement_execute_blocked'[\s\S]*\];[\s\S]*function resolveProjectListPageSnapshotSource\(status: ProjectListPageSnapshotStatus\): ProjectListPageSnapshotSource[\s\S]*isProjectListPageStatusIn\(status, PROJECT_RESOURCE_SOURCE_STATUSES\)[\s\S]*return 'project_resource'/,
   'Project List resource alert enforcement execution statuses should derive project_resource source instead of falling back to project_list_state',
 );
 assert.match(
   projectListPageSnapshot,
-  /const PROJECT_LIST_WARNING_TONE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'sync_failed'[\s\S]*'resource_alert_notification_failed'[\s\S]*'resource_alert_notification_send_blocked'[\s\S]*'resource_alert_enforcement_failed'[\s\S]*'resource_alert_enforcement_execute_blocked'[\s\S]*'backup_remote_restore_failed'[\s\S]*'delete_failed'[\s\S]*'delete_restore_failed'[\s\S]*\];[\s\S]*function getProjectListPageSnapshotClassName\(snapshot: ProjectListPageSnapshot\)[\s\S]*isProjectListPageStatusIn\(snapshot\.status, PROJECT_LIST_WARNING_TONE_STATUSES\)[\s\S]*border-amber-300/,
+  /const PROJECT_LIST_WARNING_TONE_STATUSES: ProjectListPageSnapshotStatusList = \[[\s\S]*'sync_failed'[\s\S]*'resource_alert_notification_failed'[\s\S]*'resource_alert_notification_uncertain'[\s\S]*'resource_alert_notification_send_blocked'[\s\S]*'resource_alert_enforcement_failed'[\s\S]*'resource_alert_enforcement_uncertain'[\s\S]*'resource_alert_enforcement_execute_blocked'[\s\S]*'backup_remote_restore_failed'[\s\S]*'delete_failed'[\s\S]*'delete_restore_failed'[\s\S]*\];[\s\S]*function getProjectListPageSnapshotClassName\(snapshot: ProjectListPageSnapshot\)[\s\S]*isProjectListPageStatusIn\(snapshot\.status, PROJECT_LIST_WARNING_TONE_STATUSES\)[\s\S]*border-amber-300/,
   'Project List snapshot warning tone statuses should be governed through an explicit status group covering sync, resource, backup, delete and deletion restore failures',
 );
 assert.match(
@@ -6593,7 +6656,7 @@ assert.doesNotMatch(
 );
 assert.match(
   projectsPage,
-  /(?=[\s\S]*ShieldCheck)(?=[\s\S]*const \[executingResourceAlertEnforcementProjectId, setExecutingResourceAlertEnforcementProjectId\] = useState<string \| null>\(null\);)(?=[\s\S]*executingResourceAlertEnforcementProjectId,)(?=[\s\S]*formatProjectResourceAlertEnforcementExecuteNotice)(?=[\s\S]*executeProjectResourceAlertEnforcement)(?=[\s\S]*kind: 'resource_alert_enforcement_execute')(?=[\s\S]*confirmProjectResourceAlertEnforcement)(?=[\s\S]*projectApi\.executeResourceAlertEnforcement\(projectId, true\))(?=[\s\S]*'resource_alert_enforcement_executed')(?=[\s\S]*'resource_alert_enforcement_failed')(?=[\s\S]*'resource_alert_enforcement_execute_blocked')(?=[\s\S]*executingResourceAlertEnforcementProjectId === projectId)(?=[\s\S]*执行结果未确认)(?=[\s\S]*data-testid="project-card-resource-alert-enforcement-execute")/,
+  /(?=[\s\S]*ShieldCheck)(?=[\s\S]*const \[executingResourceAlertEnforcementProjectId, setExecutingResourceAlertEnforcementProjectId\] = useState<string \| null>\(null\);)(?=[\s\S]*executingResourceAlertEnforcementProjectId,)(?=[\s\S]*formatProjectResourceAlertEnforcementExecuteNotice)(?=[\s\S]*executeProjectResourceAlertEnforcement)(?=[\s\S]*kind: 'resource_alert_enforcement_execute')(?=[\s\S]*confirmProjectResourceAlertEnforcement)(?=[\s\S]*projectApi\.executeResourceAlertEnforcement\(projectId, true\))(?=[\s\S]*'resource_alert_enforcement_executed')(?=[\s\S]*'resource_alert_enforcement_failed')(?=[\s\S]*'resource_alert_enforcement_uncertain')(?=[\s\S]*'resource_alert_enforcement_execute_blocked')(?=[\s\S]*executingResourceAlertEnforcementProjectId === projectId)(?=[\s\S]*执行结果未确认)(?=[\s\S]*data-testid="project-card-resource-alert-enforcement-execute")/,
   'Project List page should expose controlled project resource alert enforcement execution with structured confirmation, status, notice, error and busy state',
 );
 assert.match(
@@ -10283,8 +10346,8 @@ assert.doesNotMatch(
 );
 assert.match(
   adminUsersPage,
-  /(?=[\s\S]*AdminUserDeletingId)(?=[\s\S]*AdminUserEditingId)(?=[\s\S]*AdminUserDeleteConfirmationSnapshotStrip)(?=[\s\S]*AdminUserSaveConfirmationSnapshotStrip)(?=[\s\S]*buildAdminUserDeleteConfirmationSnapshot)(?=[\s\S]*buildAdminUserSaveConfirmationSnapshot)(?=[\s\S]*buildAdminUsersPageSnapshot)(?=[\s\S]*type AdminUserMutableRole)(?=[\s\S]*type AdminUserMutableStatus)(?=[\s\S]*type EditingUserState = \{[\s\S]*id: AdminUserEditingId;[\s\S]*role: AdminUserMutableRole;[\s\S]*status: AdminUserMutableStatus;)(?=[\s\S]*type DeletingUserState = \{[\s\S]*id: AdminUserDeletingId;[\s\S]*status: AdminUser\['status'\];)(?=[\s\S]*function hasAdminUserDeleteAvailable\(user: AdminUser\): boolean \{[\s\S]*return user\.status !== 'deleted';)(?=[\s\S]*function getAdminUserOptionalLabel\(value: string \| undefined \| null\): string)(?=[\s\S]*function getAdminUserUnknownRoleValue\(user: AdminUser\): string \| null)(?=[\s\S]*function getAdminUserUnknownRoleLabel\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserRoleLabel\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserUnknownStatusValue\(user: AdminUser\): string \| null)(?=[\s\S]*function getAdminUserUnknownStatusLabel\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserStatusBadgeClassName\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserStatusLabel\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserCreatedAtLabel\(createdAt: string \| null\): string)(?=[\s\S]*function shouldRenderAdminUsersEmptyRow\(users: AdminUser\[\]\): boolean \{[\s\S]*const userCount = users\.length;[\s\S]*return userCount === 0;)(?=[\s\S]*function getAdminUserSaveConfirmationDescription\(editing: EditingUserState \| null\): string)(?=[\s\S]*function getAdminUserDeleteConfirmationDescription\(pendingDelete: DeletingUserState \| null\): string)(?=[\s\S]*function getAdminUserSaveConfirmationActionLabel\(saving: boolean\): string)(?=[\s\S]*function getAdminUserDeleteConfirmationActionLabel\(deleting: boolean\): string)(?=[\s\S]*function materializeAdminUserRowNodes\([\s\S]*snapshot: ReturnType<typeof buildAdminUsersPageSnapshot>;[\s\S]*for \(const user of users\)[\s\S]*const roleLabel = getAdminUserRoleLabel\(user\);[\s\S]*const statusBadgeClassName = getAdminUserStatusBadgeClassName\(user\);[\s\S]*const statusLabel = getAdminUserStatusLabel\(user\);)(?=[\s\S]*\{getAdminUserOptionalLabel\(user\.username\)\})(?=[\s\S]*\{roleLabel\})(?=[\s\S]*\$\{statusBadgeClassName\})(?=[\s\S]*\{statusLabel\})(?=[\s\S]*\{getAdminUserCreatedAtLabel\(user\.created_at\)\})(?=[\s\S]*disabled=\{snapshot\.canStartEdit === false\})(?=[\s\S]*disabled=\{snapshot\.canDelete === false \|\| hasAdminUserDeleteAvailable\(user\) === false\})(?=[\s\S]*const \[saving, setSaving\] = useState\(false\);)(?=[\s\S]*const \[deleting, setDeleting\] = useState\(false\);)(?=[\s\S]*const \[editing, setEditing\] = useState<EditingUserState \| null>\(null\);)(?=[\s\S]*const \[pendingDelete, setPendingDelete\] = useState<DeletingUserState \| null>\(null\);)(?=[\s\S]*const \[deleteConfirmationOpen, setDeleteConfirmationOpen\] = useState\(false\);)(?=[\s\S]*const \[deleteConfirmationError, setDeleteConfirmationError\] = useState\(''\);)(?=[\s\S]*const hasPageError = error\.length > 0;)(?=[\s\S]*const shouldRenderEditForm = editing !== null;)(?=[\s\S]*const shouldRenderEmptyRow = shouldRenderAdminUsersEmptyRow\(users\);)(?=[\s\S]*const shouldRenderUserRows = shouldRenderEmptyRow === false;)(?=[\s\S]*const saveConfirmationDescription = getAdminUserSaveConfirmationDescription\(editing\);)(?=[\s\S]*const deleteConfirmationDescription = getAdminUserDeleteConfirmationDescription\(pendingDelete\);)(?=[\s\S]*const saveConfirmationActionLabel = getAdminUserSaveConfirmationActionLabel\(saving\);)(?=[\s\S]*const deleteConfirmationActionLabel = getAdminUserDeleteConfirmationActionLabel\(deleting\);)(?=[\s\S]*const adminUsersPageSnapshot = buildAdminUsersPageSnapshot\(\{[\s\S]*loading,[\s\S]*saving,[\s\S]*deleting,[\s\S]*error,[\s\S]*users,[\s\S]*editing,[\s\S]*pendingDelete,)(?=[\s\S]*const adminUserDeleteConfirmationSnapshot = buildAdminUserDeleteConfirmationSnapshot\(\{[\s\S]*pendingDelete,[\s\S]*isOpen: deleteConfirmationOpen,[\s\S]*deleting,[\s\S]*error: deleteConfirmationError,)(?=[\s\S]*const openDeleteConfirmation = \(user: AdminUser\) => \{[\s\S]*if \(hasAdminUserDeleteAvailable\(user\) === false\) return;)(?=[\s\S]*const handleDelete = async \(\) => \{[\s\S]*await adminUsersApi\.delete\(pendingDelete\.id\);[\s\S]*setDeleteConfirmationOpen\(false\)[\s\S]*setDeleteConfirmationError\(message\))(?=[\s\S]*disabled=\{adminUsersPageSnapshot\.canReload === false\})(?=[\s\S]*\{hasPageError === true &&)(?=[\s\S]*\{shouldRenderEditForm === true &&)(?=[\s\S]*\{shouldRenderEmptyRow === true &&)(?=[\s\S]*\{shouldRenderUserRows === true &&)(?=[\s\S]*materializeAdminUserRowNodes\(\{[\s\S]*users,[\s\S]*snapshot: adminUsersPageSnapshot,[\s\S]*onStartEdit: startEdit,[\s\S]*onOpenDeleteConfirmation: openDeleteConfirmation,)(?=[\s\S]*\{saveConfirmationDescription\})(?=[\s\S]*\{saveConfirmationActionLabel\})(?=[\s\S]*\{deleteConfirmationDescription\})(?=[\s\S]*\{deleteConfirmationActionLabel\})(?=[\s\S]*<AdminUserSaveConfirmationSnapshotStrip snapshot=\{adminUserSaveConfirmationSnapshot\} \/>)(?=[\s\S]*<AdminUserDeleteConfirmationSnapshotStrip snapshot=\{adminUserDeleteConfirmationSnapshot\} \/>)(?=[\s\S]*disabled=\{adminUserDeleteConfirmationSnapshot\.canCancel === false\})(?=[\s\S]*disabled=\{adminUserDeleteConfirmationSnapshot\.canConfirm === false\})(?=[\s\S]*void handleDelete\(\);)/,
-  'Admin Users page should render structured snapshots, preserve deleted/unknown user status and role values, and gate role/status updates plus soft-delete through structured confirmation snapshots before relying on buttons or table labels',
+  /(?=[\s\S]*AdminUserDeletingId)(?=[\s\S]*AdminUserEditingId)(?=[\s\S]*AdminUserDeleteConfirmationSnapshotStrip)(?=[\s\S]*AdminUserSaveConfirmationSnapshotStrip)(?=[\s\S]*buildAdminUserDeleteConfirmationSnapshot)(?=[\s\S]*buildAdminUserSaveConfirmationSnapshot)(?=[\s\S]*buildAdminUsersPageSnapshot)(?=[\s\S]*type AdminUserMutableRole)(?=[\s\S]*type AdminUserMutableStatus)(?=[\s\S]*type EditingUserState = \{[\s\S]*id: AdminUserEditingId;[\s\S]*role: AdminUserMutableRole;[\s\S]*status: AdminUserMutableStatus;)(?=[\s\S]*type DeletingUserState = \{[\s\S]*id: AdminUserDeletingId;[\s\S]*status: AdminUser\['status'\];)(?=[\s\S]*function hasAdminUserDeleteAvailable\(user: AdminUser\): boolean \{[\s\S]*return user\.id\.trim\(\)\.length > 0;)(?=[\s\S]*function getAdminUserOptionalLabel\(value: string \| undefined \| null\): string)(?=[\s\S]*function getAdminUserUnknownRoleValue\(user: AdminUser\): string \| null)(?=[\s\S]*function getAdminUserUnknownRoleLabel\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserRoleLabel\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserUnknownStatusValue\(user: AdminUser\): string \| null)(?=[\s\S]*function getAdminUserUnknownStatusLabel\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserStatusBadgeClassName\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserStatusLabel\(user: AdminUser\): string)(?=[\s\S]*function getAdminUserCreatedAtLabel\(createdAt: string \| null\): string)(?=[\s\S]*function shouldRenderAdminUsersEmptyRow\(users: AdminUser\[\]\): boolean \{[\s\S]*const userCount = users\.length;[\s\S]*return userCount === 0;)(?=[\s\S]*function getAdminUserSaveConfirmationDescription\(editing: EditingUserState \| null\): string)(?=[\s\S]*function getAdminUserDeleteConfirmationDescription\(pendingDelete: DeletingUserState \| null\): string)(?=[\s\S]*function getAdminUserSaveConfirmationActionLabel\(saving: boolean\): string)(?=[\s\S]*function getAdminUserDeleteConfirmationActionLabel\(deleting: boolean\): string)(?=[\s\S]*function materializeAdminUserRowNodes\([\s\S]*snapshot: ReturnType<typeof buildAdminUsersPageSnapshot>;[\s\S]*for \(const user of users\)[\s\S]*const roleLabel = getAdminUserRoleLabel\(user\);[\s\S]*const statusBadgeClassName = getAdminUserStatusBadgeClassName\(user\);[\s\S]*const statusLabel = getAdminUserStatusLabel\(user\);)(?=[\s\S]*\{getAdminUserOptionalLabel\(user\.username\)\})(?=[\s\S]*\{roleLabel\})(?=[\s\S]*\$\{statusBadgeClassName\})(?=[\s\S]*\{statusLabel\})(?=[\s\S]*\{getAdminUserCreatedAtLabel\(user\.created_at\)\})(?=[\s\S]*disabled=\{snapshot\.canStartEdit === false\})(?=[\s\S]*disabled=\{snapshot\.canDelete === false \|\| hasAdminUserDeleteAvailable\(user\) === false\})(?=[\s\S]*const \[saving, setSaving\] = useState\(false\);)(?=[\s\S]*const \[deleting, setDeleting\] = useState\(false\);)(?=[\s\S]*const \[editing, setEditing\] = useState<EditingUserState \| null>\(null\);)(?=[\s\S]*const \[pendingDelete, setPendingDelete\] = useState<DeletingUserState \| null>\(null\);)(?=[\s\S]*const \[deleteConfirmationOpen, setDeleteConfirmationOpen\] = useState\(false\);)(?=[\s\S]*const \[deleteConfirmationError, setDeleteConfirmationError\] = useState\(''\);)(?=[\s\S]*const hasPageError = error\.length > 0;)(?=[\s\S]*const shouldRenderEditForm = editing !== null;)(?=[\s\S]*const shouldRenderEmptyRow = shouldRenderAdminUsersEmptyRow\(users\);)(?=[\s\S]*const shouldRenderUserRows = shouldRenderEmptyRow === false;)(?=[\s\S]*const saveConfirmationDescription = getAdminUserSaveConfirmationDescription\(editing\);)(?=[\s\S]*const deleteConfirmationDescription = getAdminUserDeleteConfirmationDescription\(pendingDelete\);)(?=[\s\S]*const saveConfirmationActionLabel = getAdminUserSaveConfirmationActionLabel\(saving\);)(?=[\s\S]*const deleteConfirmationActionLabel = getAdminUserDeleteConfirmationActionLabel\(deleting\);)(?=[\s\S]*const adminUsersPageSnapshot = buildAdminUsersPageSnapshot\(\{[\s\S]*loading,[\s\S]*saving,[\s\S]*deleting,[\s\S]*error,[\s\S]*users,[\s\S]*editing,[\s\S]*pendingDelete,)(?=[\s\S]*const adminUserDeleteConfirmationSnapshot = buildAdminUserDeleteConfirmationSnapshot\(\{[\s\S]*pendingDelete,[\s\S]*isOpen: deleteConfirmationOpen,[\s\S]*deleting,[\s\S]*error: deleteConfirmationError,)(?=[\s\S]*const openDeleteConfirmation = \(user: AdminUser\) => \{[\s\S]*if \(hasAdminUserDeleteAvailable\(user\) === false\) return;)(?=[\s\S]*const handleDelete = async \(\) => \{[\s\S]*await adminUsersApi\.delete\(pendingDelete\.id\);[\s\S]*setDeleteConfirmationOpen\(false\)[\s\S]*setDeleteConfirmationError\(message\))(?=[\s\S]*disabled=\{adminUsersPageSnapshot\.canReload === false\})(?=[\s\S]*\{hasPageError === true &&)(?=[\s\S]*\{shouldRenderEditForm === true &&)(?=[\s\S]*\{shouldRenderEmptyRow === true &&)(?=[\s\S]*\{shouldRenderUserRows === true &&)(?=[\s\S]*materializeAdminUserRowNodes\(\{[\s\S]*users,[\s\S]*snapshot: adminUsersPageSnapshot,[\s\S]*onStartEdit: startEdit,[\s\S]*onOpenDeleteConfirmation: openDeleteConfirmation,)(?=[\s\S]*\{saveConfirmationDescription\})(?=[\s\S]*\{saveConfirmationActionLabel\})(?=[\s\S]*\{deleteConfirmationDescription\})(?=[\s\S]*\{deleteConfirmationActionLabel\})(?=[\s\S]*<AdminUserSaveConfirmationSnapshotStrip snapshot=\{adminUserSaveConfirmationSnapshot\} \/>)(?=[\s\S]*<AdminUserDeleteConfirmationSnapshotStrip snapshot=\{adminUserDeleteConfirmationSnapshot\} \/>)(?=[\s\S]*disabled=\{adminUserDeleteConfirmationSnapshot\.canCancel === false\})(?=[\s\S]*disabled=\{adminUserDeleteConfirmationSnapshot\.canConfirm === false\})(?=[\s\S]*void handleDelete\(\);)/,
+  'Admin Users page should render structured snapshots, preserve legacy deleted/unknown user status and role values, and gate role/status updates plus permanent deletion through structured confirmation snapshots before relying on buttons or table labels',
 );
 assert.doesNotMatch(
   adminUsersPage,
@@ -13969,8 +14032,18 @@ assert.match(
   'project delete API should return accepted background cleanup status, cleanup scope, and restore window metadata',
 );
 assert.match(
+  projectLifecycleCoordinator,
+  /func \(c \*ProjectLifecycleCoordinator\) beginCancellableUserProjectMutation\([\s\S]*acquireUserOperation\(userID\)[\s\S]*registerUserProjectActivity\([\s\S]*acquireProjectMutationContext\([\s\S]*finishMutation\(\)[\s\S]*finishUserOperation\(\)/,
+  'combined user and project mutation gate should hold the user deletion lease until the serialized project mutation exits',
+);
+assert.match(
   projectService,
-  /func ProjectDeletionCleanupScope\(\) \[\]string \{[\s\S]*"container"[\s\S]*"project_network"[\s\S]*"project_directory"[\s\S]*"chat_messages"[\s\S]*"generated_file_metadata"[\s\S]*"git_commits"[\s\S]*"engineering_state"[\s\S]*"capability_execution_audits"/,
+  /func \(s \*ProjectService\) UpdateProject\(ctx context\.Context, projectID, userID string,[\s\S]*BeginCancellableUserProjectMutation\(ctx, userID, projectID, false\)[\s\S]*UpdateFields\(operationCtx, projectID, sanitizedUpdates\)/,
+  'project metadata updates should stay inside the cancellable user and project deletion gates',
+);
+assert.match(
+  projectService,
+  /func ProjectDeletionCleanupScope\(\) \[\]string \{[\s\S]*"container"[\s\S]*"project_network"[\s\S]*"project_directory"[\s\S]*"local_backup_archives"[\s\S]*"remote_backup_objects"[\s\S]*"chat_messages"[\s\S]*"generated_file_metadata"[\s\S]*"git_commits"[\s\S]*"engineering_state"[\s\S]*"capability_execution_audits"/,
   'project deletion cleanup scope should centrally cover container, network, directory, messages, file metadata, commits, engineering state, and capability audits',
 );
 assert.match(
@@ -14020,18 +14093,28 @@ assert.match(
 );
 assert.match(
   projectService,
-  /if cleanupErr != nil \{[\s\S]*restoreSoftDeletedProject\(context\.Background\(\), projectID\)[\s\S]*recordProjectDeletionRecoveryNotice\(context\.Background\(\), project, "cleanup_failed", cleanupErr\)/,
-  'project async cleanup failures should restore the project and record a deletion recovery notice',
+  /for attempt := 1; ; attempt\+\+ \{[\s\S]*cleanupProjectResources\(attemptCtx, project\)[\s\S]*waitForProjectDeletionRetry\(ctx, attempt\)/,
+  'project async cleanup failures should retain the soft-deleted project and retry under the deletion barrier',
 );
 assert.match(
   projectService,
-  /if err := s\.projectRepo\.HardDelete\(ctx, projectID\); err != nil \{[\s\S]*restoreSoftDeletedProject\(context\.Background\(\), projectID\)[\s\S]*recordProjectDeletionRecoveryNotice\(context\.Background\(\), project, "hard_delete_failed", err\)/,
-  'project hard delete failures should restore the project and record a deletion recovery notice',
+  /for attempt := 1; ; attempt\+\+ \{[\s\S]*projectRepo\.HardDelete\(attemptCtx, projectID\)[\s\S]*waitForProjectDeletionRetry\(ctx, attempt\)/,
+  'project hard delete failures should retain the deletion barrier and retry instead of restoring a destructively cleaned project',
+);
+assert.doesNotMatch(
+  projectService,
+  /recordProjectDeletionRecoveryNotice\(context\.Background\(\), project, "(?:cleanup_failed|hard_delete_failed)"/,
+  'project deletion must not restore a project after destructive cleanup has started',
 );
 assert.match(
   projectService,
-  /func \(s \*ProjectService\) recordProjectDeletionRecoveryNotice\(ctx context\.Context, project \*model\.Project, reasonCode string, cause error\) \{[\s\S]*"kind":\s+"workflow",[\s\S]*"content":\s+content,[\s\S]*"statusContent": "Project deletion recovery: failed",[\s\S]*"deletion_recovery": map\[string\]interface\{\}\{[\s\S]*"status":\s+"restored_after_cleanup_failure",[\s\S]*"cleanup_scope":\s+ProjectDeletionCleanupScope\(\)/,
-  'project deletion recovery notice should persist a workflow message with deletion_recovery engineering state',
+  /if isProjectNotFoundRepositoryError\(confirmationErr\) \{[\s\S]*return nil, true, originalErr/,
+  'confirmed project not-found restore results must not pause deletion cleanup as an uncertain outcome',
+);
+assert.match(
+  projectService,
+  /func waitForProjectDeletionRetry\(ctx context\.Context, attempt int\) bool \{[\s\S]*30 \* time\.Second[\s\S]*case <-safeContext\(ctx\)\.Done\(\)[\s\S]*case <-timer\.C/,
+  'project destructive cleanup retry should use bounded backoff and remain context-aware',
 );
 assert.match(
   repoInterfaces,
@@ -14040,7 +14123,7 @@ assert.match(
 );
 assert.match(
   projectService,
-  /EngineeringStateRepo\s+EngineeringStateRepo[\s\S]*CapabilityAuditRepo\s+CapabilityExecutionAuditRepo[\s\S]*ResourceAlertEventRepo\s+ProjectResourceAlertEventRepo[\s\S]*if s\.engineeringStateRepo != nil \{[\s\S]*DeleteByProjectID\(ctx, projectID\)[\s\S]*delete engineering state[\s\S]*if s\.capabilityAuditRepo != nil \{[\s\S]*DeleteByProjectID\(ctx, projectID\)[\s\S]*delete capability execution audits[\s\S]*if s\.resourceAlertEventRepo != nil \{[\s\S]*DeleteByProjectID\(ctx, projectID\)[\s\S]*delete resource alert events/,
+  /EngineeringStateRepo\s+EngineeringStateRepo[\s\S]*CapabilityAuditRepo\s+CapabilityExecutionAuditRepo[\s\S]*ResourceAlertEventRepo\s+ProjectResourceAlertEventRepo[\s\S]*if s\.engineeringStateRepo != nil \{[\s\S]*DeleteByProjectID\(ctx, projectID\)[\s\S]*delete engineering state[\s\S]*if s\.capabilityAuditRepo != nil \{[\s\S]*DeleteByProjectID\(ctx, projectID\)[\s\S]*delete capability execution audits[\s\S]*if s\.resourceAlertEventRepo != nil \{[\s\S]*DeleteByProjectID\(ctx, projectID\)[\s\S]*delete resource alert events[\s\S]*deleteProjectBackupResources\(ctx, projectID\)/,
   'ProjectService should inject and delete engineering state, capability audit and resource alert event records during project cleanup',
 );
 assert.match(
@@ -14055,7 +14138,7 @@ assert.match(
 );
 assert.match(
   supabaseRepository,
-  /func \(r \*SupabaseRepository\) EngineeringStateRepository\(\) \*EngineeringStateRepository[\s\S]*func \(r \*SupabaseRepository\) CapabilityExecutionAuditRepository\(\) \*CapabilityExecutionAuditRepository[\s\S]*func \(r \*SupabaseRepository\) ProjectResourceAlertEventRepository\(\) \*ProjectResourceAlertEventRepository[\s\S]*AdminTable\("project_engineering_states"\)\.Eq\("project_id", projectID\)\.Delete\(\)[\s\S]*AdminTable\("project_capability_execution_audits"\)\.Eq\("project_id", projectID\)\.Delete\(\)[\s\S]*AdminTable\("project_resource_alert_events"\)\.Eq\("project_id", projectID\)\.Delete\(\)/,
+  /func \(r \*SupabaseRepository\) EngineeringStateRepository\(\) \*EngineeringStateRepository[\s\S]*func \(r \*SupabaseRepository\) CapabilityExecutionAuditRepository\(\) \*CapabilityExecutionAuditRepository[\s\S]*func \(r \*SupabaseRepository\) ProjectResourceAlertEventRepository\(\) \*ProjectResourceAlertEventRepository[\s\S]*AdminTable\("project_engineering_states"\)\.Eq\("project_id", projectID\)\.DeleteContext\(ctx\)[\s\S]*AdminTable\("project_capability_execution_audits"\)\.Eq\("project_id", projectID\)\.DeleteContext\(ctx\)[\s\S]*AdminTable\("project_resource_alert_action_claims"\)[\s\S]*Eq\("project_id", projectID\)[\s\S]*DeleteContext\(ctx\)[\s\S]*AdminTable\("project_resource_alert_events"\)[\s\S]*Eq\("project_id", projectID\)[\s\S]*DeleteContext\(ctx\)/,
   'Supabase repositories should expose engineering state, capability audit and resource alert event cleanup by project_id',
 );
 assert.match(

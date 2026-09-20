@@ -6,9 +6,13 @@ PACKAGE_ROOT="${YISTACK_PACKAGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && p
 INSTALL_ROOT="${YISTACK_INSTALL_ROOT:-/opt/yistack}"
 CONFIG_DIR="${YISTACK_CONFIG_DIR:-/etc/yistack}"
 DATA_DIR="${YISTACK_DATA_DIR:-/var/lib/yistack}"
+LOG_DIR="${YISTACK_LOG_DIR:-/var/log/yistack}"
+CACHE_DIR="${YISTACK_CACHE_DIR:-/var/cache/yistack}"
 SYSTEMD_DIR="${YISTACK_SYSTEMD_DIR:-/etc/systemd/system}"
 CONFIG_FILE="${YISTACK_ENV_FILE:-$CONFIG_DIR/yistack.env}"
 POSTGRES_CONFIG_FILE="${YISTACK_POSTGRES_ENV_FILE:-$CONFIG_DIR/postgres.env}"
+EPHEMERAL_CONFIG_FILE="${YISTACK_EPHEMERAL_ENV_FILE:-$CONFIG_DIR/ephemeral-maintenance.env}"
+EPHEMERAL_BASELINE_PATH="$DATA_DIR/ephemeral-baseline"
 BACKUP_DIR="${YISTACK_DATABASE_BACKUP_DIR:-$DATA_DIR/database-backups}"
 SERVICE_USER="${YISTACK_SERVICE_USER:-yistack}"
 SERVICE_GROUP="${YISTACK_SERVICE_GROUP:-yistack}"
@@ -17,6 +21,7 @@ RUNUSER_BIN="${YISTACK_RUNUSER_BIN:-runuser}"
 SERVICE_USER_EXEC="${YISTACK_SERVICE_USER_EXEC:-$PACKAGE_ROOT/bin/yistack-service-user-exec}"
 INSTALLER_PATH="${YISTACK_INSTALLER_PATH:-$PACKAGE_ROOT/install.sh}"
 LOCK_FILE="${YISTACK_UPGRADE_LOCK_FILE:-/run/lock/yistack-upgrade.lock}"
+EPHEMERAL_LOCK_FILE="${YISTACK_EPHEMERAL_LOCK_FILE:-}"
 SKIP_ROOT_CHECK="${YISTACK_SKIP_ROOT_CHECK:-false}"
 HEALTH_ATTEMPTS="${YISTACK_UPGRADE_HEALTH_ATTEMPTS:-60}"
 HEALTH_SLEEP_SECONDS="${YISTACK_UPGRADE_HEALTH_SLEEP_SECONDS:-1}"
@@ -33,15 +38,26 @@ frontend_was_active=false
 browser_worker_was_active=false
 ephemeral_reset_timer_was_active=false
 ephemeral_cleanup_timer_was_active=false
+ephemeral_reset_timer_was_enabled=false
+ephemeral_cleanup_timer_was_enabled=false
+ephemeral_mode_was_enabled=false
+ephemeral_mode_restored=false
+ephemeral_config_existed=false
+ephemeral_config_state_captured=false
+ephemeral_baseline_existed=false
+ephemeral_baseline_state_captured=false
 application_was_active=false
 unit_backup_dir=""
 recovery_succeeded=true
 current_release=""
 current_version=""
 target_version=""
+database_version_before_upgrade=""
 backup_name=""
 backup_path=""
 config_backup_path=""
+ephemeral_config_backup_path=""
+ephemeral_baseline_backup_path=""
 backup_helper_path=""
 managed_postgres=false
 
@@ -69,6 +85,22 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
+run_lifecycle_child() (
+  local command_status
+  set +e
+  "$@" 8>&- 9>&-
+  command_status="$?"
+  exit "$command_status"
+)
+
+run_ephemeral_child() (
+  local command_status
+  set +e
+  "$@" 9>&-
+  command_status="$?"
+  exit "$command_status"
+)
+
 read_version() {
   local version_file="$1"
   [ -r "$version_file" ] || die "version file is missing: $version_file"
@@ -91,8 +123,37 @@ run_database_command() {
     YISTACK_SKIP_DOTENV=true \
     YISTACK_INSTALL_DIR="$release_root" \
     YISTACK_MIGRATIONS_DIR="$release_root/database/migrations" \
-      "$release_root/bin/yistack-server" database "$command"
+      run_lifecycle_child "$release_root/bin/yistack-server" database "$command"
   )
+}
+
+database_current_version() {
+  local release_root="$1"
+  local status=""
+  local version=""
+
+  status="$(run_database_command "$release_root" status)" || return 1
+  version="$(
+    printf '%s\n' "$status" |
+      sed -nE \
+        's/^[[:space:]]*"current_version":[[:space:]]*"([^"]+)",?[[:space:]]*$/\1/p'
+  )"
+  [[ "$version" =~ ^[0-9]{12}_[a-z0-9][a-z0-9_]*$ ]] || return 1
+  printf '%s\n' "$version"
+}
+
+rollback_database_to_version() {
+  local expected_version="$1"
+  local observed_version=""
+  local previous_version=""
+
+  observed_version="$(database_current_version "$PACKAGE_ROOT")" || return 1
+  while [ "$observed_version" != "$expected_version" ]; do
+    previous_version="$observed_version"
+    run_database_command "$PACKAGE_ROOT" rollback >/dev/null || return 1
+    observed_version="$(database_current_version "$PACKAGE_ROOT")" || return 1
+    [ "$observed_version" != "$previous_version" ] || return 1
+  done
 }
 
 read_config_value() {
@@ -101,9 +162,39 @@ read_config_value() {
   local fallback="$3"
   local value=""
   if [ -r "$file" ]; then
-    value="$(sed -n "s/^${key}=//p" "$file" | tail -n 1)"
+    value="$(
+      sed -n -E \
+        "s/^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=[[:space:]]*(.*)$/\\2/p" \
+        "$file" |
+        tail -n 1 |
+        sed -E \
+          -e 's/[[:space:]]+#.*$//' \
+          -e 's/^[[:space:]]+//' \
+          -e 's/[[:space:]]+$//' \
+          -e 's/^"(.*)"$/\1/' \
+          -e "s/^'(.*)'$/\\1/"
+    )"
   fi
   printf '%s' "${value:-$fallback}"
+}
+
+acquire_ephemeral_maintenance_lock() {
+  if [ -z "$EPHEMERAL_LOCK_FILE" ]; then
+    EPHEMERAL_LOCK_FILE="$(
+      read_config_value \
+        "$EPHEMERAL_CONFIG_FILE" \
+        EPHEMERAL_LOCK_FILE \
+        /run/lock/yistack-ephemeral-maintenance.lock
+    )"
+  fi
+  install -d -m 0755 "$(dirname "$EPHEMERAL_LOCK_FILE")"
+  if [ "$LOCK_FILE" -ef "$EPHEMERAL_LOCK_FILE" ]; then
+    exec 8>&9
+  else
+    exec 8>"$EPHEMERAL_LOCK_FILE"
+    flock -n 8 ||
+      die "ephemeral experience maintenance is running; retry the upgrade after it finishes"
+  fi
 }
 
 detect_managed_postgres() {
@@ -126,7 +217,7 @@ run_managed_postgres_command() {
   YISTACK_SERVICE_USER="$SERVICE_USER" \
   YISTACK_DATA_DIR="$DATA_DIR" \
   YISTACK_RUNUSER_BIN="$RUNUSER_BIN" \
-    "$SERVICE_USER_EXEC" env \
+    run_lifecycle_child "$SERVICE_USER_EXEC" env \
     YISTACK_POSTGRES_ENV_FILE="$POSTGRES_CONFIG_FILE" \
     "$PACKAGE_ROOT/bin/yistack-postgres" "$command"
 }
@@ -149,7 +240,7 @@ run_backup_command() {
   YISTACK_SERVICE_USER="$SERVICE_USER" \
   YISTACK_DATA_DIR="$DATA_DIR" \
   YISTACK_RUNUSER_BIN="$RUNUSER_BIN" \
-    "$SERVICE_USER_EXEC" env \
+    run_lifecycle_child "$SERVICE_USER_EXEC" env \
     YISTACK_ENV_FILE="$CONFIG_FILE" \
     YISTACK_POSTGRES_ENV_FILE="$POSTGRES_CONFIG_FILE" \
     YISTACK_DATABASE_BACKUP_DIR="$BACKUP_DIR" \
@@ -291,11 +382,54 @@ restore_application_state() {
 }
 
 restore_ephemeral_timer_state() {
+  if [ "$ephemeral_reset_timer_was_enabled" = "true" ]; then
+    "$SYSTEMCTL_BIN" enable yistack-ephemeral-reset.timer || return 1
+  else
+    "$SYSTEMCTL_BIN" disable yistack-ephemeral-reset.timer || return 1
+  fi
+  if [ "$ephemeral_cleanup_timer_was_enabled" = "true" ]; then
+    "$SYSTEMCTL_BIN" enable yistack-ephemeral-cleanup.timer || return 1
+  else
+    "$SYSTEMCTL_BIN" disable yistack-ephemeral-cleanup.timer || return 1
+  fi
   if [ "$ephemeral_reset_timer_was_active" = "true" ]; then
     "$SYSTEMCTL_BIN" start yistack-ephemeral-reset.timer || return 1
   fi
   if [ "$ephemeral_cleanup_timer_was_active" = "true" ]; then
     "$SYSTEMCTL_BIN" start yistack-ephemeral-cleanup.timer || return 1
+  fi
+}
+
+run_ephemeral_maintenance() {
+  local command="$1"
+  YISTACK_ENV_FILE="$CONFIG_FILE" \
+  YISTACK_POSTGRES_ENV_FILE="$POSTGRES_CONFIG_FILE" \
+  YISTACK_EPHEMERAL_ENV_FILE="$EPHEMERAL_CONFIG_FILE" \
+  YISTACK_INSTALL_DIR="$INSTALL_ROOT/current" \
+  YISTACK_DATA_DIR="$DATA_DIR" \
+  YISTACK_LOG_DIR="$LOG_DIR" \
+  YISTACK_CACHE_DIR="$CACHE_DIR" \
+  YISTACK_SYSTEMD_UNIT_DIR="$SYSTEMD_DIR" \
+  YISTACK_EPHEMERAL_LOCK_FILE="$EPHEMERAL_LOCK_FILE" \
+  YISTACK_EPHEMERAL_LOCK_FD=8 \
+  SERVICE_USER="$SERVICE_USER" \
+  SYSTEMCTL_BIN="$SYSTEMCTL_BIN" \
+    run_ephemeral_child \
+    "$INSTALL_ROOT/current/bin/yistack-ephemeral-maintenance" "$command"
+}
+
+restore_ephemeral_mode_after_upgrade() {
+  if [ "$ephemeral_mode_was_enabled" = "true" ]; then
+    run_ephemeral_maintenance enable
+    ephemeral_mode_restored=true
+    return 0
+  fi
+  if [ "$ephemeral_config_existed" = "true" ] ||
+    [ "$ephemeral_reset_timer_was_active" = "true" ] ||
+    [ "$ephemeral_cleanup_timer_was_active" = "true" ] ||
+    [ "$ephemeral_reset_timer_was_enabled" = "true" ] ||
+    [ "$ephemeral_cleanup_timer_was_enabled" = "true" ]; then
+    run_ephemeral_maintenance disable
   fi
 }
 
@@ -329,6 +463,20 @@ recover_failed_upgrade() {
   if [ -n "$config_backup_path" ] && [ -f "$config_backup_path" ]; then
     cp -a "$config_backup_path" "$CONFIG_FILE" || recovery_succeeded=false
   fi
+  if [ "$ephemeral_config_state_captured" = "true" ]; then
+    rm -f -- "$EPHEMERAL_CONFIG_FILE" || recovery_succeeded=false
+    if [ "$ephemeral_config_existed" = "true" ]; then
+      cp -a "$ephemeral_config_backup_path" "$EPHEMERAL_CONFIG_FILE" ||
+        recovery_succeeded=false
+    fi
+  fi
+  if [ "$ephemeral_baseline_state_captured" = "true" ]; then
+    rm -rf -- "$EPHEMERAL_BASELINE_PATH" || recovery_succeeded=false
+    if [ "$ephemeral_baseline_existed" = "true" ]; then
+      cp -a "$ephemeral_baseline_backup_path" "$EPHEMERAL_BASELINE_PATH" ||
+        recovery_succeeded=false
+    fi
+  fi
   if [ "$install_attempted" = "true" ] &&
     [ "$managed_postgres" = "true" ]; then
     "$SYSTEMCTL_BIN" stop yistack-postgres.service >/dev/null 2>&1 ||
@@ -353,9 +501,16 @@ recover_failed_upgrade() {
   fi
   if [ "$database_mutation_attempted" = "true" ] &&
     [ "$backup_created" = "true" ]; then
-    restored_backup="$(run_backup_command restore)" || recovery_succeeded=false
-    if [ -n "$restored_backup" ] && [ "$recovery_succeeded" = "true" ]; then
-      echo "Database restored from $restored_backup" >&2
+    echo "Rolling database migrations back to $database_version_before_upgrade before restoring the backup." >&2
+    if ! rollback_database_to_version "$database_version_before_upgrade"; then
+      echo "Database migration rollback failed before backup restore." >&2
+      recovery_succeeded=false
+    elif ! restored_backup="$(run_backup_command restore)"; then
+      recovery_succeeded=false
+    elif [ -n "$restored_backup" ]; then
+      if [ "$recovery_succeeded" = "true" ]; then
+        echo "Database restored from $restored_backup" >&2
+      fi
     fi
   fi
   if [ "$install_attempted" = "true" ]; then
@@ -456,6 +611,7 @@ main() {
   mkdir -p "$(dirname "$LOCK_FILE")"
   exec 9>"$LOCK_FILE"
   flock -n 9 || die "another YiStack upgrade is running"
+  acquire_ephemeral_maintenance_lock
 
   (
     cd "$PACKAGE_ROOT"
@@ -485,6 +641,8 @@ main() {
   ensure_managed_postgres_ready
   echo "Preflighting database compatibility for $current_version -> $target_version..."
   run_database_command "$PACKAGE_ROOT" plan >/dev/null
+  database_version_before_upgrade="$(database_current_version "$PACKAGE_ROOT")" ||
+    die "unable to record the pre-upgrade database migration version"
 
   if unit_is_enabled yistack.target; then
     target_was_enabled=true
@@ -513,6 +671,15 @@ main() {
   if unit_is_active yistack-ephemeral-cleanup.timer; then
     ephemeral_cleanup_timer_was_active=true
   fi
+  if unit_is_enabled yistack-ephemeral-reset.timer; then
+    ephemeral_reset_timer_was_enabled=true
+  fi
+  if unit_is_enabled yistack-ephemeral-cleanup.timer; then
+    ephemeral_cleanup_timer_was_enabled=true
+  fi
+  if [ "$(read_config_value "$EPHEMERAL_CONFIG_FILE" EPHEMERAL_MAINTENANCE_ENABLED false)" = "true" ]; then
+    ephemeral_mode_was_enabled=true
+  fi
 
   upgrade_active=true
   trap recover_failed_upgrade EXIT
@@ -525,6 +692,20 @@ main() {
   backup_created=true
   config_backup_path="${backup_path%.dump}.yistack.env"
   cp -a "$CONFIG_FILE" "$config_backup_path"
+  ephemeral_config_backup_path="${backup_path%.dump}.ephemeral-maintenance.env"
+  if [ -e "$EPHEMERAL_CONFIG_FILE" ] || [ -L "$EPHEMERAL_CONFIG_FILE" ]; then
+    cp -a "$EPHEMERAL_CONFIG_FILE" "$ephemeral_config_backup_path"
+    ephemeral_config_existed=true
+  fi
+  ephemeral_config_state_captured=true
+  if [ "$ephemeral_mode_was_enabled" = "true" ]; then
+    ephemeral_baseline_backup_path="${backup_path%.dump}.ephemeral-baseline"
+    if [ -e "$EPHEMERAL_BASELINE_PATH" ] || [ -L "$EPHEMERAL_BASELINE_PATH" ]; then
+      cp -a "$EPHEMERAL_BASELINE_PATH" "$ephemeral_baseline_backup_path"
+      ephemeral_baseline_existed=true
+    fi
+    ephemeral_baseline_state_captured=true
+  fi
   snapshot_systemd_units
   echo "Verified database backup: $backup_path"
 
@@ -535,7 +716,7 @@ main() {
   install_attempted=true
   YISTACK_INSTALL_LOCK_HELD=true \
     YISTACK_UPGRADE_LOCK_FILE="$LOCK_FILE" \
-    "$INSTALLER_PATH" "${install_args[@]}"
+    run_lifecycle_child "$INSTALLER_PATH" "${install_args[@]}"
   restore_target_enablement
   if [ "$managed_postgres" = "true" ]; then
     "$SYSTEMCTL_BIN" enable yistack-postgres.service
@@ -548,13 +729,12 @@ main() {
   run_database_command "$INSTALL_ROOT/current" migrate >/dev/null
   run_database_command "$INSTALL_ROOT/current" verify >/dev/null
 
+  restore_ephemeral_mode_after_upgrade
   restore_application_state
   if [ "$target_was_active" = "true" ] ||
     { [ "$backend_was_active" = "true" ] && [ "$frontend_was_active" = "true" ]; }; then
     wait_for_health
   fi
-  restore_ephemeral_timer_state
-
   if ! cleanup_backup_helper; then
     echo "Warning: unable to remove temporary database backup helper: $backup_helper_path" >&2
   fi
@@ -562,6 +742,10 @@ main() {
   trap - EXIT
   if ! cleanup_historical_releases; then
     echo "Warning: upgrade succeeded, but one or more historical Release directories could not be removed." >&2
+  fi
+  if [ -n "$ephemeral_baseline_backup_path" ] &&
+    ! rm -rf -- "$ephemeral_baseline_backup_path"; then
+    echo "Warning: unable to remove the pre-upgrade ephemeral baseline backup." >&2
   fi
   echo "YiStack upgraded from $current_version to $target_version."
   echo "Database backup retained at $backup_path"
@@ -571,6 +755,11 @@ main() {
   else
     echo "YiStack was stopped before the upgrade and remains stopped."
   fi
+  if [ "$ephemeral_mode_restored" = "true" ]; then
+    echo "Ephemeral experience mode: enabled with a new Release baseline"
+  fi
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

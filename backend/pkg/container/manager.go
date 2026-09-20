@@ -1336,7 +1336,7 @@ func (m *Manager) RemoveContainer(ctx context.Context, projectID string) error {
 		}
 	}
 	if err := m.podman.RemoveNetwork(ctx, projectNetworkName(projectID)); err != nil {
-		log.Printf("Warning: failed to remove network for project %s: %v", projectID, err)
+		return errors.Wrapf(err, "remove network for project %s", projectID)
 	}
 
 	// 释放端口

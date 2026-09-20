@@ -226,12 +226,12 @@ func (h *ProjectHandler) CreateResourceAlertEvent(c context.Context, ctx *app.Re
 		return
 	}
 
-	projectService, project, ok := h.requireOwnedProject(c, ctx, projectID)
+	projectService, _, ok := h.requireOwnedProject(c, ctx, projectID)
 	if !ok {
 		return
 	}
 
-	result, err := projectService.CreateProjectResourceAlertEvent(c, projectID, project.UserID, req.ConfirmCreate)
+	result, err := projectService.CreateProjectResourceAlertEvent(c, projectID, h.currentUserIDValue(ctx), req.ConfirmCreate)
 	if err != nil {
 		ctx.JSON(consts.StatusInternalServerError, map[string]interface{}{
 			"error":   "Failed to create project resource alert event",
@@ -330,12 +330,12 @@ func (h *ProjectHandler) SendResourceAlertNotification(c context.Context, ctx *a
 		return
 	}
 
-	projectService, project, ok := h.requireOwnedProject(c, ctx, projectID)
+	projectService, _, ok := h.requireOwnedProject(c, ctx, projectID)
 	if !ok {
 		return
 	}
 
-	result, err := projectService.SendProjectResourceAlertNotification(c, projectID, project.UserID, req.ConfirmSend)
+	result, err := projectService.SendProjectResourceAlertNotification(c, projectID, h.currentUserIDValue(ctx), req.ConfirmSend)
 	if err != nil {
 		ctx.JSON(consts.StatusInternalServerError, map[string]interface{}{
 			"error":   "Failed to send project resource alert notification",
@@ -398,12 +398,12 @@ func (h *ProjectHandler) ExecuteResourceAlertEnforcement(c context.Context, ctx 
 		return
 	}
 
-	projectService, project, ok := h.requireOwnedProject(c, ctx, projectID)
+	projectService, _, ok := h.requireOwnedProject(c, ctx, projectID)
 	if !ok {
 		return
 	}
 
-	result, err := projectService.ExecuteProjectResourceAlertEnforcement(c, projectID, project.UserID, req.ConfirmExecute)
+	result, err := projectService.ExecuteProjectResourceAlertEnforcement(c, projectID, h.currentUserIDValue(ctx), req.ConfirmExecute)
 	if err != nil {
 		ctx.JSON(consts.StatusInternalServerError, map[string]interface{}{
 			"error":   "Failed to execute project resource alert enforcement",
@@ -460,7 +460,7 @@ func (h *ProjectHandler) StopContainer(c context.Context, ctx *app.RequestContex
 		return
 	}
 
-	result, err := projectService.StopProjectContainer(c, projectID)
+	result, err := projectService.StopProjectContainer(c, projectID, h.currentUserIDValue(ctx))
 	if err != nil {
 		ctx.JSON(consts.StatusInternalServerError, map[string]interface{}{
 			"error":   "Failed to stop container",
@@ -692,8 +692,12 @@ func (h *ProjectHandler) CreateTerminalSession(c context.Context, ctx *app.Reque
 	if !ok {
 		return
 	}
+	userID, ok := h.currentUserID(ctx)
+	if !ok {
+		return
+	}
 
-	session, err := projectService.CreateTerminalSession(c, projectID, req.Rows, req.Cols)
+	session, err := projectService.CreateTerminalSession(c, userID, projectID, req.Rows, req.Cols)
 	if err != nil {
 		ctx.JSON(consts.StatusInternalServerError, map[string]interface{}{
 			"error":   "Failed to create terminal session",

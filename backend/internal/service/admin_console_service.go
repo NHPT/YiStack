@@ -35,6 +35,15 @@ type RoleUpsertInput struct {
 	PermissionIDs []string
 }
 
+type userProjectResourceCleaner interface {
+	BeginUserProjectOperation(userID string) (func(), error)
+	DeleteUserWithProjectResources(
+		ctx context.Context,
+		userID string,
+		deleteUser func(context.Context) error,
+	) error
+}
+
 // AdminConsoleService 承载后台控制台应用逻辑。
 // handler 只负责权限前置校验与 HTTP 协议转换，具体数据修改、审计与聚合由该服务统一处理。
 type AdminConsoleService struct {
@@ -43,16 +52,18 @@ type AdminConsoleService struct {
 	auditRepo           AdminAuditLogRepo
 	adminRepo           AdminRepo
 	projectRepo         ProjectRepo
+	projectCleaner      userProjectResourceCleaner
 }
 
 // NewAdminConsoleService 创建后台控制台服务。
-func NewAdminConsoleService(systemConfigService *SystemConfigService, userRepo UserRepo, auditRepo AdminAuditLogRepo, adminRepo AdminRepo, projectRepo ProjectRepo) *AdminConsoleService {
+func NewAdminConsoleService(systemConfigService *SystemConfigService, userRepo UserRepo, auditRepo AdminAuditLogRepo, adminRepo AdminRepo, projectRepo ProjectRepo, projectCleaner userProjectResourceCleaner) *AdminConsoleService {
 	return &AdminConsoleService{
 		systemConfigService: systemConfigService,
 		userRepo:            userRepo,
 		auditRepo:           auditRepo,
 		adminRepo:           adminRepo,
 		projectRepo:         projectRepo,
+		projectCleaner:      projectCleaner,
 	}
 }
 

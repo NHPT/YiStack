@@ -38,6 +38,25 @@ func (s *authMiddlewareAdminLookupStub) FindByID(context.Context, string) (*mode
 	return s.admin, nil
 }
 
+type authMiddlewareUserOperationGateStub struct {
+	err      error
+	acquired bool
+	released bool
+}
+
+func (s *authMiddlewareUserOperationGateStub) BeginCancellableUserProjectOperation(
+	ctx context.Context,
+	_ string,
+) (context.Context, func(), error) {
+	if s.err != nil {
+		return ctx, nil, s.err
+	}
+	s.acquired = true
+	return ctx, func() {
+		s.released = true
+	}, nil
+}
+
 func TestAuthRejectsValidTokenWhenUserNoLongerExists(t *testing.T) {
 	token := mustAuthMiddlewareToken(t, "user-missing", "user")
 	ctx := newAuthMiddlewareContext(token)
@@ -67,6 +86,97 @@ func TestAuthAcceptsValidTokenWhenUserIsActive(t *testing.T) {
 	userID, exists := ctx.Get("user_id")
 	if exists == false || userID != "user-active" {
 		t.Fatalf("expected active user context, got value=%#v exists=%v", userID, exists)
+	}
+}
+
+func TestAuthHoldsUserOperationGateForAuthenticatedRequest(t *testing.T) {
+	token := mustAuthMiddlewareToken(t, "user-active", "user")
+	ctx := newAuthMiddlewareContext(token)
+	ctx.Request.Header.SetMethod(consts.MethodPost)
+	gate := &authMiddlewareUserOperationGateStub{}
+	handler := Auth(NewUserAuthConfigWithOperationGate(
+		testJWTConfig(),
+		&authMiddlewareUserLookupStub{
+			user: &model.User{ID: "user-active", Role: "user", Status: "active"},
+		},
+		gate,
+	))
+
+	handler(context.Background(), ctx)
+
+	if !gate.acquired || !gate.released {
+		t.Fatalf("expected user operation gate acquire/release, got %#v", gate)
+	}
+}
+
+func TestAuthRejectsRequestWhileUserDeletionIsInProgress(t *testing.T) {
+	token := mustAuthMiddlewareToken(t, "user-deleting", "user")
+	ctx := newAuthMiddlewareContext(token)
+	ctx.Request.Header.SetMethod(consts.MethodPost)
+	gate := &authMiddlewareUserOperationGateStub{err: errors.New("user deletion is in progress")}
+	handler := Auth(NewUserAuthConfigWithOperationGate(
+		testJWTConfig(),
+		&authMiddlewareUserLookupStub{
+			user: &model.User{ID: "user-deleting", Role: "user", Status: "active"},
+		},
+		gate,
+	))
+
+	handler(context.Background(), ctx)
+
+	if ctx.Response.StatusCode() != consts.StatusUnauthorized {
+		t.Fatalf("expected unauthorized during user deletion, got %d", ctx.Response.StatusCode())
+	}
+	if _, exists := ctx.Get("user_id"); exists {
+		t.Fatal("deleting user request must not populate user context")
+	}
+}
+
+func TestAuthDoesNotHoldUserOperationGateForReadStream(t *testing.T) {
+	token := mustAuthMiddlewareToken(t, "user-active", "user")
+	ctx := newAuthMiddlewareContext(token)
+	gate := &authMiddlewareUserOperationGateStub{}
+	handler := Auth(NewUserAuthConfigWithOperationGate(
+		testJWTConfig(),
+		&authMiddlewareUserLookupStub{
+			user: &model.User{ID: "user-active", Role: "user", Status: "active"},
+		},
+		gate,
+	))
+
+	handler(context.Background(), ctx)
+
+	if gate.acquired || gate.released {
+		t.Fatalf("read stream must not hold user operation gate, got %#v", gate)
+	}
+}
+
+func TestAuthHoldsUserOperationGateForRuntimeProducingProjectRead(t *testing.T) {
+	ctx := app.NewContext(0)
+	request := protocol.NewRequest("GET", "/api/project/project-1/commits", nil)
+	request.CopyTo(&ctx.Request)
+
+	if !shouldHoldUserOperationGate(ctx) {
+		t.Fatal("project Git reads must be cancellable by user deletion")
+	}
+	request = protocol.NewRequest("GET", "/api/project/project-1/branches/compare", nil)
+	request.CopyTo(&ctx.Request)
+	if !shouldHoldUserOperationGate(ctx) {
+		t.Fatal("project Git comparison reads must be cancellable by user deletion")
+	}
+	request = protocol.NewRequest("GET", "/api/project/project-1/files/content", nil)
+	request.CopyTo(&ctx.Request)
+	if !shouldHoldUserOperationGate(ctx) {
+		t.Fatal("project file reads must be cancellable by user deletion")
+	}
+}
+func TestAuthDoesNotHoldUserOperationGateForPlanStream(t *testing.T) {
+	ctx := app.NewContext(0)
+	request := protocol.NewRequest("POST", "/api/project/plans", nil)
+	request.CopyTo(&ctx.Request)
+
+	if shouldHoldUserOperationGate(ctx) {
+		t.Fatal("plan SSE request must use its cancellable project gate")
 	}
 }
 

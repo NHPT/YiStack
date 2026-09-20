@@ -555,7 +555,7 @@ func TestUploadProjectBackupToRemoteStorageUploadsArchiveAndManifest(t *testing.
 	if err != nil {
 		t.Fatalf("CreateProjectBackup returned error: %v", err)
 	}
-	result, err := projectSvc.UploadProjectBackupToRemoteStorage(context.Background(), projectID, backup.BackupID)
+	result, err := projectSvc.UploadProjectBackupToRemoteStorage(context.Background(), projectID, "backup-user", backup.BackupID)
 	if err != nil {
 		t.Fatalf("UploadProjectBackupToRemoteStorage returned error: %v", err)
 	}
@@ -583,6 +583,65 @@ func TestUploadProjectBackupToRemoteStorageUploadsArchiveAndManifest(t *testing.
 	}
 	if int64(len(fakeClient.requests[1].body)) != result.ManifestSizeBytes {
 		t.Fatalf("manifest size mismatch: result=%d body=%d", result.ManifestSizeBytes, len(fakeClient.requests[1].body))
+	}
+}
+
+func TestUploadProjectBackupToRemoteStorageRemovesOrphanWhenManifestUploadFails(t *testing.T) {
+	projectRoot := t.TempDir()
+	backupRoot := t.TempDir()
+	projectID := "project-backup-remote-upload-cleanup"
+	projectDir := filepath.Join(projectRoot, projectID)
+	writeProjectBackupTestFile(t, filepath.Join(projectDir, "README.md"), "hello remote upload cleanup\n")
+
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+
+	fakeClient := &projectBackupRemoteUploadHTTPClient{
+		responseCodes: []int{http.StatusOK, http.StatusInternalServerError, http.StatusNoContent},
+	}
+	projectSvc := NewProjectService(ProjectServiceOptions{
+		ProjectRepo: &stubProjectListRepo{projects: []model.Project{{
+			ProjectID:     projectID,
+			DirectoryPath: projectDir,
+		}}},
+		ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+		ProjectCfg: &config.ProjectConfig{
+			BackupDir:               backupRoot,
+			MaxProjectSize:          1024 * 1024,
+			RemoteBackupEnabled:     true,
+			RemoteBackupProvider:    "s3",
+			RemoteBackupBucket:      "yistack-backups",
+			RemoteBackupPrefix:      "tenant-a/projects",
+			RemoteBackupEndpoint:    "https://s3.example.local",
+			RemoteBackupRegion:      "ap-southeast-1",
+			RemoteBackupCredentials: true,
+		},
+		ProjectSecretCfg: &config.ProjectSecretConfig{
+			RemoteBackupAccessKeyID:     "access-key-for-test",
+			RemoteBackupSecretAccessKey: "secret-key-for-test",
+		},
+		BackupRemoteHTTPClient: fakeClient,
+	})
+
+	backup, err := projectSvc.CreateProjectBackup(context.Background(), projectID)
+	if err != nil {
+		t.Fatalf("CreateProjectBackup returned error: %v", err)
+	}
+	result, err := projectSvc.UploadProjectBackupToRemoteStorage(context.Background(), projectID, "backup-user", backup.BackupID)
+	if err != nil {
+		t.Fatalf("UploadProjectBackupToRemoteStorage returned error: %v", err)
+	}
+	if result.Status != "failed" || result.Uploaded {
+		t.Fatalf("expected failed upload result, got %#v", result)
+	}
+	if len(fakeClient.requests) != 3 ||
+		fakeClient.requests[0].method != http.MethodPut ||
+		fakeClient.requests[1].method != http.MethodPut ||
+		fakeClient.requests[2].method != http.MethodDelete {
+		t.Fatalf("manifest failure did not delete the orphan archive: %#v", fakeClient.requests)
+	}
+	if !strings.Contains(result.Recovery, "孤立归档") {
+		t.Fatalf("cleanup result did not explain orphan removal: %#v", result)
 	}
 }
 
@@ -622,7 +681,7 @@ func TestUploadProjectBackupToRemoteStorageBlockedDoesNotCallRemote(t *testing.T
 	if err != nil {
 		t.Fatalf("CreateProjectBackup returned error: %v", err)
 	}
-	result, err := projectSvc.UploadProjectBackupToRemoteStorage(context.Background(), projectID, backup.BackupID)
+	result, err := projectSvc.UploadProjectBackupToRemoteStorage(context.Background(), projectID, "backup-user", backup.BackupID)
 	if err != nil {
 		t.Fatalf("UploadProjectBackupToRemoteStorage returned error: %v", err)
 	}
@@ -631,6 +690,89 @@ func TestUploadProjectBackupToRemoteStorageBlockedDoesNotCallRemote(t *testing.T
 	}
 	if len(fakeClient.requests) != 0 {
 		t.Fatalf("blocked remote upload should not call remote storage, got %#v", fakeClient.requests)
+	}
+}
+
+func TestDeleteProjectBackupResourcesRemovesLocalAndRemoteObjects(t *testing.T) {
+	backupRoot := t.TempDir()
+	projectID := "project-backup-delete"
+	writeProjectBackupTestFile(t, filepath.Join(backupRoot, projectID, "local.tar.gz"), "local")
+	fakeClient := &projectBackupRemoteUploadHTTPClient{
+		responseBodies: []string{`<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult>
+  <IsTruncated>false</IsTruncated>
+  <Contents><Key>tenant-a/projects/project-backup-delete/backup-1/backup-1.tar.gz</Key><Size>100</Size></Contents>
+  <Contents><Key>tenant-a/projects/project-backup-delete/backup-1/backup-1.manifest.json</Key><Size>50</Size></Contents>
+</ListBucketResult>`},
+	}
+	projectSvc := NewProjectService(ProjectServiceOptions{
+		ProjectCfg: &config.ProjectConfig{
+			BackupDir:               backupRoot,
+			RemoteBackupEnabled:     false,
+			RemoteBackupProvider:    "s3",
+			RemoteBackupBucket:      "yistack-backups",
+			RemoteBackupPrefix:      "tenant-a/projects",
+			RemoteBackupEndpoint:    "https://s3.example.local",
+			RemoteBackupRegion:      "ap-southeast-1",
+			RemoteBackupCredentials: true,
+		},
+		ProjectSecretCfg: &config.ProjectSecretConfig{
+			RemoteBackupAccessKeyID:     "access-key-for-test",
+			RemoteBackupSecretAccessKey: "secret-key-for-test",
+		},
+		BackupRemoteHTTPClient: fakeClient,
+	})
+
+	if err := projectSvc.deleteProjectBackupResources(context.Background(), projectID); err != nil {
+		t.Fatalf("deleteProjectBackupResources() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(backupRoot, projectID)); !os.IsNotExist(err) {
+		t.Fatalf("local backup directory still exists: %v", err)
+	}
+	if len(fakeClient.requests) != 3 {
+		t.Fatalf("remote cleanup requests = %d, want list plus two deletes", len(fakeClient.requests))
+	}
+	if fakeClient.requests[0].method != http.MethodGet ||
+		fakeClient.requests[1].method != http.MethodDelete ||
+		fakeClient.requests[2].method != http.MethodDelete {
+		t.Fatalf("unexpected remote cleanup methods: %#v", fakeClient.requests)
+	}
+	for _, request := range fakeClient.requests {
+		if request.authorization == "" {
+			t.Fatalf("remote cleanup request was not signed: %#v", request)
+		}
+	}
+}
+
+func TestDeleteProjectBackupResourcesReturnsRemoteDeleteFailure(t *testing.T) {
+	projectID := "project-backup-delete-failure"
+	fakeClient := &projectBackupRemoteUploadHTTPClient{
+		responseCodes: []int{http.StatusOK, http.StatusInternalServerError},
+		responseBodies: []string{`<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult>
+  <IsTruncated>false</IsTruncated>
+  <Contents><Key>tenant-a/projects/project-backup-delete-failure/backup-1/backup-1.tar.gz</Key><Size>100</Size></Contents>
+</ListBucketResult>`, "delete failed"},
+	}
+	projectSvc := NewProjectService(ProjectServiceOptions{
+		ProjectCfg: &config.ProjectConfig{
+			RemoteBackupEnabled:     true,
+			RemoteBackupProvider:    "s3",
+			RemoteBackupBucket:      "yistack-backups",
+			RemoteBackupPrefix:      "tenant-a/projects",
+			RemoteBackupEndpoint:    "https://s3.example.local",
+			RemoteBackupCredentials: true,
+		},
+		ProjectSecretCfg: &config.ProjectSecretConfig{
+			RemoteBackupAccessKeyID:     "access-key-for-test",
+			RemoteBackupSecretAccessKey: "secret-key-for-test",
+		},
+		BackupRemoteHTTPClient: fakeClient,
+	})
+
+	err := projectSvc.deleteProjectBackupResources(context.Background(), projectID)
+	if err == nil || !strings.Contains(err.Error(), "remote delete returned status 500") {
+		t.Fatalf("deleteProjectBackupResources() error = %v, want remote delete failure", err)
 	}
 }
 
@@ -1748,6 +1890,7 @@ type projectBackupRemoteUploadHTTPRequest struct {
 	url           string
 	contentType   string
 	authorization string
+	copySource    string
 	body          []byte
 }
 
@@ -1765,6 +1908,7 @@ func (c *projectBackupRemoteUploadHTTPClient) Do(req *http.Request) (*http.Respo
 		url:           req.URL.String(),
 		contentType:   req.Header.Get("Content-Type"),
 		authorization: req.Header.Get("Authorization"),
+		copySource:    req.Header.Get("X-Amz-Copy-Source"),
 		body:          bodyBytes,
 	})
 	responseIndex := len(c.requests) - 1
@@ -1871,4 +2015,20 @@ func equalStringSlices(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func TestBuildProjectBackupS3ObjectURLRejectsTraversalSegments(t *testing.T) {
+	remote := projectBackupS3RemoteConfig{
+		Bucket:   "backups",
+		Endpoint: "https://s3.example.test",
+	}
+	for _, objectKey := range []string{
+		"tenant/projects/project-1/../other/backup.tar.gz",
+		"tenant/projects/project-1//backup.tar.gz",
+		"./tenant/projects/project-1/backup.tar.gz",
+	} {
+		if _, err := buildProjectBackupS3ObjectURL(remote, objectKey); err == nil {
+			t.Fatalf("unsafe object key %q was accepted", objectKey)
+		}
+	}
 }

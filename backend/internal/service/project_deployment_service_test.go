@@ -183,7 +183,16 @@ func (p *fakeDeploymentProvider) removeDomain(_ context.Context, _ string, domai
 
 func newTestDeploymentService(repo *memoryDeploymentRepo, provider *fakeDeploymentProvider) *ProjectDeploymentService {
 	cipher, _ := newDeploymentSecretCipher("0123456789abcdef0123456789abcdef")
-	service := &ProjectDeploymentService{repo: repo, provider: provider, secretCipher: cipher, config: config.DeploymentConfig{VercelAccessToken: "provider-token"}, now: func() time.Time { return time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC) }}
+	service := &ProjectDeploymentService{
+		repo:           repo,
+		projectService: NewProjectService(ProjectServiceOptions{}),
+		provider:       provider,
+		secretCipher:   cipher,
+		config:         config.DeploymentConfig{VercelAccessToken: "provider-token"},
+		now: func() time.Time {
+			return time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+		},
+	}
 	service.artifactPreparer = func(context.Context, *model.Project) (*deploymentArtifact, error) {
 		return &deploymentArtifact{SourceCommitSHA: strings.Repeat("a", 40), SHA256: strings.Repeat("b", 64), Size: 5, Files: []deploymentArtifactFile{{Path: "index.html", Content: []byte("hello"), SHA1: strings.Repeat("c", 40), Size: 5}}}, nil
 	}
@@ -365,5 +374,147 @@ func TestProjectDeploymentValidationFailureBlocksProviderMutation(t *testing.T) 
 	}
 	if provider.createCalls != 0 || len(repo.releases) != 0 {
 		t.Fatalf("validation failure must block provider and release persistence")
+	}
+}
+
+func TestProjectDeploymentOperationsRejectedDuringProjectDeletion(t *testing.T) {
+	repo := newMemoryDeploymentRepo()
+	provider := &fakeDeploymentProvider{remote: vercelDeployment{
+		ID:         "dpl_1",
+		ReadyState: "READY",
+	}}
+	deploymentService := newTestDeploymentService(repo, provider)
+	coordinator := NewProjectLifecycleCoordinator()
+	deploymentService.projectService = NewProjectService(ProjectServiceOptions{
+		LifecycleCoordinator: coordinator,
+	})
+	projectID := "deleting-deployment-project"
+	userID := "deployment-user"
+	finishDeletion, _, err := coordinator.beginProjectDeletion(
+		context.Background(),
+		[]string{projectID},
+	)
+	if err != nil {
+		t.Fatalf("beginProjectDeletion() error = %v", err)
+	}
+	defer finishDeletion(false)
+
+	project := &model.Project{ProjectID: projectID, UserID: userID}
+	checks := []struct {
+		name string
+		run  func() error
+	}{
+		{
+			name: "list releases",
+			run: func() error {
+				_, err := deploymentService.ListReleases(context.Background(), userID, projectID)
+				return err
+			},
+		},
+		{
+			name: "deploy",
+			run: func() error {
+				_, err := deploymentService.Deploy(
+					context.Background(),
+					userID,
+					project,
+					DeployProjectRequest{},
+				)
+				return err
+			},
+		},
+		{
+			name: "refresh release",
+			run: func() error {
+				_, err := deploymentService.RefreshRelease(context.Background(), userID, projectID, "release")
+				return err
+			},
+		},
+		{
+			name: "release logs",
+			run: func() error {
+				_, err := deploymentService.ReleaseLogs(context.Background(), userID, projectID, "release")
+				return err
+			},
+		},
+		{
+			name: "rollback",
+			run: func() error {
+				_, err := deploymentService.Rollback(context.Background(), userID, projectID, RollbackDeploymentRequest{})
+				return err
+			},
+		},
+		{
+			name: "list domains",
+			run: func() error {
+				_, err := deploymentService.ListDomains(context.Background(), userID, projectID)
+				return err
+			},
+		},
+		{
+			name: "add domain",
+			run: func() error {
+				_, err := deploymentService.AddDomain(context.Background(), userID, projectID, DeploymentDomainRequest{})
+				return err
+			},
+		},
+		{
+			name: "verify domain",
+			run: func() error {
+				_, err := deploymentService.VerifyDomain(context.Background(), userID, projectID, DeploymentDomainRequest{})
+				return err
+			},
+		},
+		{
+			name: "remove domain",
+			run: func() error {
+				_, err := deploymentService.RemoveDomain(context.Background(), userID, projectID, DeploymentDomainRequest{})
+				return err
+			},
+		},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if code := deploymentErrorCode(check.run()); code != "deployment_project_deleting" {
+				t.Fatalf("deployment error code = %q, want deployment_project_deleting", code)
+			}
+		})
+	}
+}
+
+func TestProjectDeletionCancelsActiveDeployment(t *testing.T) {
+	repo := newMemoryDeploymentRepo()
+	provider := &fakeDeploymentProvider{remote: vercelDeployment{ID: "dpl_1", ReadyState: "READY"}}
+	deploymentService := newTestDeploymentService(repo, provider)
+	coordinator := NewProjectLifecycleCoordinator()
+	deploymentService.projectService = NewProjectService(ProjectServiceOptions{LifecycleCoordinator: coordinator})
+	started := make(chan struct{})
+	deploymentService.artifactPreparer = func(ctx context.Context, _ *model.Project) (*deploymentArtifact, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	deployDone := make(chan error, 1)
+	go func() {
+		_, err := deploymentService.Deploy(
+			context.Background(),
+			"deployment-user",
+			&model.Project{ProjectID: "active-deployment-project", UserID: "deployment-user"},
+			DeployProjectRequest{Target: "production", ConfirmDeploy: true, IdempotencyKey: "active-deploy"},
+		)
+		deployDone <- err
+	}()
+	<-started
+	finishDeletion, _, err := coordinator.beginProjectDeletion(
+		context.Background(),
+		[]string{"active-deployment-project"},
+	)
+	if err != nil {
+		t.Fatalf("beginProjectDeletion() error = %v", err)
+	}
+	defer finishDeletion(false)
+	if err := <-deployDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Deploy() error = %v, want context canceled", err)
 	}
 }

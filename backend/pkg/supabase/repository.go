@@ -122,7 +122,7 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 }
 
 func (r *UserRepository) FindByID(ctx context.Context, id string) (*model.User, error) {
-	result, err := r.supabase.AdminTable("users").Eq("id", id).First()
+	result, err := r.supabase.AdminTable("users").Eq("id", id).FirstContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +188,23 @@ func (r *UserRepository) UpdateLLMConfig(ctx context.Context, userID string, llm
 		"llm_temperature": temperature,
 		"llm_max_tokens":  maxTokens,
 		"updated_at":      "now()",
+	})
+	return err
+}
+
+func (r *UserRepository) Delete(ctx context.Context, userID string) error {
+	_, err := r.supabase.AdminTable("rpc/admin_delete_user").InsertContext(ctx, map[string]interface{}{
+		"p_user_id": userID,
+	})
+	return err
+}
+
+func (r *UserRepository) DeleteWithAudit(ctx context.Context, userID, adminID, detail, ipAddress string) error {
+	_, err := r.supabase.AdminTable("rpc/admin_delete_user_with_audit").InsertContext(ctx, map[string]interface{}{
+		"p_user_id":    userID,
+		"p_admin_id":   adminID,
+		"p_detail":     detail,
+		"p_ip_address": ipAddress,
 	})
 	return err
 }
@@ -489,7 +506,7 @@ func (r *LLMProviderRepository) UpsertModel(ctx context.Context, providerModel *
 }
 
 func (r *LLMProviderRepository) ReplaceProviderModels(ctx context.Context, providerID int64, models []model.LLMProviderModel) error {
-	_, err := r.supabase.AdminTable("llm_provider_models").Eq("provider_id", providerID).Delete()
+	_, err := r.supabase.AdminTable("llm_provider_models").Eq("provider_id", providerID).DeleteContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -503,7 +520,7 @@ func (r *LLMProviderRepository) ReplaceProviderModels(ctx context.Context, provi
 }
 
 func (r *LLMProviderRepository) Delete(ctx context.Context, id int64) error {
-	_, err := r.supabase.AdminTable("llm_providers").Eq("id", id).Delete()
+	_, err := r.supabase.AdminTable("llm_providers").Eq("id", id).DeleteContext(ctx)
 	return err
 }
 
@@ -511,7 +528,7 @@ func (r *LLMProviderRepository) DeleteModel(ctx context.Context, providerID int6
 	_, err := r.supabase.AdminTable("llm_provider_models").
 		Eq("provider_id", providerID).
 		Eq("model_id", modelID).
-		Delete()
+		DeleteContext(ctx)
 	return err
 }
 
@@ -786,7 +803,10 @@ func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) 
 }
 
 func (r *ProjectRepository) FindByID(ctx context.Context, id string) (*model.Project, error) {
-	result, err := r.supabase.AdminTable("projects").Eq("id", id).First()
+	result, err := r.supabase.AdminTable("projects").
+		Eq("id", id).
+		IsNull("deleted_at").
+		FirstContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -801,7 +821,10 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id string) (*model.Pro
 }
 
 func (r *ProjectRepository) FindByProjectID(ctx context.Context, projectID string) (*model.Project, error) {
-	result, err := r.supabase.AdminTable("projects").Eq("project_id", projectID).First()
+	result, err := r.supabase.AdminTable("projects").
+		Eq("project_id", projectID).
+		IsNull("deleted_at").
+		FirstContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -816,7 +839,11 @@ func (r *ProjectRepository) FindByProjectID(ctx context.Context, projectID strin
 }
 
 func (r *ProjectRepository) FindByPreviewShareID(ctx context.Context, previewShareID string) (*model.Project, error) {
-	result, err := r.supabase.AdminTable("projects").Eq("preview_share_id", previewShareID).Eq("preview_share_enabled", true).First()
+	result, err := r.supabase.AdminTable("projects").
+		Eq("preview_share_id", previewShareID).
+		Eq("preview_share_enabled", true).
+		IsNull("deleted_at").
+		FirstContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -843,6 +870,37 @@ func (r *ProjectRepository) FindByUserID(ctx context.Context, userID string) ([]
 	for _, d := range result.Data {
 		if m, ok := d.(map[string]interface{}); ok {
 			projects = append(projects, *r.mapToProject(m))
+		}
+	}
+	return projects, nil
+}
+
+func (r *ProjectRepository) ListByUserIDIncludingDeleted(ctx context.Context, userID string) ([]model.Project, error) {
+	result, err := r.supabase.AdminTable("projects").Eq("user_id", userID).Order("created_at", false).SelectQueryContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	projects := make([]model.Project, 0, len(result.Data))
+	for _, item := range result.Data {
+		if projectMap, ok := item.(map[string]interface{}); ok {
+			projects = append(projects, *r.mapToProject(projectMap))
+		}
+	}
+	return projects, nil
+}
+
+func (r *ProjectRepository) ListSoftDeleted(ctx context.Context) ([]model.Project, error) {
+	result, err := r.supabase.AdminTable("projects").
+		IsNotNull("deleted_at").
+		Order("deleted_at", true).
+		SelectQueryContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	projects := make([]model.Project, 0, len(result.Data))
+	for _, item := range result.Data {
+		if projectMap, ok := item.(map[string]interface{}); ok {
+			projects = append(projects, *r.mapToProject(projectMap))
 		}
 	}
 	return projects, nil
@@ -928,22 +986,29 @@ func (r *ProjectRepository) UpdatePlanData(ctx context.Context, projectID, planI
 }
 
 func (r *ProjectRepository) SoftDelete(ctx context.Context, projectID string) error {
-	_, err := r.supabase.AdminTable("projects").Eq("project_id", projectID).Update(map[string]interface{}{
+	_, err := r.supabase.AdminTable("projects").Eq("project_id", projectID).UpdateContext(ctx, map[string]interface{}{
 		"deleted_at": "now()",
 	})
 	return err
 }
 
 func (r *ProjectRepository) RestoreDeleted(ctx context.Context, projectID string) error {
-	_, err := r.supabase.AdminTable("projects").Eq("project_id", projectID).Update(map[string]interface{}{
+	_, err := r.supabase.AdminTable("projects").Eq("project_id", projectID).UpdateContext(ctx, map[string]interface{}{
 		"deleted_at": nil,
 		"updated_at": "now()",
 	})
 	return err
 }
 
-func (r *ProjectRepository) RestoreDeletedByOwner(ctx context.Context, projectID, userID string) (*model.Project, error) {
-	result, err := r.supabase.AdminTable("projects").Eq("project_id", projectID).Eq("user_id", userID).First()
+func (r *ProjectRepository) FindByProjectIDIncludingDeletedByOwner(
+	ctx context.Context,
+	projectID string,
+	userID string,
+) (*model.Project, error) {
+	result, err := r.supabase.AdminTable("projects").
+		Eq("project_id", projectID).
+		Eq("user_id", userID).
+		FirstContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -954,26 +1019,40 @@ func (r *ProjectRepository) RestoreDeletedByOwner(ctx context.Context, projectID
 	if !ok {
 		return nil, fmt.Errorf("invalid project record")
 	}
-	if !isSoftDeleted(record) {
-		return nil, fmt.Errorf("project is not pending deletion")
+	return r.mapToProject(record), nil
+}
+
+func (r *ProjectRepository) RestoreDeletedByOwner(ctx context.Context, projectID, userID string) (*model.Project, error) {
+	project, err := r.FindByProjectIDIncludingDeletedByOwner(
+		ctx,
+		projectID,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if project.DeletedAt == nil {
+		return project, nil
 	}
 
-	_, err = r.supabase.AdminTable("projects").Eq("project_id", projectID).Eq("user_id", userID).Update(map[string]interface{}{
-		"deleted_at": nil,
-		"updated_at": "now()",
-	})
+	_, err = r.supabase.AdminTable("projects").
+		Eq("project_id", projectID).
+		Eq("user_id", userID).
+		UpdateContext(ctx, map[string]interface{}{
+			"deleted_at": nil,
+			"updated_at": "now()",
+		})
 	if err != nil {
 		return nil, err
 	}
 
-	project := r.mapToProject(record)
 	project.DeletedAt = nil
 	project.UpdatedAt = time.Now()
 	return project, nil
 }
 
 func (r *ProjectRepository) HardDelete(ctx context.Context, projectID string) error {
-	_, err := r.supabase.AdminTable("projects").Eq("project_id", projectID).Delete()
+	_, err := r.supabase.AdminTable("projects").Eq("project_id", projectID).DeleteContext(ctx)
 	return err
 }
 
@@ -1376,7 +1455,7 @@ func (r *GeneratedFileRepository) DeleteByProjectID(ctx context.Context, project
 	if r == nil || r.supabase == nil {
 		return nil
 	}
-	if _, err := r.supabase.AdminTable("project_files").Eq("project_id", projectID).Delete(); err != nil {
+	if _, err := r.supabase.AdminTable("project_files").Eq("project_id", projectID).DeleteContext(ctx); err != nil {
 		return fmt.Errorf("delete project files failed: %w", err)
 	}
 	return nil
@@ -1387,7 +1466,7 @@ func (r *EngineeringStateRepository) UpsertSnapshot(ctx context.Context, state *
 		return nil
 	}
 
-	if _, err := r.supabase.AdminTable("project_engineering_states").Eq("project_id", state.ProjectID).Delete(); err != nil {
+	if _, err := r.supabase.AdminTable("project_engineering_states").Eq("project_id", state.ProjectID).DeleteContext(ctx); err != nil {
 		return fmt.Errorf("replace project engineering state failed: %w", err)
 	}
 	data := map[string]interface{}{
@@ -1431,7 +1510,7 @@ func (r *EngineeringStateRepository) FindByProjectID(ctx context.Context, projec
 }
 
 func (r *EngineeringStateRepository) DeleteByProjectID(ctx context.Context, projectID string) error {
-	_, err := r.supabase.AdminTable("project_engineering_states").Eq("project_id", projectID).Delete()
+	_, err := r.supabase.AdminTable("project_engineering_states").Eq("project_id", projectID).DeleteContext(ctx)
 	if err != nil {
 		return fmt.Errorf("delete project engineering state failed: %w", err)
 	}
@@ -1503,7 +1582,7 @@ func (r *CapabilityExecutionAuditRepository) ListByProjectID(ctx context.Context
 }
 
 func (r *CapabilityExecutionAuditRepository) DeleteByProjectID(ctx context.Context, projectID string) error {
-	_, err := r.supabase.AdminTable("project_capability_execution_audits").Eq("project_id", projectID).Delete()
+	_, err := r.supabase.AdminTable("project_capability_execution_audits").Eq("project_id", projectID).DeleteContext(ctx)
 	if err != nil {
 		return fmt.Errorf("delete project capability execution audits failed: %w", err)
 	}
@@ -1573,9 +1652,83 @@ func (r *ProjectResourceAlertEventRepository) ListByProjectID(ctx context.Contex
 }
 
 func (r *ProjectResourceAlertEventRepository) DeleteByProjectID(ctx context.Context, projectID string) error {
-	_, err := r.supabase.AdminTable("project_resource_alert_events").Eq("project_id", projectID).Delete()
+	if _, err := r.supabase.AdminTable("project_resource_alert_action_claims").
+		Eq("project_id", projectID).
+		DeleteContext(ctx); err != nil {
+		return fmt.Errorf("delete project resource alert action claims failed: %w", err)
+	}
+	_, err := r.supabase.AdminTable("project_resource_alert_events").
+		Eq("project_id", projectID).
+		DeleteContext(ctx)
 	if err != nil {
 		return fmt.Errorf("delete project resource alert events failed: %w", err)
+	}
+	return nil
+}
+
+func (r *ProjectResourceAlertEventRepository) ClaimAction(
+	ctx context.Context,
+	claim *model.ProjectResourceAlertActionClaim,
+	pendingEvent *model.ProjectResourceAlertEvent,
+) (bool, error) {
+	if r == nil || r.supabase == nil || claim == nil || pendingEvent == nil {
+		return false, fmt.Errorf("project resource alert action claim repository is unavailable")
+	}
+	result, err := r.supabase.AdminTable("rpc/claim_project_resource_alert_action").
+		InsertContext(ctx, map[string]interface{}{
+			"p_project_id":           claim.ProjectID,
+			"p_source_event_id":      claim.SourceEventID,
+			"p_action":               claim.Action,
+			"p_actor_user_id":        nullableUUID(claim.ActorUserID),
+			"p_claimed_at":           claim.ClaimedAt,
+			"p_pending_status":       pendingEvent.Status,
+			"p_evaluation_id":        pendingEvent.EvaluationID,
+			"p_readiness_status":     pendingEvent.ReadinessStatus,
+			"p_triggered_count":      pendingEvent.TriggeredCount,
+			"p_triggered_thresholds": pendingEvent.TriggeredThresholds,
+			"p_thresholds":           pendingEvent.Thresholds,
+			"p_evaluation_preview":   pendingEvent.EvaluationPreview,
+			"p_message":              pendingEvent.Message,
+			"p_recovery":             pendingEvent.Recovery,
+		})
+	if err != nil {
+		return false, fmt.Errorf("claim project resource alert action failed: %w", err)
+	}
+	record, ok := firstDataMap(result.Data)
+	if !ok {
+		return false, fmt.Errorf("claim project resource alert action returned no row")
+	}
+	claim.Status = stringValue(record["status"])
+	acquired := generationBool(record["acquired"])
+	if acquired {
+		pendingEvent.ID = int64Value(record["event_id"])
+		pendingEvent.CreatedAt = timeValue(record["event_created_at"])
+	}
+	return acquired, nil
+}
+
+func (r *ProjectResourceAlertEventRepository) CompleteAction(
+	ctx context.Context,
+	projectID string,
+	sourceEventID int64,
+	action string,
+	status string,
+	updatedAt time.Time,
+) error {
+	result, err := r.supabase.AdminTable("rpc/complete_project_resource_alert_action").
+		InsertContext(ctx, map[string]interface{}{
+			"p_project_id":      projectID,
+			"p_source_event_id": sourceEventID,
+			"p_action":          action,
+			"p_status":          status,
+			"p_updated_at":      updatedAt,
+		})
+	if err != nil {
+		return fmt.Errorf("complete project resource alert action failed: %w", err)
+	}
+	record, ok := firstDataMap(result.Data)
+	if !ok || !generationBool(record["applied"]) {
+		return fmt.Errorf("project resource alert action completion was not applied")
 	}
 	return nil
 }
@@ -1635,7 +1788,7 @@ func (r *ChatMessageRepository) ListByProjectID(ctx context.Context, projectID s
 }
 
 func (r *ChatMessageRepository) DeleteByProjectID(ctx context.Context, projectID string) error {
-	_, err := r.supabase.AdminTable("chat_messages").Eq("project_id", projectID).Delete()
+	_, err := r.supabase.AdminTable("chat_messages").Eq("project_id", projectID).DeleteContext(ctx)
 	if err != nil {
 		return fmt.Errorf("delete chat messages failed: %w", err)
 	}
@@ -1643,7 +1796,7 @@ func (r *ChatMessageRepository) DeleteByProjectID(ctx context.Context, projectID
 }
 
 func (r *CommitRepository) DeleteByProjectID(ctx context.Context, projectID string) error {
-	_, err := r.supabase.AdminTable("commits").Eq("project_id", projectID).Delete()
+	_, err := r.supabase.AdminTable("commits").Eq("project_id", projectID).DeleteContext(ctx)
 	if err != nil {
 		return fmt.Errorf("delete commits failed: %w", err)
 	}
@@ -2116,7 +2269,7 @@ func (r *AdminRepository) List(ctx context.Context, page, pageSize int) ([]model
 
 // Delete 删除管理员
 func (r *AdminRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.supabase.AdminTable("admins").Eq("id", id).Delete()
+	_, err := r.supabase.AdminTable("admins").Eq("id", id).DeleteContext(ctx)
 	return err
 }
 
@@ -2187,13 +2340,13 @@ func (r *AdminRepository) UpdateRole(ctx context.Context, role *model.AdminRole)
 }
 
 func (r *AdminRepository) DeleteRole(ctx context.Context, id string) error {
-	if _, err := r.supabase.AdminTable("admin_role_permissions").Eq("role_id", id).Delete(); err != nil {
+	if _, err := r.supabase.AdminTable("admin_role_permissions").Eq("role_id", id).DeleteContext(ctx); err != nil {
 		return err
 	}
-	if _, err := r.supabase.AdminTable("admin_user_roles").Eq("role_id", id).Delete(); err != nil {
+	if _, err := r.supabase.AdminTable("admin_user_roles").Eq("role_id", id).DeleteContext(ctx); err != nil {
 		return err
 	}
-	_, err := r.supabase.AdminTable("admin_roles").Eq("id", id).Delete()
+	_, err := r.supabase.AdminTable("admin_roles").Eq("id", id).DeleteContext(ctx)
 	return err
 }
 
@@ -2241,7 +2394,7 @@ func (r *AdminRepository) GetRolePermissions(ctx context.Context, roleID string)
 }
 
 func (r *AdminRepository) ReplaceRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error {
-	if _, err := r.supabase.AdminTable("admin_role_permissions").Eq("role_id", roleID).Delete(); err != nil {
+	if _, err := r.supabase.AdminTable("admin_role_permissions").Eq("role_id", roleID).DeleteContext(ctx); err != nil {
 		return err
 	}
 	if len(permissionIDs) == 0 {
@@ -2290,7 +2443,7 @@ func (r *AdminRepository) GetAdminRoles(ctx context.Context, adminID string) ([]
 }
 
 func (r *AdminRepository) ReplaceAdminRoles(ctx context.Context, adminID string, roleIDs []string) error {
-	if _, err := r.supabase.AdminTable("admin_user_roles").Eq("admin_id", adminID).Delete(); err != nil {
+	if _, err := r.supabase.AdminTable("admin_user_roles").Eq("admin_id", adminID).DeleteContext(ctx); err != nil {
 		return err
 	}
 	if len(roleIDs) == 0 {

@@ -42,10 +42,11 @@ func BuildPlanUserPrompt(description, appType, language, userFeedback, currentPl
 // BuildPlanAnalysisSystemPrompt 组装仅用于流式分析阶段的系统提示词。
 func BuildPlanAnalysisSystemPrompt(override string) string {
 	base := sanitizePlanPromptOverride(override)
+	contract := renderPromptTemplate("plan_analysis_system.tmpl", nil)
 	if base == "" {
-		base = renderPromptTemplate("plan_analysis_system.tmpl", nil)
+		return contract
 	}
-	return strings.TrimSpace(base)
+	return strings.TrimSpace(base) + "\n\n" + contract
 }
 
 // BuildPlanAnalysisUserPrompt 组装仅用于流式分析阶段的用户提示词。
@@ -56,10 +57,11 @@ func BuildPlanAnalysisUserPrompt(description, appType, language, userFeedback, c
 // BuildPlanJSONSystemPrompt 组装仅输出方案 JSON 的系统提示词。
 func BuildPlanJSONSystemPrompt(override string) string {
 	base := sanitizePlanPromptOverride(override)
+	contract := renderPromptTemplate("plan_json_system.tmpl", nil)
 	if base == "" {
-		base = renderPromptTemplate("plan_json_system.tmpl", nil)
+		return contract
 	}
-	return strings.TrimSpace(base)
+	return strings.TrimSpace(base) + "\n\n" + contract
 }
 
 // BuildPlanJSONUserPrompt 组装仅输出方案 JSON 的用户提示词。
@@ -70,10 +72,11 @@ func BuildPlanJSONUserPrompt(description, appType, language, analysis, userFeedb
 // BuildPlanLineSystemPrompt 组装按行输出方案 JSON 的系统提示词。
 func BuildPlanLineSystemPrompt(override string) string {
 	base := sanitizePlanPromptOverride(override)
+	contract := renderPromptTemplate("plan_lines_system.tmpl", nil)
 	if base == "" {
-		base = renderPromptTemplate("plan_lines_system.tmpl", nil)
+		return contract
 	}
-	return strings.TrimSpace(base)
+	return strings.TrimSpace(base) + "\n\n" + contract
 }
 
 // BuildPlanLineUserPrompt 组装按行输出方案 JSON 的用户提示词。

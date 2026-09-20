@@ -12,11 +12,11 @@ visual references, solution approval, full-stack code generation, project-level
 validation, bounded automatic repair, container execution, browser acceptance,
 and Git delivery into a truthful, traceable, and recoverable engineering loop.
 
-> Current release: **v1.1.9**, which fixes the missing administrator audit
-> repository and failed default LLM Provider updates in PostgreSQL mode, while
-> enforcing concurrent default selection and disabled-provider invariants. Its
-> stability scope is limited to
-> the capabilities documented in this README and
+> Current release: **v1.1.10**, which adds permanent regular-user deletion,
+> allows Ephemeral Experience Mode to be enabled while users and projects
+> already exist, and preserves the configured mode across upgrades while
+> rebuilding a clean baseline for the new Release. Its stability scope is
+> limited to the capabilities documented in this README and
 > [`docs/PRODUCT.en.md`](docs/PRODUCT.en.md). Clean installations use the current
 > Release's `database/init.sql`; existing installations use the one-command
 > upgrade.
@@ -181,7 +181,7 @@ commands are only needed when diagnosing a specific unit:
 | `sudo yistackctl upgrade <release-directory\|release.tar.gz>` | Run a verified one-command upgrade |
 | `sudo yistackctl uninstall` | Remove application files and services while preserving configuration and data |
 | `sudo yistackctl uninstall --purge` | Remove all managed local data, containers, and the service account |
-| `sudo yistackctl ephemeral {snapshot\|reset\|cleanup\|enforce\|apply-schedule\|status}` | Manage Ephemeral Experience Mode |
+| `sudo yistackctl ephemeral {snapshot\|enable\|disable\|reset\|cleanup\|enforce\|apply-schedule\|status}` | Manage Ephemeral Experience Mode |
 | `yistackctl help` | Show complete command help |
 
 `start` and `restart` wait for frontend and backend health checks before
@@ -343,27 +343,35 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 The controllers installed by v1.1.0 and v1.1.1 still check for a colocated
 `.sha256` before reading a new Release and extract archives under a root-only
-temporary directory. For the first upgrade from either version to v1.1.9,
+temporary directory. For the first upgrade from either version to v1.1.10,
 extract the archive and pass the directory to the same public command. This
 path does not require a sidecar:
 
 ```bash
-tar -xzf yistack-v1.1.9-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.9-linux-amd64
+tar -xzf yistack-v1.1.10-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.10-linux-amd64
 ```
 
 After completing this directory-based upgrade, later upgrades can consume
 `.tar.gz` archives directly without a colocated `.sha256`.
+An installed v1.1.9 instance can upgrade directly:
+
+```bash
+sudo yistackctl upgrade ./yistack-v1.1.10-linux-amd64.tar.gz
+```
 
 The command verifies the Release and forward-only version direction, preflights
 the database, stops the application and ephemeral-experience timers, creates and
 verifies a PostgreSQL custom-format backup, installs the new Release, migrates
 and verifies the database, restores the previous running state, and performs a
-health check. On failure it restores the previous configuration, Release,
-systemd units, and database backup. If automatic recovery is incomplete, the
-services remain stopped and the backup location is reported. Services that were
-already stopped remain stopped. After the upgrade fully succeeds, Release
-directories older than the current version are removed from `/opt/yistack/releases`;
+health check. If Ephemeral Experience Mode was enabled, the upgrade builds a
+new baseline that excludes regular-user and project data on the new Release and
+re-enables both timers; normal mode remains disabled. On failure it restores
+the previous configuration, baseline, Release, systemd units, database backup,
+and timer state. If automatic recovery is incomplete, the services remain
+stopped and the backup location is reported. Services that were already
+stopped remain stopped. After the upgrade fully succeeds, Release directories
+older than the current version are removed from `/opt/yistack/releases`;
 database backups remain available for manual recovery.
 
 Backups default to `/var/lib/yistack/database-backups` and cover only the
@@ -381,37 +389,53 @@ This mode runs on the standard PostgreSQL production deployment without a separa
 
 This mode supports only the installer-managed local PostgreSQL database and fails closed when external Supabase is configured, avoiding partial or irreversible resets of an external database.
 
-#### Create and Enable the Configuration Once
+#### Enable
 
-Initialize this configuration only once. `install` overwrites its destination, so do not copy the example again when `/etc/yistack/ephemeral-maintenance.env` already exists; retain and edit the existing file instead:
-
-```bash
-if sudo test ! -e /etc/yistack/ephemeral-maintenance.env; then
-  sudo install -m 0640 -o root -g yistack \
-    /opt/yistack/current/config/yistack-ephemeral-maintenance.env.example \
-    /etc/yistack/ephemeral-maintenance.env
-fi
-
-sudo sed -i 's/^EPHEMERAL_MAINTENANCE_ENABLED=false$/EPHEMERAL_MAINTENANCE_ENABLED=true/' \
-  /etc/yistack/ephemeral-maintenance.env
-```
-
-#### Capture the Baseline and Enable the Schedule
-
-Configure the administrator password, providers, and system policy first, and verify that no regular users, projects, or project workspaces exist. Then run:
+Configure the administrator password, Providers, and system policy first, then run:
 
 ```bash
-sudo yistackctl ephemeral snapshot &&
-  sudo yistackctl ephemeral apply-schedule &&
+sudo yistackctl ephemeral enable
 sudo yistackctl ephemeral status
 ```
 
-The commands are chained with `&&`, so the timers are enabled only after `snapshot` succeeds. `snapshot` briefly stops the application and project containers, then records a PostgreSQL dump, an empty project workspace, the Release commit, and SHA-256 checksums. It refuses to create a baseline when regular users, projects, related business records, or project workspaces still exist; do not run `apply-schedule` separately after that failure. It does not copy secrets from `/etc/yistack`.
+When the configuration is missing, `enable` creates `/etc/yistack/ephemeral-maintenance.env` automatically. It briefly stops the application and project containers, captures the current Release's PostgreSQL baseline and SHA-256 manifest, and then starts the daily reset and hourly disk-watermark timers. The baseline retains administrator, Provider, and system configuration while explicitly excluding regular users, projects, and related business tables, and it contains an empty project workspace. Existing regular users, projects, and legacy users with `deleted` status therefore do not block enablement.
+
+Enabling the mode does not delete live data, and stopped application and project containers are returned to their previous running state. Existing regular users, projects, project workspaces, and local project backups are removed by the next scheduled reset or by `sudo yistackctl ephemeral reset`. Any failed step leaves the mode disabled, so schedules cannot run without a valid baseline.
+
+The mode is fully active only when status reports `enabled=true`, `baseline=verified`, `reset_timer=active`, `cleanup_timer=active`, `reset_timer_enabled=true`, and `cleanup_timer_enabled=true`.
+
+#### Disable
+
+```bash
+sudo yistackctl ephemeral disable
+sudo yistackctl ephemeral status
+```
+
+`disable` stops and disables both timers and marks the configuration as disabled while preserving the baseline. Automatic reset and cleanup stop; existing user and project data remain unchanged.
+
+#### Change Configuration and Re-enable
+
+```bash
+sudo yistackctl ephemeral disable
+sudoedit /etc/yistack/ephemeral-maintenance.env
+sudo yistackctl ephemeral enable
+sudo yistackctl ephemeral status
+```
+
+Every `enable` captures a fresh clean baseline for the current Release. Administrator, Provider, or system-policy changes therefore become the new restore point, while existing regular-user and project data remain excluded. If the mode stays enabled and only calendar expressions change, use `sudo yistackctl ephemeral apply-schedule` to reapply timer configuration without rebuilding the baseline.
+
+#### After an Upgrade
+
+`EPHEMERAL_MAINTENANCE_ENABLED` is the upgrade source of truth. If it is `true` before the upgrade, the upgrader automatically captures a new baseline that excludes regular-user and project data after migrations complete, then re-enables both timers; live data remains until the next reset. If it is `false` or absent, the upgraded installation remains in normal mode with both timers disabled.
+
+If an upgrade fails and rolls back, the upgrader restores the old configuration, baseline, and the previous active/enabled state of both timers. No manual re-enable is required.
+
+#### Default Policy and Manual Operations
 
 The defaults are:
 
 - restore the clean baseline after 04:00 each day, with up to 10 minutes of randomized delay;
-- on every daily reset, remove all regular users and related database records, project workspaces, containers and networks labeled with `yistack.project_id`, container state, generation evidence, caches, and managed file logs;
+- on every daily reset, remove all regular users and related database records, project workspaces, local project backups, containers and networks labeled with `yistack.project_id`, container state, generation evidence, caches, and managed file logs;
 - check disk usage each hour without deleting anything below 80%; only when usage reaches 80%, remove the oldest projects until usage reaches 70%;
 - always retain Podman base images, `runtime/templates`, `ms-playwright`, administrator and provider configuration, configuration files, and installed Releases;
 - never run a global `podman system prune` or delete reusable images.
@@ -425,15 +449,12 @@ EPHEMERAL_CLEANUP_ON_CALENDAR="*-*-* *:30:00"
 EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC=5min
 ```
 
-Calendar expressions use systemd syntax and the server timezone. After changing them, run `sudo yistackctl ephemeral apply-schedule` to validate the values and atomically update the timer overrides. After upgrading YiStack, an old baseline is rejected when its schema or `SOURCE_COMMIT` no longer matches; capture a new baseline only after validating the new release and confirming that no regular users or projects exist. Manual operations and timer shutdown are available through:
+Calendar expressions use systemd syntax and the server timezone. While the mode is enabled, `sudo yistackctl ephemeral apply-schedule` can validate the configuration and atomically update only the timer overrides. Other manual operations are:
 
 ```bash
 sudo yistackctl ephemeral cleanup
 sudo yistackctl ephemeral reset
 sudo systemctl list-timers 'yistack-ephemeral-*'
-sudo systemctl disable --now \
-  yistack-ephemeral-reset.timer \
-  yistack-ephemeral-cleanup.timer
 ```
 
 `sudo yistackctl ephemeral cleanup` is an explicit operator command that applies the configured TTLs to expired projects, stopped project containers, generation evidence, caches, and logs. The hourly timer does not run this TTL cleanup automatically.

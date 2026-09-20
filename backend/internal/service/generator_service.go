@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 
 	"yistack/config"
 	"yistack/internal/model"
@@ -39,8 +38,7 @@ type GeneratorService struct {
 	fileWorkspace           generationFileWorkspace
 	fileSvc                 *file.Service
 	containerCfg            *config.ContainerConfig
-	activeMu                sync.Mutex
-	activeTasks             map[string]context.CancelFunc
+	lifecycleCoordinator    *ProjectLifecycleCoordinator
 }
 
 // GeneratorServiceOptions 生成服务依赖项。
@@ -59,12 +57,17 @@ type GeneratorServiceOptions struct {
 	FileService             *file.Service
 	ContainerCfg            *config.ContainerConfig
 	BrowserAcceptanceRunner BrowserAcceptanceRunner
+	LifecycleCoordinator    *ProjectLifecycleCoordinator
 }
 
 // NewGeneratorService 创建生成器服务。
 // 统一采用 options 注入依赖，避免容器能力、文件能力扩展时继续复制新的构造器。
 func NewGeneratorService(options GeneratorServiceOptions) *GeneratorService {
 	configureProjectRootDir(options.ContainerCfg)
+	lifecycleCoordinator := options.LifecycleCoordinator
+	if lifecycleCoordinator == nil {
+		lifecycleCoordinator = NewProjectLifecycleCoordinator()
+	}
 	service := &GeneratorService{
 		projectRepo:             options.ProjectRepo,
 		collaborationRepo:       options.CollaborationRepo,
@@ -80,7 +83,7 @@ func NewGeneratorService(options GeneratorServiceOptions) *GeneratorService {
 		fileSvc:                 options.FileService,
 		containerCfg:            options.ContainerCfg,
 		browserAcceptanceRunner: options.BrowserAcceptanceRunner,
-		activeTasks:             make(map[string]context.CancelFunc),
+		lifecycleCoordinator:    lifecycleCoordinator,
 	}
 	if options.ContainerMgr != nil {
 		service.commandExecutor = options.ContainerMgr
@@ -121,28 +124,46 @@ type FileToGenerate struct {
 // Generate 执行实现模式的主流程。
 // 这里负责串起状态推进、LLM 生成与流式回传；生成结果的落地应用交由独立协作函数处理。
 func (s *GeneratorService) Generate(ctx context.Context, req *GenerateRequest, handler StreamEventHandler) error {
+	unlockUserProjects, err := s.lifecycleCoordinator.acquireUserOperation(req.UserID)
+	if err != nil {
+		return err
+	}
+	defer unlockUserProjects()
+
 	if err := s.ensureGenerateProjectAccess(ctx, req); err != nil {
 		return err
 	}
+
+	generateCtx, cancel := context.WithCancel(ctx)
+	unregister := s.lifecycleCoordinator.registerUserProjectActivity(
+		req.UserID,
+		req.ProjectID,
+		cancel,
+		true,
+	)
+	defer cancel()
+	defer unregister()
+	if req.ProjectID != "" {
+		unlockProject, err := s.lifecycleCoordinator.acquireProjectMutationContext(
+			generateCtx,
+			req.ProjectID,
+		)
+		if err != nil {
+			return err
+		}
+		defer unlockProject()
+	}
+
 	preparedVisualEdit, err := PrepareVisualEditContext(req.VisualEdit)
 	if err != nil {
 		return err
 	}
 	req.VisualEdit = preparedVisualEdit
-	if err := s.ensureProviderRuntimeReady(ctx); err != nil {
+	if err := s.ensureProviderRuntimeReady(generateCtx); err != nil {
 		return fmt.Errorf("LLM provider not ready: %w", err)
 	}
-	if err := s.prepareRequestVisualContext(ctx, req, handler); err != nil {
+	if err := s.prepareRequestVisualContext(generateCtx, req, handler); err != nil {
 		return err
-	}
-
-	generateCtx := ctx
-	if req.ProjectID != "" {
-		var cancel context.CancelFunc
-		generateCtx, cancel = context.WithCancel(ctx)
-		s.registerActiveTask(req.ProjectID, cancel)
-		defer s.unregisterActiveTask(req.ProjectID, cancel)
-		defer cancel()
 	}
 
 	workflowMode := req.workflowMode(serviceWorkflowModeImplement)
@@ -292,36 +313,14 @@ func (s *GeneratorService) recordProviderUse(ctx context.Context, providerName s
 
 // registerActiveTask 记录当前项目正在运行的生成任务。
 // 如果同一项目已有旧任务，会先取消旧任务，再替换为新的 cancel 函数。
-func (s *GeneratorService) registerActiveTask(projectID string, cancel context.CancelFunc) {
+func (s *GeneratorService) registerActiveTask(projectID string, cancel context.CancelFunc) func() {
 	if projectID == "" || cancel == nil {
-		return
+		return func() {}
 	}
-
-	s.activeMu.Lock()
-	defer s.activeMu.Unlock()
-
-	if existing, ok := s.activeTasks[projectID]; ok && existing != nil {
-		existing()
+	if s.lifecycleCoordinator == nil {
+		return func() {}
 	}
-	s.activeTasks[projectID] = cancel
-}
-
-// unregisterActiveTask 只移除当前这一次注册的任务，避免把更新后的新任务误删掉。
-func (s *GeneratorService) unregisterActiveTask(projectID string, cancel context.CancelFunc) {
-	if projectID == "" {
-		return
-	}
-
-	s.activeMu.Lock()
-	defer s.activeMu.Unlock()
-
-	current, ok := s.activeTasks[projectID]
-	if !ok {
-		return
-	}
-	if fmt.Sprintf("%p", current) == fmt.Sprintf("%p", cancel) {
-		delete(s.activeTasks, projectID)
-	}
+	return s.lifecycleCoordinator.registerGeneration(projectID, cancel)
 }
 
 // StopGeneration 主动取消项目生成任务。
@@ -329,19 +328,10 @@ func (s *GeneratorService) StopGeneration(ctx context.Context, projectID string)
 	if projectID == "" {
 		return false
 	}
-
-	s.activeMu.Lock()
-	cancel, ok := s.activeTasks[projectID]
-	if ok {
-		delete(s.activeTasks, projectID)
+	if s.lifecycleCoordinator == nil {
+		return false
 	}
-	s.activeMu.Unlock()
-
-	if ok && cancel != nil {
-		cancel()
-	}
-
-	return ok
+	return s.lifecycleCoordinator.cancelProjectGenerations(projectID)
 }
 
 // IsGenerationActive 只读检查当前项目是否仍有后端生成任务在运行。
@@ -349,8 +339,8 @@ func (s *GeneratorService) IsGenerationActive(projectID string) bool {
 	if projectID == "" {
 		return false
 	}
-	s.activeMu.Lock()
-	defer s.activeMu.Unlock()
-	_, ok := s.activeTasks[projectID]
-	return ok
+	if s.lifecycleCoordinator == nil {
+		return false
+	}
+	return s.lifecycleCoordinator.isGenerationActive(projectID)
 }

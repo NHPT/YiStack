@@ -451,6 +451,12 @@ func (s *ProjectService) CreateProjectResourceAlertEvent(ctx context.Context, pr
 		result.Recovery = "该入口只写 append-only 告警事件；请先查看评估预览，确认后带 confirm_create=true 重试。"
 		return result, nil
 	}
+	operationCtx, finishOperation, err := s.BeginCancellableUserProjectMutation(ctx, userID, projectID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 	if s.resourceAlertEventRepo == nil {
 		result.Status = "unavailable"
 		result.Message = "项目资源告警事件仓储不可用，未创建事件"
@@ -663,6 +669,12 @@ func (s *ProjectService) SendProjectResourceAlertNotification(ctx context.Contex
 		result.Recovery = "该入口会向已配置 webhook 发送通知；请先查看通知通道 readiness，确认后带 confirm_send=true 重试。"
 		return result, nil
 	}
+	operationCtx, finishOperation, err := s.BeginCancellableUserProjectMutation(ctx, userID, projectID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 
 	readiness, err := s.GetProjectResourceAlertNotificationReadiness(ctx, projectID)
 	if err != nil {
@@ -698,14 +710,20 @@ func (s *ProjectService) SendProjectResourceAlertNotification(ctx context.Contex
 		return result, nil
 	}
 	sourceEvent := createdEvents[0]
-	sentEvents, _, err := s.resourceAlertEventRepo.ListByProjectID(ctx, readiness.ProjectID, "notification_sent", 0, 20)
+	deliveryEvents, _, err := s.resourceAlertEventRepo.ListByProjectID(ctx, readiness.ProjectID, "", 0, 100)
 	if err != nil {
 		return nil, fmt.Errorf("check project resource alert notification delivery events: %w", err)
 	}
-	if hasNotificationDeliveryForCandidate(sentEvents, sourceEvent) {
+	switch latestProjectResourceAlertActionStatus(deliveryEvents, sourceEvent, "notification_pending", "notification_failed", "notification_sent") {
+	case "notification_sent":
 		result.Status = "blocked"
 		result.Message = "项目资源告警通知已存在成功发送记录，未重复发送"
 		result.Recovery = "append-only 事件流已记录该候选事件的 notification_sent 结果；如需再次通知，请先创建新的资源告警事件。"
+		return result, nil
+	case "notification_pending":
+		result.Status = "uncertain"
+		result.Message = "项目资源告警通知存在结果未确认的发送记录，已阻止重复发送"
+		result.Recovery = "请先人工确认 webhook 接收端是否已处理该 source_event_id；确认结果前不会自动重放。"
 		return result, nil
 	}
 
@@ -723,6 +741,38 @@ func (s *ProjectService) SendProjectResourceAlertNotification(ctx context.Contex
 	if err != nil {
 		return s.recordProjectResourceAlertNotificationFailure(ctx, result, sourceEvent, userID, 0, "项目资源告警 webhook 请求构造失败"), nil
 	}
+	pendingEvent := buildProjectResourceAlertActionEvent(
+		sourceEvent,
+		userID,
+		"notification_pending",
+		"项目资源告警 webhook 通知发送意图已记录",
+		"该 pending 记录用于阻止发送结果未知时自动重放；发送完成后会追加 notification_sent 或 notification_failed 结果。",
+	)
+	claimAcquired, claimStatus, err := s.claimProjectResourceAlertAction(
+		ctx,
+		sourceEvent,
+		userID,
+		"notification",
+		pendingEvent,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !claimAcquired {
+		if claimStatus == "succeeded" {
+			result.Status = "blocked"
+			result.Message = "项目资源告警通知已存在成功发送 claim，未重复发送"
+			result.Recovery = "数据库原子 claim 已确认该候选事件发送成功；如需再次通知，请先创建新的资源告警事件。"
+			return result, nil
+		}
+		result.Status = "uncertain"
+		result.Message = "项目资源告警通知已被其他实例 claim，已阻止重复发送"
+		result.Recovery = "数据库原子 claim 仍为 pending；请先人工确认 webhook 接收端是否已处理该 source_event_id。"
+		return result, nil
+	}
+	result.NotificationEventCreated = true
+	result.NotificationEventID = pendingEvent.ID
+	result.CreatedAt = pendingEvent.CreatedAt
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-YiStack-Resource-Alert-Event-ID", fmt.Sprintf("%d", sourceEvent.ID))
 	req.Header.Set("X-YiStack-Resource-Alert-Evaluation-ID", sourceEvent.EvaluationID)
@@ -733,20 +783,67 @@ func (s *ProjectService) SendProjectResourceAlertNotification(ctx context.Contex
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return s.recordProjectResourceAlertNotificationFailure(ctx, result, sourceEvent, userID, 0, "项目资源告警 webhook 请求失败"), nil
+		result.Status = "uncertain"
+		result.Message = "项目资源告警 webhook 请求结果未知，已阻止自动重放"
+		result.Recovery = "发送意图已持久化，但无法确认接收端是否处理；请按 source_event_id 人工核对后再决定后续动作。"
+		return result, nil
 	}
 	defer resp.Body.Close()
 	result.HTTPStatusCode = resp.StatusCode
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return s.recordProjectResourceAlertNotificationFailure(ctx, result, sourceEvent, userID, resp.StatusCode, "项目资源告警 webhook 返回非 2xx 状态"), nil
+		result = s.recordProjectResourceAlertNotificationFailure(ctx, result, sourceEvent, userID, resp.StatusCode, "项目资源告警 webhook 返回非 2xx 状态")
+		persistCtx, cancelPersist := context.WithTimeout(
+			context.WithoutCancel(safeContext(ctx)),
+			5*time.Second,
+		)
+		completeErr := s.resourceAlertEventRepo.CompleteAction(
+			persistCtx,
+			sourceEvent.ProjectID,
+			sourceEvent.ID,
+			"notification",
+			"failed",
+			time.Now().UTC(),
+		)
+		cancelPersist()
+		if completeErr != nil {
+			result.Status = "uncertain"
+			result.Message = "项目资源告警 webhook 已明确失败，但 action claim 更新失败"
+			result.Recovery = "数据库 claim 仍会阻止自动重放；请检查告警仓储状态。"
+			return result, completeErr
+		}
+		return result, nil
 	}
 
-	event, err := s.createProjectResourceAlertNotificationDeliveryEvent(ctx, sourceEvent, userID, "notification_sent", "项目资源告警 webhook 通知已受控发送", "该结果是 append-only 通知发送记录；未更新源告警事件、未重新评估资源、未执行硬配额、未启动或停止容器、未写项目目录、未执行 Git。")
+	result.NotificationSent = true
+	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(safeContext(ctx)), 5*time.Second)
+	event, err := s.createProjectResourceAlertActionEvent(persistCtx, sourceEvent, userID, "notification_sent", "项目资源告警 webhook 通知已受控发送", "该结果是 append-only 通知发送记录；未更新源告警事件、未重新评估资源、未执行硬配额、未启动或停止容器、未写项目目录、未执行 Git。")
+	cancelPersist()
 	if err != nil {
-		return nil, err
+		result.Status = "uncertain"
+		result.Message = "项目资源告警 webhook 已返回成功，但发送结果事件写入失败"
+		result.Recovery = "notification_pending 意图会阻止自动重放；请先人工确认事件仓储状态。"
+		return result, err
+	}
+	completeCtx, cancelComplete := context.WithTimeout(
+		context.WithoutCancel(safeContext(ctx)),
+		5*time.Second,
+	)
+	err = s.resourceAlertEventRepo.CompleteAction(
+		completeCtx,
+		sourceEvent.ProjectID,
+		sourceEvent.ID,
+		"notification",
+		"succeeded",
+		time.Now().UTC(),
+	)
+	cancelComplete()
+	if err != nil {
+		result.Status = "uncertain"
+		result.Message = "项目资源告警 webhook 已返回成功，但 action claim 完成失败"
+		result.Recovery = "notification_sent 事件和 pending claim 都会阻止自动重放；请检查告警仓储状态。"
+		return result, err
 	}
 	result.Status = "sent"
-	result.NotificationSent = true
 	result.NotificationEventCreated = true
 	result.NotificationEventID = event.ID
 	result.CreatedAt = event.CreatedAt
@@ -867,6 +964,12 @@ func (s *ProjectService) ExecuteProjectResourceAlertEnforcement(ctx context.Cont
 		result.Recovery = "该入口可能按配置停止项目容器；请先查看硬配额执行 readiness，确认后带 confirm_execute=true 重试。"
 		return result, nil
 	}
+	operationCtx, finishOperation, err := s.BeginCancellableUserProjectMutation(ctx, userID, projectID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 
 	readiness, err := s.GetProjectResourceAlertEnforcementReadiness(ctx, projectID)
 	if err != nil {
@@ -907,32 +1010,134 @@ func (s *ProjectService) ExecuteProjectResourceAlertEnforcement(ctx context.Cont
 		return result, nil
 	}
 	sourceEvent := createdEvents[0]
-	executedEvents, _, err := s.resourceAlertEventRepo.ListByProjectID(ctx, readiness.ProjectID, "enforcement_executed", 0, 20)
+	actionEvents, _, err := s.resourceAlertEventRepo.ListByProjectID(ctx, readiness.ProjectID, "", 0, 100)
 	if err != nil {
 		return nil, fmt.Errorf("check project resource alert enforcement execution events: %w", err)
 	}
-	if hasEnforcementExecutionForCandidate(executedEvents, sourceEvent) {
+	switch latestProjectResourceAlertActionStatus(actionEvents, sourceEvent, "enforcement_pending", "enforcement_failed", "enforcement_executed") {
+	case "enforcement_executed":
 		result.Status = "blocked"
 		result.Message = "项目资源告警硬配额执行已存在成功记录，未重复停止容器"
 		result.Recovery = "append-only 事件流已记录该候选事件的 enforcement_executed 结果；如需再次执行，请先创建新的资源告警事件。"
 		return result, nil
+	case "enforcement_pending":
+		result.Status = "uncertain"
+		result.Message = "项目资源告警硬配额存在结果未确认的执行记录，已阻止重复停止容器"
+		result.Recovery = "请先人工确认容器状态和事件仓储；确认结果前不会自动重放 stop_container。"
+		return result, nil
 	}
 
-	stopResult, err := s.StopProjectContainer(ctx, readiness.ProjectID)
+	pendingEvent := buildProjectResourceAlertActionEvent(
+		sourceEvent,
+		userID,
+		"enforcement_pending",
+		"项目资源告警硬配额 stop_container 执行意图已记录",
+		"该 pending 记录用于阻止执行结果未知时自动重放；执行完成后会追加 enforcement_executed 或 enforcement_failed 结果。",
+	)
+
+	claimAcquired, claimStatus, err := s.claimProjectResourceAlertAction(
+		ctx,
+		sourceEvent,
+		userID,
+		"enforcement",
+		pendingEvent,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !claimAcquired {
+		if claimStatus == "succeeded" {
+			result.Status = "blocked"
+			result.Message = "项目资源告警硬配额已有成功执行 claim，未重复停止容器"
+			result.Recovery = "数据库原子 claim 已确认该候选事件执行成功；如需再次执行，请先创建新的资源告警事件。"
+			return result, nil
+		}
+		result.Status = "uncertain"
+		result.Message = "项目资源告警硬配额已被其他实例 claim，已阻止重复停止容器"
+		result.Recovery = "数据库原子 claim 仍为 pending；请先人工确认容器状态和事件仓储。"
+		return result, nil
+	}
+	result.EnforcementEventCreated = true
+	result.EnforcementEventID = pendingEvent.ID
+	result.CreatedAt = pendingEvent.CreatedAt
+
+	stopResult, err := s.stopProjectContainerUnderMutation(ctx, readiness.ProjectID)
 	result.StopResult = stopResult
 	if err != nil {
 		result.Status = "failed"
 		result.Message = "项目资源告警硬配额执行 stop_container 失败"
-		result.Recovery = "停止容器失败，未写入 enforcement_executed 事件；请检查 Runtime Health 和容器管理器后重试。"
+		result.Recovery = "停止容器失败；已记录执行意图，确认失败时会追加 enforcement_failed 事件。"
+		if ctx.Err() == nil {
+			persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(safeContext(ctx)), 5*time.Second)
+			_, persistErr := s.createProjectResourceAlertActionEvent(
+				persistCtx,
+				sourceEvent,
+				userID,
+				"enforcement_failed",
+				"项目资源告警硬配额 stop_container 执行失败",
+				"已确认本次停止容器失败，可在修复 Runtime Health 后重试。",
+			)
+			cancelPersist()
+			if persistErr != nil {
+				return result, persistErr
+			}
+			completeCtx, cancelComplete := context.WithTimeout(
+				context.WithoutCancel(safeContext(ctx)),
+				5*time.Second,
+			)
+			completeErr := s.resourceAlertEventRepo.CompleteAction(
+				completeCtx,
+				sourceEvent.ProjectID,
+				sourceEvent.ID,
+				"enforcement",
+				"failed",
+				time.Now().UTC(),
+			)
+			cancelComplete()
+			if completeErr != nil {
+				result.Status = "uncertain"
+				result.Message = "项目容器停止失败已确认，但 action claim 更新失败"
+				result.Recovery = "数据库 claim 仍会阻止自动重放；请检查告警仓储状态。"
+				return result, completeErr
+			}
+		} else {
+			result.Status = "uncertain"
+			result.Message = "项目资源告警硬配额执行被取消，停止结果未知"
+			result.Recovery = "enforcement_pending 意图会阻止自动重放；请先人工确认容器状态。"
+		}
 		return result, nil
 	}
 
-	event, err := s.createProjectResourceAlertEnforcementExecutionEvent(ctx, sourceEvent, userID, stopResult)
+	result.EnforcementExecuted = true
+	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(safeContext(ctx)), 5*time.Second)
+	event, err := s.createProjectResourceAlertEnforcementExecutionEvent(persistCtx, sourceEvent, userID, stopResult)
+	cancelPersist()
 	if err != nil {
-		return nil, err
+		result.Status = "uncertain"
+		result.Message = "项目容器已停止，但硬配额执行结果事件写入失败"
+		result.Recovery = "enforcement_pending 意图会阻止自动重放；请先人工确认事件仓储状态。"
+		return result, err
+	}
+	completeCtx, cancelComplete := context.WithTimeout(
+		context.WithoutCancel(safeContext(ctx)),
+		5*time.Second,
+	)
+	err = s.resourceAlertEventRepo.CompleteAction(
+		completeCtx,
+		sourceEvent.ProjectID,
+		sourceEvent.ID,
+		"enforcement",
+		"succeeded",
+		time.Now().UTC(),
+	)
+	cancelComplete()
+	if err != nil {
+		result.Status = "uncertain"
+		result.Message = "项目容器已停止，但 action claim 完成失败"
+		result.Recovery = "enforcement_executed 事件和 pending claim 都会阻止自动重放；请检查告警仓储状态。"
+		return result, err
 	}
 	result.Status = "executed"
-	result.EnforcementExecuted = true
 	result.EnforcementEventCreated = true
 	result.EnforcementEventID = event.ID
 	result.CreatedAt = event.CreatedAt
@@ -1007,6 +1212,46 @@ func normalizeResourceAlertEventLimit(limit int) int {
 	return limit
 }
 
+func (s *ProjectService) claimProjectResourceAlertAction(
+	ctx context.Context,
+	sourceEvent model.ProjectResourceAlertEvent,
+	userID string,
+	action string,
+	pendingEvent *model.ProjectResourceAlertEvent,
+) (bool, string, error) {
+	if s == nil || s.resourceAlertEventRepo == nil {
+		return false, "", errors.New("project resource alert event repository not available")
+	}
+	if action != "notification" && action != "enforcement" {
+		return false, "", fmt.Errorf("unsupported project resource alert action: %s", action)
+	}
+	if pendingEvent == nil ||
+		pendingEvent.ProjectID != sourceEvent.ProjectID ||
+		pendingEvent.EvaluationID != sourceEvent.EvaluationID ||
+		pendingEvent.Status != action+"_pending" {
+		return false, "", fmt.Errorf("invalid project resource alert pending event")
+	}
+	now := pendingEvent.CreatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+		pendingEvent.CreatedAt = now
+	}
+	claim := &model.ProjectResourceAlertActionClaim{
+		ProjectID:     sourceEvent.ProjectID,
+		SourceEventID: sourceEvent.ID,
+		Action:        action,
+		Status:        "pending",
+		ActorUserID:   strings.TrimSpace(userID),
+		ClaimedAt:     now,
+		UpdatedAt:     now,
+	}
+	acquired, err := s.resourceAlertEventRepo.ClaimAction(ctx, claim, pendingEvent)
+	if err != nil {
+		return false, "", fmt.Errorf("claim project resource alert action: %w", err)
+	}
+	return acquired, claim.Status, nil
+}
+
 func buildProjectResourceAlertEventRecord(event model.ProjectResourceAlertEvent) ProjectResourceAlertEventRecord {
 	record := ProjectResourceAlertEventRecord{
 		ID:                     event.ID,
@@ -1062,8 +1307,39 @@ func buildProjectResourceAlertNotificationWebhookPayload(event model.ProjectReso
 	}, nil
 }
 
+func latestProjectResourceAlertActionStatus(records []model.ProjectResourceAlertEvent, candidate model.ProjectResourceAlertEvent, statuses ...string) string {
+	allowed := make(map[string]struct{}, len(statuses))
+	for _, status := range statuses {
+		allowed[status] = struct{}{}
+	}
+	var latest *model.ProjectResourceAlertEvent
+	for i := range records {
+		record := &records[i]
+		if _, ok := allowed[record.Status]; !ok ||
+			record.EvaluationID != candidate.EvaluationID ||
+			!projectResourceAlertEventReferencesSource(*record, candidate.ID) {
+			continue
+		}
+		if latest == nil ||
+			record.CreatedAt.After(latest.CreatedAt) ||
+			(record.CreatedAt.Equal(latest.CreatedAt) && record.ID > latest.ID) {
+			latest = record
+		}
+	}
+	if latest == nil {
+		return ""
+	}
+	return latest.Status
+}
+
+func projectResourceAlertEventReferencesSource(event model.ProjectResourceAlertEvent, sourceEventID int64) bool {
+	sourceMarker := fmt.Sprintf("source_event_id=%d", sourceEventID)
+	return strings.HasSuffix(event.Message, sourceMarker) ||
+		strings.Contains(event.Message, sourceMarker+"；") ||
+		strings.Contains(event.Message, sourceMarker+";")
+}
+
 func hasNotificationDeliveryForCandidate(records []model.ProjectResourceAlertEvent, candidate model.ProjectResourceAlertEvent) bool {
-	sourceMarker := fmt.Sprintf("source_event_id=%d", candidate.ID)
 	for _, record := range records {
 		if record.Status != "notification_sent" {
 			continue
@@ -1071,7 +1347,7 @@ func hasNotificationDeliveryForCandidate(records []model.ProjectResourceAlertEve
 		if record.EvaluationID != candidate.EvaluationID {
 			continue
 		}
-		if strings.Contains(record.Message, sourceMarker) {
+		if projectResourceAlertEventReferencesSource(record, candidate.ID) {
 			return true
 		}
 	}
@@ -1079,7 +1355,6 @@ func hasNotificationDeliveryForCandidate(records []model.ProjectResourceAlertEve
 }
 
 func hasEnforcementExecutionForCandidate(records []model.ProjectResourceAlertEvent, candidate model.ProjectResourceAlertEvent) bool {
-	sourceMarker := fmt.Sprintf("source_event_id=%d", candidate.ID)
 	for _, record := range records {
 		if record.Status != "enforcement_executed" {
 			continue
@@ -1087,7 +1362,7 @@ func hasEnforcementExecutionForCandidate(records []model.ProjectResourceAlertEve
 		if record.EvaluationID != candidate.EvaluationID {
 			continue
 		}
-		if strings.Contains(record.Message, sourceMarker) {
+		if projectResourceAlertEventReferencesSource(record, candidate.ID) {
 			return true
 		}
 	}
@@ -1099,7 +1374,9 @@ func (s *ProjectService) recordProjectResourceAlertNotificationFailure(ctx conte
 	if httpStatusCode > 0 {
 		message = fmt.Sprintf("%s：http_status=%d", message, httpStatusCode)
 	}
-	event, err := s.createProjectResourceAlertNotificationDeliveryEvent(ctx, sourceEvent, userID, "notification_failed", message, recovery)
+	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(safeContext(ctx)), 5*time.Second)
+	event, err := s.createProjectResourceAlertActionEvent(persistCtx, sourceEvent, userID, "notification_failed", message, recovery)
+	cancelPersist()
 	result.Status = "failed"
 	result.NotificationSent = false
 	result.HTTPStatusCode = httpStatusCode
@@ -1116,12 +1393,11 @@ func (s *ProjectService) recordProjectResourceAlertNotificationFailure(ctx conte
 	return result
 }
 
-func (s *ProjectService) createProjectResourceAlertNotificationDeliveryEvent(ctx context.Context, sourceEvent model.ProjectResourceAlertEvent, userID, status, message, recovery string) (*model.ProjectResourceAlertEvent, error) {
-	if s.resourceAlertEventRepo == nil {
-		return nil, errors.New("project resource alert event repository not available")
-	}
-	createdAt := time.Now().UTC()
-	event := &model.ProjectResourceAlertEvent{
+func buildProjectResourceAlertActionEvent(
+	sourceEvent model.ProjectResourceAlertEvent,
+	userID, status, message, recovery string,
+) *model.ProjectResourceAlertEvent {
+	return &model.ProjectResourceAlertEvent{
 		ProjectID:           sourceEvent.ProjectID,
 		UserID:              userID,
 		Status:              status,
@@ -1133,45 +1409,45 @@ func (s *ProjectService) createProjectResourceAlertNotificationDeliveryEvent(ctx
 		EvaluationPreview:   sourceEvent.EvaluationPreview,
 		Message:             fmt.Sprintf("%s；source_event_id=%d", message, sourceEvent.ID),
 		Recovery:            recovery,
-		CreatedAt:           createdAt,
+		CreatedAt:           time.Now().UTC(),
 	}
+}
+
+func (s *ProjectService) createProjectResourceAlertActionEvent(
+	ctx context.Context,
+	sourceEvent model.ProjectResourceAlertEvent,
+	userID, status, message, recovery string,
+) (*model.ProjectResourceAlertEvent, error) {
+	if s.resourceAlertEventRepo == nil {
+		return nil, errors.New("project resource alert event repository not available")
+	}
+	event := buildProjectResourceAlertActionEvent(sourceEvent, userID, status, message, recovery)
 	if err := s.resourceAlertEventRepo.Create(ctx, event); err != nil {
-		return nil, fmt.Errorf("create project resource alert notification delivery event: %w", err)
+		return nil, fmt.Errorf("create project resource alert action event: %w", err)
 	}
 	return event, nil
 }
 
 func (s *ProjectService) createProjectResourceAlertEnforcementExecutionEvent(ctx context.Context, sourceEvent model.ProjectResourceAlertEvent, userID string, stopResult *ProjectContainerStopResult) (*model.ProjectResourceAlertEvent, error) {
-	if s.resourceAlertEventRepo == nil {
-		return nil, errors.New("project resource alert event repository not available")
-	}
 	stopStatus := ""
 	containerStatus := ""
 	if stopResult != nil {
 		stopStatus = stopResult.StopStatus
 		containerStatus = stopResult.ContainerStatus
 	}
-	createdAt := time.Now().UTC()
-	event := &model.ProjectResourceAlertEvent{
-		ProjectID:           sourceEvent.ProjectID,
-		UserID:              userID,
-		Status:              "enforcement_executed",
-		EvaluationID:        sourceEvent.EvaluationID,
-		ReadinessStatus:     sourceEvent.ReadinessStatus,
-		TriggeredCount:      sourceEvent.TriggeredCount,
-		TriggeredThresholds: sourceEvent.TriggeredThresholds,
-		Thresholds:          sourceEvent.Thresholds,
-		EvaluationPreview:   sourceEvent.EvaluationPreview,
-		Message:             fmt.Sprintf("项目资源告警硬配额 stop_container 已受控执行；source_event_id=%d；stop_status=%s；container_status=%s", sourceEvent.ID, stopStatus, containerStatus),
-		Recovery:            "该结果是 append-only 硬配额执行记录；已复用受控停止容器链路并写入 runtime stop 状态。未更新源告警事件、未重新评估资源、未写项目目录、未执行 Git。",
-		CreatedAt:           createdAt,
-	}
-	if err := s.resourceAlertEventRepo.Create(ctx, event); err != nil {
-		return nil, fmt.Errorf("create project resource alert enforcement execution event: %w", err)
-	}
-	return event, nil
+	return s.createProjectResourceAlertActionEvent(
+		ctx,
+		sourceEvent,
+		userID,
+		"enforcement_executed",
+		fmt.Sprintf(
+			"项目资源告警硬配额 stop_container 已受控执行；stop_status=%s；container_status=%s",
+			stopStatus,
+			containerStatus,
+		),
+		"该结果是 append-only 硬配额执行记录；已复用受控停止容器链路并写入 runtime stop 状态。未更新源告警事件、未重新评估资源、未写项目目录、未执行 Git。",
+	)
 }
-
 func applyProjectResourceSnapshotContainerInfo(result *ProjectResourceSnapshotResult, project *model.Project, info *container.ContainerInfo, exists bool) {
 	result.ContainerStatus = fallbackText(project.ContainerStatus, "unknown")
 	result.ContainerID = project.ContainerID

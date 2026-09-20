@@ -649,6 +649,10 @@ func (h *ProjectHandler) Update(c context.Context, ctx *app.RequestContext) {
 		return
 	}
 
+	userID, ok := h.currentUserID(ctx)
+	if !ok {
+		return
+	}
 	projectService, _, ok := h.requireOwnedProject(c, ctx, projectID)
 	if !ok {
 		return
@@ -662,7 +666,7 @@ func (h *ProjectHandler) Update(c context.Context, ctx *app.RequestContext) {
 		return
 	}
 
-	if err := projectService.UpdateProject(c, projectID, updates); err != nil {
+	if err := projectService.UpdateProject(c, projectID, userID, updates); err != nil {
 		ctx.JSON(consts.StatusInternalServerError, map[string]interface{}{
 			"error":   "Failed to update project",
 			"details": err.Error(),

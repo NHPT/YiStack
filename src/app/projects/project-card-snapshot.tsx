@@ -20,7 +20,7 @@ export type ProjectCardDeletionRecovery = {
 type ProjectCardContainerStatusList = readonly ProjectRuntimeContainerStatus[];
 type ProjectCardSnapshotStatusList = readonly ProjectCardSnapshotStatus[];
 
-const defaultCleanupScope = 'container / project_directory / chat_messages / generated_file_metadata / git_commits';
+const defaultCleanupScope = 'container / project_directory / local_backup_archives / remote_backup_objects / chat_messages / generated_file_metadata / git_commits';
 
 const PROJECT_CARD_STARTING_CONTAINER_STATUSES: ProjectCardContainerStatusList = [
   'creating',

@@ -134,6 +134,12 @@ func (s *ProjectDeploymentService) ListReleases(ctx context.Context, userID, pro
 	if err := s.requireAvailable(); err != nil {
 		return nil, err
 	}
+	operationCtx, finishOperation, err := s.beginProjectOperation(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 	return s.repo.ListReleases(ctx, projectID, 50)
 }
 
@@ -144,6 +150,12 @@ func (s *ProjectDeploymentService) Deploy(ctx context.Context, userID string, pr
 	if err := s.requireConfigured(); err != nil {
 		return nil, err
 	}
+	operationCtx, finishOperation, err := s.beginProjectOperation(ctx, userID, project.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 	if !request.ConfirmDeploy {
 		return nil, deploymentError("deployment_confirmation_required", "Deployment requires explicit confirmation", nil)
 	}
@@ -241,6 +253,12 @@ func (s *ProjectDeploymentService) RefreshRelease(ctx context.Context, userID, p
 	if err := s.requireConfigured(); err != nil {
 		return nil, err
 	}
+	operationCtx, finishOperation, err := s.beginProjectOperation(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 	release, err := s.ownedRelease(ctx, userID, projectID, releaseID)
 	if err != nil {
 		return nil, err
@@ -272,6 +290,12 @@ func (s *ProjectDeploymentService) ReleaseLogs(ctx context.Context, userID, proj
 	if err := s.requireConfigured(); err != nil {
 		return nil, err
 	}
+	operationCtx, finishOperation, err := s.beginProjectOperation(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 	release, err := s.ownedRelease(ctx, userID, projectID, releaseID)
 	if err != nil {
 		return nil, err
@@ -300,6 +324,12 @@ func (s *ProjectDeploymentService) Rollback(ctx context.Context, userID, project
 	if err := s.requireConfigured(); err != nil {
 		return nil, err
 	}
+	operationCtx, finishOperation, err := s.beginProjectOperation(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 	if !request.ConfirmRollback {
 		return nil, deploymentError("deployment_rollback_confirmation_required", "Rollback requires explicit confirmation", nil)
 	}
@@ -355,6 +385,12 @@ func (s *ProjectDeploymentService) ListDomains(ctx context.Context, userID, proj
 	if err := s.requireAvailable(); err != nil {
 		return nil, err
 	}
+	operationCtx, finishOperation, err := s.beginProjectOperation(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 	return s.repo.ListDomains(ctx, projectID)
 }
 func (s *ProjectDeploymentService) AddDomain(ctx context.Context, userID, projectID string, request DeploymentDomainRequest) (*DeploymentMutationResult, error) {
@@ -371,6 +407,12 @@ func (s *ProjectDeploymentService) mutateDomain(ctx context.Context, userID, pro
 	if err := s.requireConfigured(); err != nil {
 		return nil, err
 	}
+	operationCtx, finishOperation, err := s.beginProjectOperation(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
 	if !request.Confirm {
 		return nil, deploymentError("deployment_domain_confirmation_required", "Domain mutation requires explicit confirmation", nil)
 	}
@@ -491,8 +533,29 @@ func (s *ProjectDeploymentService) executeOperation(ctx context.Context, userID,
 	return result, false, nil
 }
 
+func (s *ProjectDeploymentService) beginProjectOperation(
+	ctx context.Context,
+	userID string,
+	projectID string,
+) (context.Context, func(), error) {
+	operationCtx, finishOperation, err := s.projectService.BeginCancellableUserProjectMutation(
+		safeContext(ctx),
+		userID,
+		projectID,
+		false,
+	)
+	if err != nil {
+		return ctx, nil, deploymentError(
+			"deployment_project_deleting",
+			"Project deletion is in progress",
+			err,
+		)
+	}
+	return operationCtx, finishOperation, nil
+}
+
 func (s *ProjectDeploymentService) requireAvailable() error {
-	if s == nil || s.repo == nil {
+	if s == nil || s.repo == nil || s.projectService == nil {
 		return deploymentError("deployment_service_unavailable", "Deployment service is not available", nil)
 	}
 	return nil

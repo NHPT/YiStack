@@ -292,8 +292,15 @@ func jsonObjectValue(raw string) interface{} {
 	}
 	return map[string]interface{}{}
 }
+func nullableStringPointer(value interface{}) *string {
+	normalized := strings.TrimSpace(stringValue(value))
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
+}
 func mapProjectMember(m map[string]interface{}) *model.ProjectMember {
-	return &model.ProjectMember{ID: stringValue(m["id"]), ProjectID: stringValue(m["project_id"]), UserID: stringValue(m["user_id"]), Role: stringValue(m["role"]), Status: stringValue(m["status"]), InvitedByUserID: stringValue(m["invited_by_user_id"]), CreatedAt: timeValue(m["created_at"]), UpdatedAt: timeValue(m["updated_at"])}
+	return &model.ProjectMember{ID: stringValue(m["id"]), ProjectID: stringValue(m["project_id"]), UserID: stringValue(m["user_id"]), Role: stringValue(m["role"]), Status: stringValue(m["status"]), InvitedByUserID: nullableStringPointer(m["invited_by_user_id"]), CreatedAt: timeValue(m["created_at"]), UpdatedAt: timeValue(m["updated_at"])}
 }
 func mapProjectCollaborationAudit(m map[string]interface{}) *model.ProjectCollaborationAudit {
 	return &model.ProjectCollaborationAudit{ID: stringValue(m["id"]), ProjectID: stringValue(m["project_id"]), ActorUserID: stringValue(m["actor_user_id"]), TargetUserID: stringValue(m["target_user_id"]), Action: stringValue(m["action"]), PreviousRole: stringValue(m["previous_role"]), NextRole: stringValue(m["next_role"]), MetadataJSON: jsonStringValue(m["metadata_json"]), CreatedAt: timeValue(m["created_at"])}

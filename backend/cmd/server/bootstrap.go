@@ -124,6 +124,15 @@ func bootstrapApplication(cfg *config.Config) (*appBootstrap, error) {
 		return nil, err
 	}
 	services, containerMgr, projectFileSvc := initServices(cfg, repositories, supabaseClient)
+	if services.projectService != nil {
+		if err := services.projectService.RecoverPendingUserDeletionStaging(context.Background()); err != nil {
+			return nil, fmt.Errorf("recover pending user deletion staging: %w", err)
+		}
+		if err := services.projectService.ResumePendingProjectDeletions(context.Background()); err != nil {
+			return nil, fmt.Errorf("resume pending project deletions: %w", err)
+		}
+		services.projectService.StartContainerIdleReaper(context.Background())
+	}
 	capabilityProviderPreflight := buildCapabilityProviderPreflightSnapshot(cfg)
 	orchestrations := initOrchestrations(cfg, services, repositories)
 	handlers := initHandlers(repositories, services, orchestrations, cfg)
@@ -215,8 +224,13 @@ func initServices(cfg *config.Config, repositories repositorySet, supabaseClient
 		}
 	}
 
+	projectLifecycleCoordinator := service.NewProjectLifecycleCoordinator()
 	services.llmClient = initLLMClient(cfg, repositories.llmProviderRepo)
-	services.projectMessageService = service.NewProjectMessageService(repositories.chatRepo, repositories.engineeringStateRepo)
+	services.projectMessageService = service.NewProjectMessageServiceWithLifecycle(
+		repositories.chatRepo,
+		repositories.engineeringStateRepo,
+		projectLifecycleCoordinator,
+	)
 	if repositories.capabilityAuditQuery != nil {
 		services.capabilityAuditService = service.NewCapabilityExecutionAuditService(repositories.capabilityAuditQuery)
 	}
@@ -256,8 +270,8 @@ func initServices(cfg *config.Config, repositories repositorySet, supabaseClient
 			ContainerCfg:           &cfg.Container,
 			ProjectCfg:             &cfg.Project,
 			ProjectSecretCfg:       &cfg.ProjectSecrets,
+			LifecycleCoordinator:   projectLifecycleCoordinator,
 		})
-		services.projectService.StartContainerIdleReaper(context.Background())
 		if repositories.githubIntegrationRepo != nil {
 			services.githubIntegration = service.NewGitHubIntegrationService(
 				repositories.githubIntegrationRepo,
@@ -296,6 +310,7 @@ func initServices(cfg *config.Config, repositories repositorySet, supabaseClient
 			FileService:             projectFileSvc,
 			ContainerCfg:            &cfg.Container,
 			BrowserAcceptanceRunner: service.NewHTTPBrowserAcceptanceRunner(cfg.BrowserAcceptance.WorkerURL),
+			LifecycleCoordinator:    projectLifecycleCoordinator,
 		})
 	}
 
@@ -346,7 +361,11 @@ func initOrchestrations(cfg *config.Config, services serviceSet, repositories re
 		}
 	}
 	return orchestrationSet{
-		plan: orchestration.NewPlanOrchestrator(services.planService, services.genService),
+		plan: orchestration.NewPlanOrchestratorWithProjectService(
+			services.planService,
+			services.projectService,
+			services.genService,
+		),
 		generate: orchestration.NewGenerateOrchestratorWithOptions(services.genService, services.projectService, nil, stateRecorder, orchestration.GenerateOrchestratorOptions{
 			GenerationJobService: generationJobService,
 			CapabilityExecutor:   capabilityExecutor,
@@ -694,6 +713,7 @@ func initHandlers(repositories repositorySet, services serviceSet, orchestration
 			repositories.auditRepo,
 			repositories.adminRepo,
 			repositories.projectRepo,
+			services.projectService,
 		))
 	}
 

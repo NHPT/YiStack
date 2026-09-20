@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"yistack/internal/model"
@@ -114,5 +115,56 @@ func TestGetLatestEngineeringStateSnapshotPrefersProjectStateTable(t *testing.T)
 	}
 	if workflow["status"] != "new" {
 		t.Fatalf("expected project state table snapshot, got %v", workflow["status"])
+	}
+}
+
+func TestSaveProjectMessagesRejectsProjectDeletion(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	finishDeletion, _, err := coordinator.beginProjectDeletion(
+		context.Background(),
+		[]string{"project-1"},
+	)
+	if err != nil {
+		t.Fatalf("beginProjectDeletion() error = %v", err)
+	}
+	defer finishDeletion(false)
+
+	repo := &stubProjectMessageRepo{}
+	svc := NewProjectMessageServiceWithLifecycle(repo, nil, coordinator)
+	err = svc.SaveProjectMessages(
+		context.Background(),
+		"project-1",
+		"collaborator",
+		[]ProjectStoredMessage{{Role: "user", Content: "late message"}},
+	)
+	if !errors.Is(err, errProjectDeletionInProgress) {
+		t.Fatalf("SaveProjectMessages() error = %v, want deletion in progress", err)
+	}
+	if len(repo.messages) != 0 {
+		t.Fatalf("saved %d messages after project deletion started", len(repo.messages))
+	}
+}
+
+func TestSaveProjectMessagesRejectsActorDeletion(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	_, finishDeletion, err := coordinator.startUserDeletion("collaborator")
+	if err != nil {
+		t.Fatalf("startUserDeletion() error = %v", err)
+	}
+	defer finishDeletion(false)
+
+	repo := &stubProjectMessageRepo{}
+	svc := NewProjectMessageServiceWithLifecycle(repo, nil, coordinator)
+	err = svc.SaveProjectMessages(
+		context.Background(),
+		"project-1",
+		"collaborator",
+		[]ProjectStoredMessage{{Role: "user", Content: "late message"}},
+	)
+	if !errors.Is(err, errUserDeletionInProgress) {
+		t.Fatalf("SaveProjectMessages() error = %v, want user deletion in progress", err)
+	}
+	if len(repo.messages) != 0 {
+		t.Fatalf("saved %d messages after actor deletion started", len(repo.messages))
 	}
 }

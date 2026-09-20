@@ -61,6 +61,7 @@ const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = [
   'resource_alert_notification_unavailable',
   'resource_alert_notification_sent',
   'resource_alert_notification_failed',
+  'resource_alert_notification_uncertain',
   'resource_alert_notification_send_blocked',
   'resource_alert_notification_send_unavailable',
   'resource_alert_enforcement_ready',
@@ -69,6 +70,7 @@ const PROJECT_RESOURCE_SOURCE_STATUSES: ProjectListPageSnapshotStatusList = [
   'resource_alert_enforcement_unavailable',
   'resource_alert_enforcement_executed',
   'resource_alert_enforcement_failed',
+  'resource_alert_enforcement_uncertain',
   'resource_alert_enforcement_execute_blocked',
 ];
 
@@ -122,11 +124,13 @@ const PROJECT_LIST_WARNING_TONE_STATUSES: ProjectListPageSnapshotStatusList = [
   'resource_alert_notification_blocked',
   'resource_alert_notification_unavailable',
   'resource_alert_notification_failed',
+  'resource_alert_notification_uncertain',
   'resource_alert_notification_send_blocked',
   'resource_alert_notification_send_unavailable',
   'resource_alert_enforcement_blocked',
   'resource_alert_enforcement_unavailable',
   'resource_alert_enforcement_failed',
+  'resource_alert_enforcement_uncertain',
   'resource_alert_enforcement_execute_blocked',
   'backup_failed',
   'backup_blocked',
@@ -520,7 +524,9 @@ export function buildProjectListPageSnapshot({
                                                       ? '项目资源告警通知已发送，并已追加发送事件。'
                                                       : status === 'resource_alert_notification_failed'
                                                         ? '项目资源告警通知发送失败，失败事件已记录。'
-                                                        : status === 'resource_alert_notification_send_blocked'
+                                                        : status === 'resource_alert_notification_uncertain'
+                                                          ? '项目资源告警通知发送结果未确认，已阻止自动重放。'
+                                                          : status === 'resource_alert_notification_send_blocked'
                                                           ? '项目资源告警通知发送被 guard 阻断。'
                                                           : status === 'resource_alert_notification_send_unavailable'
                                                             ? '项目资源告警通知发送依赖的事件仓储不可用。'
@@ -536,7 +542,9 @@ export function buildProjectListPageSnapshot({
                                                                       ? '项目资源告警硬配额已受控执行，并已追加执行事件。'
                                                                       : status === 'resource_alert_enforcement_failed'
                                                                         ? '项目资源告警硬配额执行失败，停止容器结果未确认成功。'
-                                                                        : status === 'resource_alert_enforcement_execute_blocked'
+                                                                        : status === 'resource_alert_enforcement_uncertain'
+                                                                          ? '项目资源告警硬配额执行结果未确认，已阻止自动重放。'
+                                                                          : status === 'resource_alert_enforcement_execute_blocked'
                                                                           ? '项目资源告警硬配额执行被 guard 阻断。'
                                       : status === 'backup_failed'
                 ? '项目备份创建失败，备份产物未确认创建。'
@@ -667,7 +675,9 @@ export function buildProjectListPageSnapshot({
                                                       ? '可通过告警事件列表查证 notification_sent 事件；该入口不更新源告警事件、不重新评估资源。'
                                                       : status === 'resource_alert_notification_failed'
                                                         ? '检查 webhook provider、网络和目标服务；失败事件已追加，重试前确认候选事件仍可发送。'
-                                                        : status === 'resource_alert_notification_send_blocked'
+                                                        : status === 'resource_alert_notification_uncertain'
+                                                          ? '按 source_event_id 人工确认接收端结果；pending 意图解除前不要重复发送。'
+                                                          : status === 'resource_alert_notification_send_blocked'
                                                           ? '按通知发送 guard 提示处理确认参数、候选事件或重复发送证据后重试。'
                                                           : status === 'resource_alert_notification_send_unavailable'
                                                             ? '检查告警事件仓储配置后重试；当前不会降级为重新评估资源或直接执行硬配额。'
@@ -682,8 +692,10 @@ export function buildProjectListPageSnapshot({
                                                                     : status === 'resource_alert_enforcement_executed'
                                                                       ? '通过告警事件列表查证 enforcement_executed 事件，并刷新项目列表或 Runtime Health 确认容器最终状态。'
                                                                       : status === 'resource_alert_enforcement_failed'
-                                                                        ? '检查 StopProjectContainer 失败原因和容器状态；停止失败不会追加执行事件，可修复后重新执行。'
-                                                                        : status === 'resource_alert_enforcement_execute_blocked'
+                                                                        ? '检查停止容器失败原因和容器状态；enforcement_failed 已记录，可修复后重新执行。'
+                                                                        : status === 'resource_alert_enforcement_uncertain'
+                                                                          ? '人工确认容器与事件仓储状态；pending 意图解除前不要重复执行。'
+                                                                          : status === 'resource_alert_enforcement_execute_blocked'
                                                                           ? '按执行 guard 提示处理确认参数、候选事件漂移或重复执行证据后重试。'
                                       : status === 'backup_failed'
                 ? '稍后重试创建备份；失败不会改变项目代码、运行时或 Git 状态。'

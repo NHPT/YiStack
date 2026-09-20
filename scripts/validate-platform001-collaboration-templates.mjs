@@ -22,8 +22,9 @@ requireText('backend/internal/handler/github_integration_handler.go',['!decision
 requireText('backend/internal/handler/project_deployment_handler.go',['!decision.CanManage()']);
 requireText('backend/internal/service/project_collaboration_service.go',[
  'member_confirmation_required','project_owner_required','ProjectMemberRoleViewer','ProjectMemberRoleEditor',
- 'normalizeTemplateFiles','templateChecksum','template_current_version_conflict','cleanupTemplateProject',
+ 'normalizeTemplateFiles','templateChecksum','template_current_version_conflict','rollbackTemplateProjectCreation',
  'commitOfficialTemplateProject','Initialize from official template','EnsureBuiltinTemplates',
+ 'BeginCancellableUserProjectOperation','BeginProjectMutationContext','createProjectWithoutRecentReuseUnderUserOperation',
 ]);
 requireText('backend/internal/repository/project_collaboration_repository.go',['Transaction(func(tx *gorm.DB)','stored.CurrentVersionID != audit.ExpectedCurrentVersion']);
 requireText('backend/pkg/supabase/project_collaboration_repository.go',['rpc/mutate_project_member','rpc/publish_official_project_template_version','rpc/rollback_official_project_template_version']);
@@ -34,6 +35,9 @@ requireText('backend/cmd/server/main.go',[
 requireText('backend/internal/service/project_collaboration_service_test.go',[
  'TestProjectCollaborationMemberLifecycleAndRoles','TestProjectCollaborationRejectsUnconfirmedAndNonOwnerMutation',
  'TestOfficialTemplateVersionPublishAndRollback','TestOfficialTemplateRejectsUnsafePathAndTamperedChecksum',
+ 'TestCreateProjectFromTemplateHoldsUserLeaseThroughMaterialization',
+ 'TestCreateProjectFromTemplateDoesNotReuseOrDeleteExistingProject',
+ 'TestCreateProjectFromTemplateRestoresWorkspaceWhenCompensatingDeleteFails',
 ]);
 requireText('src/app/projects/[id]/collaboration/page.tsx',['项目协作','成员与权限','成员审计']);
 requireText('src/app/templates/page.tsx',['官方模板','使用此版本创建项目']);

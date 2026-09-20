@@ -679,7 +679,7 @@ Admin `/admin/enterprise` 前端页面对 `POST /api/admin/enterprise/organizati
 
 ### DELETE `/api/admin/users/:id`
 
-软删除用户。
+永久删除普通用户。
 
 **鉴权**
 
@@ -692,9 +692,11 @@ Admin `/admin/enterprise` 前端页面对 `POST /api/admin/enterprise/organizati
 
 **说明**
 
-- 当前实现是将用户状态改为 `deleted`
-- 不是物理删除数据库行
-- 前端 Admin Users 页面必须将 `deleted` 作为合法 read-side 状态展示，不应归类为 unknown 枚举漂移
+- 先清理该用户全部项目（包括旧软删除项目）的容器、网络、终端会话、项目工作区和本地项目备份
+- 随后在单个数据库事务中物理删除用户、所属项目以及关联业务记录
+- 任一本地项目资源清理失败时不会提交数据库删除，便于修复后重试
+- 已存在的 `deleted` 状态属于旧版本兼容数据，仍可通过该接口永久删除
+- 外部 GitHub、Vercel 或对象存储中的资源不在本接口清理范围内
 
 **成功响应示例**
 
@@ -800,7 +802,8 @@ Admin `/admin/enterprise` 前端页面对 `POST /api/admin/enterprise/organizati
 - 当前实现已补 owner 校验
 - 删除请求返回 `202 Accepted`，先将项目标记为软删除，并返回 `deletion_status=accepted`、`cleanup_status=background_cleanup_pending`、`cleanup_strategy=soft_delete_then_async_cleanup`、`cleanup_scope`、`restore_window_seconds` 和 `can_restore`
 - 后台资源清理会先等待软删除恢复窗口；窗口内用户可通过 `POST /api/project/:id/restore` 显式恢复项目记录
-- 窗口结束且未恢复时，后台清理聊天记录、项目目录、容器运行资源、文件服务缓存、生成文件元数据、Git 提交记录、工程状态和能力执行审计，最终执行硬删除
+- 窗口结束且未恢复时，后台清理聊天记录、项目目录、容器运行资源、本地与远端备份、文件服务缓存、生成文件元数据、Git 提交记录、工程状态和能力执行审计，最终执行硬删除；远端对象会先复制到带持久化恢复清单的隔离前缀，校验 CopyObject XML 响应且 HEAD 确认目标副本后才删除源对象，数据库删除失败或进程重启时恢复；远端对象 staging 或清理失败会阻止最终硬删除
+- 一旦进入破坏性清理阶段，清理或最终硬删除失败会保持项目软删除和删除屏障并持续重试；不会重新展示已部分清理的项目，进程重启后也会继续未完成清理
 
 ### POST `/api/project/:id/restore`
 
@@ -1130,9 +1133,9 @@ Admin `/admin/enterprise` 前端页面对 `POST /api/admin/enterprise/organizati
 - 服务层先复用 `GET /api/project/:id/resource-alert-notification-readiness` 的结果，只有 readiness `status=ready` 且最近 `created` 候选事件仍匹配时才允许发送
 - 当前仅支持内部配置的 `provider=webhook`，webhook URL 只在服务端用于 HTTP POST，不会写入响应、前端提示或发送结果事件消息
 - webhook payload 只包含项目 ID、源告警事件 ID、评估 ID、readiness 状态、触发阈值、全部阈值、源事件时间和消息等非敏感事实
-- 同一候选事件已有 `notification_sent` 记录时返回 `status=blocked`，不会重复访问 webhook
-- webhook 返回 2xx 时追加 append-only `notification_sent` 事件；请求失败或非 2xx 时追加 append-only `notification_failed` 事件，并返回脱敏失败说明
-- 返回字段包括 `status=sent/failed/blocked/empty/disabled/unavailable`、`provider`、`webhook_configured`、`notification_sent`、`notification_event_created`、`notification_event_id`、`candidate_event_id`、`candidate_evaluation_id`、`http_status_code`、嵌入 readiness、提示和恢复建议
+- 发送前必须在同一数据库事务/RPC 中完成 `project_resource_alert_action_claims` 原子 claim 与 `notification_pending` 意图写入；任一步失败都会整体回滚；跨实例同时请求时只有 claim 成功者可访问 webhook；同一候选事件已有 `notification_sent` 或尚未收口的 `notification_pending` 时不会重复访问 webhook
+- webhook 返回 2xx 时通过独立有界上下文追加 `notification_sent`；明确的非 2xx 追加 `notification_failed`，网络结果未知或成功结果落库失败时保留 pending 并返回 `status=uncertain`，禁止自动重放
+- 返回字段包括 `status=sent/failed/uncertain/blocked/empty/disabled/unavailable`、`provider`、`webhook_configured`、`notification_sent`、`notification_event_created`、`notification_event_id`、`candidate_event_id`、`candidate_evaluation_id`、`http_status_code`、嵌入 readiness、提示和恢复建议
 - 该接口不更新源告警事件、不重新评估资源、不执行硬配额限制、不启动或停止容器、不写项目目录、不执行 Git 操作
 
 ### GET `/api/project/:id/resource-alert-enforcement-readiness`
@@ -1161,10 +1164,10 @@ Admin `/admin/enterprise` 前端页面对 `POST /api/admin/enterprise/organizati
 - 服务层会重新读取 `GET /api/project/:id/resource-alert-enforcement-readiness` 的结果；只有 readiness `status=ready` 且 `would_enforce=true` 时才会继续
 - 当前执行入口只允许 `enforcement_mode=stop_container`
 - 执行前会重新读取最近 `status=created` 候选事件，并要求候选事件 ID 仍等于 readiness 返回的 `candidate_event_id`；候选变化时返回 `status=blocked`，不会停止容器
-- 同一候选事件已有 `enforcement_executed` append-only 记录时返回 `status=blocked`，不会重复停止容器
-- 通过 guard 后复用既有 `StopProjectContainer` 受控停止链路；只有停止成功后才追加 `enforcement_executed` 事件
-- 停止失败时返回 `status=failed` 和 `stop_result`，不会追加 `enforcement_executed` 事件
-- 返回字段包括 `status=executed/failed/blocked/disabled/empty/unavailable`、`enforcement_executed`、`enforcement_event_created`、`enforcement_event_id`、候选事件摘要、`mode`、嵌入 readiness、`stop_result`、提示和恢复建议
+- 执行前必须在同一数据库事务/RPC 中完成 `project_resource_alert_action_claims` 原子 claim 与 `enforcement_pending` 意图写入；任一步失败都会整体回滚；跨实例同时请求时只有 claim 成功者可停止容器；同一候选事件已有 `enforcement_executed` 或尚未收口的 `enforcement_pending` 时不会重复停止容器
+- 通过 guard 后复用既有停止容器链路；停止成功后通过独立有界上下文追加 `enforcement_executed`，成功结果落库失败时保留 pending 并返回 `status=uncertain`
+- 明确停止失败时追加 `enforcement_failed` 并返回 `status=failed`；取消导致停止结果未知时保留 pending 并返回 `status=uncertain`，不会自动重放
+- 返回字段包括 `status=executed/failed/uncertain/blocked/disabled/empty/unavailable`、`enforcement_executed`、`enforcement_event_created`、`enforcement_event_id`、候选事件摘要、`mode`、嵌入 readiness、`stop_result`、提示和恢复建议
 - 该接口不更新源告警事件、不重新评估资源、不写项目目录、不执行 Git 操作；唯一允许的运行时动作是通过既有受控链路停止项目容器，并在成功后写入 append-only 执行证据
 
 ### GET `/api/project/:id/backups`

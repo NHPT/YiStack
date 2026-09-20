@@ -107,6 +107,7 @@ func main() {
 		bootstrap.handlers.adminAuthHandler,
 		bootstrap.handlers.llmProviderHandler,
 		bootstrap.repositories.userRepo,
+		bootstrap.services.projectService,
 		bootstrap.repositories.adminRepo,
 		healthDB,
 		bootstrap.capabilityProviderPreflight,
@@ -226,6 +227,7 @@ func migrateDatabase(db *gorm.DB, autoMigrate bool) error {
 		&model.ProjectEngineeringState{},
 		&model.ProjectCapabilityExecutionAudit{},
 		&model.ProjectResourceAlertEvent{},
+		&model.ProjectResourceAlertActionClaim{},
 		&model.GenerationJob{},
 		&model.GenerationAttempt{},
 		&model.GenerationEvent{},
@@ -398,6 +400,7 @@ func registerRoutes(
 	adminAuthHandler *handler.AdminAuthHandler,
 	llmProviderHandler *handler.LLMProviderHandler,
 	userRepo service.UserRepo,
+	userOperationGate middleware.AuthUserOperationGate,
 	adminRepo service.AdminRepo,
 	healthDB *gorm.DB,
 	capabilityProviderPreflight capabilityProviderPreflightSnapshot,
@@ -445,7 +448,7 @@ func registerRoutes(
 
 	// Auth 路由（需要认证）
 	authProtected := api.Group("/auth")
-	authProtected.Use(middleware.Auth(middleware.NewUserAuthConfig(jwtCfg, userRepo)))
+	authProtected.Use(middleware.Auth(middleware.NewUserAuthConfigWithOperationGate(jwtCfg, userRepo, userOperationGate)))
 	authProtected.GET("/profile", authHandler.GetProfile)
 	authProtected.PUT("/profile", authHandler.UpdateProfile)
 	authProtected.POST("/change-password", authHandler.ChangePassword)
@@ -466,13 +469,13 @@ func registerRoutes(
 	chat := api.Group("/chat")
 	chat.GET("/models", modelsHandler.GetModels)
 	chatProtected := api.Group("/chat")
-	chatProtected.Use(middleware.Auth(middleware.NewUserAuthConfig(jwtCfg, userRepo)))
+	chatProtected.Use(middleware.Auth(middleware.NewUserAuthConfigWithOperationGate(jwtCfg, userRepo, userOperationGate)))
 	chatProtected.POST("/generate", generateHandler.Generate)
 
 	api.GET("/github/oauth/callback", githubHandler.CompleteOAuth)
 	api.POST("/github/webhook", githubHandler.Webhook)
 	githubProtected := api.Group("/github")
-	githubProtected.Use(middleware.Auth(middleware.NewUserAuthConfig(jwtCfg, userRepo)))
+	githubProtected.Use(middleware.Auth(middleware.NewUserAuthConfigWithOperationGate(jwtCfg, userRepo, userOperationGate)))
 	githubProtected.GET("/connection", githubHandler.GetConnection)
 	githubProtected.POST("/oauth/start", githubHandler.StartOAuth)
 	githubProtected.DELETE("/connection", githubHandler.Disconnect)
@@ -482,7 +485,7 @@ func registerRoutes(
 
 	// Project 路由（需要用户认证）
 	project := api.Group("/project")
-	project.Use(middleware.Auth(middleware.NewUserAuthConfig(jwtCfg, userRepo)))
+	project.Use(middleware.Auth(middleware.NewUserAuthConfigWithOperationGate(jwtCfg, userRepo, userOperationGate)))
 	project.POST("/create", projectHandler.Create)
 	project.GET("/list", projectHandler.List)
 	project.GET("/templates", collaborationHandler.ListTemplates)

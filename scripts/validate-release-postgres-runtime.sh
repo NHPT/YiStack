@@ -16,7 +16,11 @@ for required_file in \
   database/init.sql \
   database/migrations/manifest.json \
   database/migrations/202609070001_migration_integrity.sql \
+  database/migrations/202609190001_admin_user_hard_delete.sql \
+  database/migrations/202609190002_resource_alert_action_claims.sql \
   database/migrations/rollback/202609070001_migration_integrity.sql \
+  database/migrations/rollback/202609190001_admin_user_hard_delete.sql \
+  database/migrations/rollback/202609190002_resource_alert_action_claims.sql \
   database/postgres-auth-compat.sql; do
   if [ ! -f "$PACKAGE_ROOT/$required_file" ]; then
     echo "Release directory is missing $required_file" >&2
@@ -42,6 +46,7 @@ register_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-register.XXXXXX")"
 admin_login_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-login.XXXXXX")"
 admin_password_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-password.XXXXXX")"
 admin_user_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-user.XXXXXX")"
+admin_user_delete_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-user-delete.XXXXXX")"
 admin_audit_body="$(mktemp "${TMPDIR:-/tmp}/yistack-release-admin-audit.XXXXXX")"
 provider_update_body_a="$(mktemp "${TMPDIR:-/tmp}/yistack-release-provider-update-a.XXXXXX")"
 provider_update_body_b="$(mktemp "${TMPDIR:-/tmp}/yistack-release-provider-update-b.XXXXXX")"
@@ -53,6 +58,9 @@ supervisor_pid=""
 port_offset="$((RANDOM % 500))"
 postgres_port="$((55000 + port_offset))"
 backend_port="$((56000 + port_offset))"
+admin_delete_project_id="admin-delete-project"
+admin_delete_project_root="$ephemeral_root/admin-delete-projects"
+admin_delete_backup_root="$ephemeral_root/admin-delete-backups"
 
 cleanup() {
   if [ -n "$backend_pid" ]; then
@@ -75,6 +83,7 @@ cleanup() {
     "$admin_login_body" \
     "$admin_password_body" \
     "$admin_user_body" \
+    "$admin_user_delete_body" \
     "$admin_audit_body" \
     "$provider_update_body_a" \
     "$provider_update_body_b" \
@@ -129,6 +138,22 @@ run_package_database() {
 
 podman exec "$container_name" \
   psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "DELETE FROM public.schema_migrations WHERE version = '202609190002_resource_alert_action_claims';" \
+  >/dev/null
+podman exec -i "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  < "$PACKAGE_ROOT/database/migrations/rollback/202609190002_resource_alert_action_claims.sql" \
+  >/dev/null
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "DELETE FROM public.schema_migrations WHERE version = '202609190001_admin_user_hard_delete';" \
+  >/dev/null
+podman exec -i "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  < "$PACKAGE_ROOT/database/migrations/rollback/202609190001_admin_user_hard_delete.sql" \
+  >/dev/null
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
   -c "DELETE FROM public.schema_migrations WHERE version = '202609070001_migration_integrity';" \
   >/dev/null
 podman exec -i "$container_name" \
@@ -166,7 +191,7 @@ migration_contract="$(
              AND table_name = 'schema_migrations'
              AND column_name = 'checksum_sha256');"
 )"
-if [ "$migration_contract" != "2:1:1" ]; then
+if [ "$migration_contract" != "4:1:1" ]; then
   echo "Unexpected packaged migration contract: $migration_contract" >&2
   exit 1
 fi
@@ -233,7 +258,7 @@ backup_restore_contract="$(
              AND column_name = 'upgrade_restore_probe') || ':' ||
           (SELECT count(*) FROM public.schema_migrations);"
 )"
-if [ "$backup_restore_contract" != "backup-original@example.test:0:2" ]; then
+if [ "$backup_restore_contract" != "backup-original@example.test:0:4" ]; then
   echo "Unexpected database backup restore contract: $backup_restore_contract" >&2
   exit 1
 fi
@@ -266,6 +291,8 @@ DB_SSL_MODE=disable \
 JWT_SECRET=release-runtime-jwt-secret-0123456789abcdef \
 CONTAINER_ENABLED=false \
 CONTAINER_PREVIEW_PORT=0 \
+CONTAINER_PROJECT_DIR="$admin_delete_project_root" \
+PROJECT_BACKUP_DIR="$admin_delete_backup_root" \
 YISTACK_MIGRATIONS_DIR="$PACKAGE_ROOT/database/migrations" \
 YISTACK_SKIP_DOTENV=true \
   "$PACKAGE_ROOT/bin/yistack-server" >"$backend_log" 2>&1 &
@@ -490,10 +517,76 @@ if [ "$provider_default_contract" != "1:2" ]; then
   exit 1
 fi
 
+mkdir -p \
+  "$admin_delete_project_root/$admin_delete_project_id" \
+  "$admin_delete_backup_root/$admin_delete_project_id"
+printf 'project workspace\n' \
+  > "$admin_delete_project_root/$admin_delete_project_id/app.txt"
+printf 'project backup\n' \
+  > "$admin_delete_backup_root/$admin_delete_project_id/snapshot.tar.gz"
+podman exec "$container_name" \
+  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "INSERT INTO public.projects (
+        user_id, project_id, name, directory_path, deleted_at
+      ) VALUES (
+        '$ephemeral_user_id',
+        '$admin_delete_project_id',
+        'Administrator delete project',
+        '$admin_delete_project_root/$admin_delete_project_id',
+        now()
+      );
+      INSERT INTO public.project_files (project_id, path, content)
+      VALUES ('$admin_delete_project_id', 'app.txt', 'project workspace');" \
+  >/dev/null
+
+admin_user_delete_status="$(curl --silent --show-error \
+  --output "$admin_user_delete_body" \
+  --write-out '%{http_code}' \
+  --request DELETE \
+  --header "authorization: Bearer $admin_token" \
+  "http://127.0.0.1:$backend_port/api/admin/users/$ephemeral_user_id")"
+if [ "$admin_user_delete_status" != "200" ]; then
+  echo "Administrator user deletion returned HTTP $admin_user_delete_status:" >&2
+  cat "$admin_user_delete_body" >&2
+  exit 1
+fi
+admin_user_delete_contract="$(podman exec "$container_name" \
+  psql --quiet -At -v ON_ERROR_STOP=1 -U postgres -d yistack \
+  -c "SELECT
+        (SELECT count(*) FROM public.users WHERE id = '$ephemeral_user_id')
+        || ':' ||
+        (SELECT count(*) FROM public.projects WHERE project_id = '$admin_delete_project_id')
+        || ':' ||
+        (SELECT count(*) FROM public.project_files WHERE project_id = '$admin_delete_project_id');")"
+[ "$admin_user_delete_contract" = "0:0:0" ] || {
+  echo "Administrator user deletion retained database data: $admin_user_delete_contract" >&2
+  exit 1
+}
+for deleted_path in \
+  "$admin_delete_project_root/$admin_delete_project_id" \
+  "$admin_delete_backup_root/$admin_delete_project_id"; do
+  [ ! -e "$deleted_path" ] || {
+    echo "Administrator user deletion retained local project data: $deleted_path" >&2
+    exit 1
+  }
+done
+admin_audit_status="$(curl --silent --show-error \
+  --output "$admin_audit_body" \
+  --write-out '%{http_code}' \
+  --header "authorization: Bearer $admin_token" \
+  "http://127.0.0.1:$backend_port/api/admin/audit?limit=10")"
+if [ "$admin_audit_status" != "200" ] ||
+  ! grep -q '"action":"delete_user"' "$admin_audit_body" ||
+  ! grep -q "\"target_id\":\"$ephemeral_user_id\"" "$admin_audit_body"; then
+  echo "PostgreSQL administrator user deletion audit validation failed:" >&2
+  cat "$admin_audit_body" >&2
+  exit 1
+fi
+
 schema_contract="$(podman exec "$container_name" \
   psql -At -U postgres -d yistack \
   -c "SELECT (SELECT count(*) FROM public.schema_migrations) || ':' || (SELECT data_type || ':' || is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'instance_id');")"
-if [ "$schema_contract" != "2:uuid:YES" ]; then
+if [ "$schema_contract" != "4:uuid:YES" ]; then
   echo "Unexpected release database contract: $schema_contract" >&2
   exit 1
 fi
@@ -529,6 +622,7 @@ mkdir -p \
   "$ephemeral_data/runtime/projects" \
   "$ephemeral_data/runtime/templates/protected-template" \
   "$ephemeral_data/runtime/container-data" \
+  "$ephemeral_data/runtime/backups" \
   "$ephemeral_data/runtime/generation-evidence" \
   "$ephemeral_data/ms-playwright/protected-browser" \
   "$ephemeral_log" \
@@ -571,6 +665,7 @@ YISTACK_CACHE_DIR=$ephemeral_cache
 CONTAINER_PROJECT_DIR=$ephemeral_data/runtime/projects
 CONTAINER_TEMPLATE_DIR=$ephemeral_data/runtime/templates
 CONTAINER_DATA_DIR=$ephemeral_data/runtime/container-data
+PROJECT_BACKUP_DIR=$ephemeral_data/runtime/backups
 YISTACK_BROWSER_EVIDENCE_DIR=$ephemeral_data/runtime/generation-evidence
 PLAYWRIGHT_BROWSERS_PATH=$ephemeral_data/ms-playwright
 EOF
@@ -603,31 +698,24 @@ kill "$backend_pid"
 wait "$backend_pid" || true
 backend_pid=""
 
-if run_ephemeral_maintenance snapshot > "$ephemeral_root/dirty-baseline.out" 2>&1; then
-  echo "Ephemeral experience snapshot accepted registered user data." >&2
-  exit 1
-fi
-grep -q 'database contains user data' "$ephemeral_root/dirty-baseline.out" || {
-  echo "Ephemeral experience snapshot did not explain the clean-baseline requirement." >&2
-  cat "$ephemeral_root/dirty-baseline.out" >&2
-  exit 1
-}
-podman exec "$container_name" \
-  psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
-  -c "DELETE FROM public.users WHERE id = '$ephemeral_user_id';"
-run_ephemeral_maintenance snapshot
-
 podman exec "$container_name" \
   psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
   -c "INSERT INTO public.users (id, email, username, password_hash) VALUES ('$ephemeral_user_id', 'ephemeral-user@example.test', 'ephemeral-user', 'runtime-test-hash'); INSERT INTO public.projects (user_id, project_id, name, directory_path) VALUES ('$ephemeral_user_id', '$ephemeral_project_id', 'Ephemeral user project', '$ephemeral_data/runtime/projects/$ephemeral_project_id');"
 mkdir -p "$ephemeral_data/runtime/projects/$ephemeral_project_id"
 printf 'user-workspace\n' > "$ephemeral_data/runtime/projects/$ephemeral_project_id/app.txt"
+mkdir -p "$ephemeral_data/runtime/backups/$ephemeral_project_id"
+printf 'project-backup\n' > "$ephemeral_data/runtime/backups/$ephemeral_project_id/project.tar.gz"
 printf 'container-state\n' > "$ephemeral_data/runtime/container-data/state.json"
 printf 'generation-evidence\n' > "$ephemeral_data/runtime/generation-evidence/evidence.txt"
 printf 'cache-data\n' > "$ephemeral_cache/cache.txt"
 printf 'managed-log\n' > "$ephemeral_log/application.log"
 podman exec "$container_name" psql -v ON_ERROR_STOP=1 -U postgres -d yistack \
   -c "INSERT INTO public.chat_messages (project_id, user_id, role, content) VALUES ('$ephemeral_project_id', '$ephemeral_user_id', 'user', 'ephemeral user content');"
+run_ephemeral_maintenance snapshot
+[ -f "$ephemeral_data/runtime/projects/$ephemeral_project_id/app.txt" ] || {
+  echo "Ephemeral experience snapshot modified the live project workspace." >&2
+  exit 1
+}
 run_ephemeral_maintenance reset
 
 [ "$(cat "$ephemeral_data/runtime/templates/protected-template/template.txt")" = "runtime-template" ] || {
@@ -640,6 +728,7 @@ run_ephemeral_maintenance reset
 }
 for cleared_path in \
   "$ephemeral_data/runtime/projects/$ephemeral_project_id" \
+  "$ephemeral_data/runtime/backups/$ephemeral_project_id" \
   "$ephemeral_data/runtime/container-data/state.json" \
   "$ephemeral_data/runtime/generation-evidence/evidence.txt" \
   "$ephemeral_cache/cache.txt" \

@@ -53,7 +53,7 @@ function toEditableAdminUserStatus(value: string): AdminUserMutableStatus {
 }
 
 function hasAdminUserDeleteAvailable(user: AdminUser): boolean {
-  return user.status !== 'deleted';
+  return user.id.trim().length > 0;
 }
 
 function getAdminUserOptionalLabel(value: string | undefined | null): string {
@@ -144,7 +144,7 @@ function getAdminUserSaveConfirmationDescription(editing: EditingUserState | nul
 function getAdminUserDeleteConfirmationDescription(pendingDelete: DeletingUserState | null): string {
   const hasPendingDelete = pendingDelete !== null;
   return hasPendingDelete === true
-    ? `确定要删除用户 ${pendingDelete.email} 吗？当前实现会将用户状态标记为 deleted。`
+    ? `确定要永久删除用户 ${pendingDelete.email} 及其关联项目和业务数据吗？此操作不可撤销。`
     : '确定要删除当前用户吗？';
 }
 

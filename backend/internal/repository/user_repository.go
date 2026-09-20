@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -56,7 +57,34 @@ func (r *UserRepository) FindByUsername(ctx context.Context, username string) (*
 
 // Update 更新用户
 func (r *UserRepository) Update(ctx context.Context, user *model.User) error {
-	return r.db.WithContext(ctx).Save(user).Error
+	if user == nil {
+		return gorm.ErrInvalidData
+	}
+	result := r.db.WithContext(ctx).
+		Model(&model.User{}).
+		Where("id = ?", user.ID).
+		Updates(map[string]interface{}{
+			"email":           user.Email,
+			"password_hash":   user.PasswordHash,
+			"username":        user.Username,
+			"avatar_url":      user.AvatarURL,
+			"role":            user.Role,
+			"status":          user.Status,
+			"email_verified":  user.EmailVerified,
+			"plan":            user.Plan,
+			"llm_model":       user.LLMModel,
+			"llm_temperature": user.LLMTemperature,
+			"llm_max_tokens":  user.LLMMaxTokens,
+			"instance_id":     user.InstanceID,
+			"updated_at":      time.Now(),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // UpdateLLMConfig 更新用户 LLM 配置
@@ -66,6 +94,19 @@ func (r *UserRepository) UpdateLLMConfig(ctx context.Context, userID string, llm
 		"llm_temperature": temperature,
 		"llm_max_tokens":  maxTokens,
 	}).Error
+}
+
+// Delete permanently removes a regular user and all related business records.
+func (r *UserRepository) Delete(ctx context.Context, userID string) error {
+	return r.db.WithContext(ctx).Exec("SELECT public.admin_delete_user(?)", userID).Error
+}
+
+// DeleteWithAudit permanently removes a regular user and writes the administrator audit atomically.
+func (r *UserRepository) DeleteWithAudit(ctx context.Context, userID, adminID, detail, ipAddress string) error {
+	return r.db.WithContext(ctx).Exec(
+		"SELECT public.admin_delete_user_with_audit(?, ?, ?, ?)",
+		userID, adminID, detail, ipAddress,
+	).Error
 }
 
 // List 查询用户列表
