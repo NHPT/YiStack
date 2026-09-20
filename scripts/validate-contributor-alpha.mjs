@@ -85,9 +85,14 @@ const requiredFiles = [
   'backend/migrations/000000000000_contributor_alpha.sql',
   'backend/migrations/rollback/000000000000_contributor_alpha.sql',
   'backend/migrations/202609070001_migration_integrity.sql',
+  'backend/migrations/202609190001_admin_user_hard_delete.sql',
+  'backend/migrations/202609190002_resource_alert_action_claims.sql',
   'backend/migrations/manifest.json',
   'backend/migrations/rollback/202609070001_migration_integrity.sql',
+  'backend/migrations/rollback/202609190001_admin_user_hard_delete.sql',
+  'backend/migrations/rollback/202609190002_resource_alert_action_claims.sql',
   'backend/internal/migration/runner.go',
+  'backend/internal/service/project_remote_backup_deletion.go',
 ];
 
 for (const relativePath of requiredFiles) {
@@ -102,7 +107,7 @@ assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 assert.equal(read('.nvmrc').trim(), '22');
 
 const packageJSON = JSON.parse(read('package.json'));
-assert.equal(packageJSON.version, '1.1.9');
+assert.equal(packageJSON.version, '1.1.10');
 assert.match(packageJSON.description, /开源 AI 工程工作台/);
 assert.equal(packageJSON.repository.url, 'git+https://github.com/NHPT/YiStack.git');
 assert.equal(packageJSON.bugs.url, 'https://github.com/NHPT/YiStack/issues');
@@ -156,8 +161,8 @@ for (const [name, source] of [
   assert.match(source, /Apache-2\.0|Apache License 2\.0/, `${name} must name Apache-2.0`);
   assert.doesNotMatch(source, /MIT License/, `${name} must not claim MIT`);
 }
-assert.match(readme, /当前版本：\*\*v1\.1\.9\*\*/);
-assert.match(readmeEnglish, /Current release: \*\*v1\.1\.9\*\*/);
+assert.match(readme, /当前版本：\*\*v1\.1\.10\*\*/);
+assert.match(readmeEnglish, /Current release: \*\*v1\.1\.10\*\*/);
 assert.match(changelog, /## \[1\.1\.9\] - 2026-09-18/);
 assert.match(changelogEnglish, /## \[1\.1\.9\] - 2026-09-18/);
 assert.match(changelog, /## \[1\.1\.5\] - 2026-09-10/);
@@ -414,6 +419,11 @@ assert.match(
   /name: Set up Go[\s\S]*go-version:\s+1\.26\.6[\s\S]*cache-dependency-path:\s+backend\/go\.sum[\s\S]*name: Install Gitleaks[\s\S]*go install github\.com\/zricethezav\/gitleaks\/v8@v8\.30\.1/,
   'CI must use the Go 1.26.6 project baseline to build Gitleaks and YiStack',
 );
+assert.match(
+  workflow,
+  /name: Deployment package acceptance[\s\S]*VERSION:\s+v1\.1\.10[\s\S]*yistack-v1\.1\.10-linux-amd64\.tar\.gz/,
+  'CI deployment acceptance must build and validate the current public release version',
+);
 
 for (const action of [
   'actions/checkout@v6',
@@ -555,7 +565,7 @@ assert.match(
 );
 assert.match(
   postgresRuntimeValidation,
-  /snapshot[\s\S]*INSERT INTO public\.users[\s\S]*run_ephemeral_maintenance reset[\s\S]*SELECT count\(\*\) FROM public\.users[\s\S]*SELECT count\(\*\) FROM public\.projects/,
+  /INSERT INTO public\.users[\s\S]*run_ephemeral_maintenance snapshot[\s\S]*run_ephemeral_maintenance reset[\s\S]*SELECT count\(\*\) FROM public\.users[\s\S]*SELECT count\(\*\) FROM public\.projects/,
   'release validation must prove that the clean baseline removes user and project data',
 );
 assert.match(
@@ -588,18 +598,18 @@ assert.match(
 );
 assert.match(
   ephemeralMaintenance,
-  /schema=ephemeral-experience-baseline\.v1[\s\S]*user_data_policy=empty/,
-  'ephemeral experience baselines must declare the empty user-data policy',
+  /schema=ephemeral-experience-baseline\.v2[\s\S]*user_data_policy=excluded/,
+  'ephemeral experience baselines must declare the excluded user-data policy',
 );
 assert.match(
   ephemeralMaintenance,
-  /list_user_data_rows\(\)[\s\S]*public\.users[\s\S]*public\.projects[\s\S]*public\.project_collaboration_events/,
-  'ephemeral experience snapshots must inspect all user and project data domains',
+  /EPHEMERAL_USER_DATA_TABLES=\([\s\S]*users[\s\S]*projects[\s\S]*project_resource_alert_events[\s\S]*project_resource_alert_action_claims[\s\S]*project_collaboration_events[\s\S]*--exclude-table-data=public\.\$table/,
+  'ephemeral experience snapshots must exclude all user and project data domains',
 );
 assert.match(
   ephemeralMaintenance,
-  /reset_to_baseline\(\)[\s\S]*remove_all_project_resources[\s\S]*restore_database[\s\S]*restore_workspaces[\s\S]*clear_directory_contents "\$LOG_DIR"/,
-  'daily restoration must clear project resources, user state, caches, evidence, and managed logs',
+  /reset_to_baseline\(\)[\s\S]*remove_all_project_resources[\s\S]*restore_database[\s\S]*restore_workspaces[\s\S]*clear_directory_contents "\$PROJECT_BACKUP_ROOT"[\s\S]*clear_directory_contents "\$LOG_DIR"/,
+  'daily restoration must clear project resources, user state, local backups, caches, evidence, and managed logs',
 );
 assert.match(
   ephemeralMaintenance,
@@ -618,7 +628,7 @@ assert.match(
 );
 assert.match(
   ephemeralMaintenance,
-  /apply_timer_schedule\(\)[\s\S]*validate_timer_setting[\s\S]*write_timer_override[\s\S]*systemctl daemon-reload/,
+  /apply_timer_schedule\(\)[\s\S]*validate_timer_setting[\s\S]*write_timer_override[\s\S]*"\$SYSTEMCTL_BIN" daemon-reload/,
   'ephemeral experience timer schedules must be validated and applied through systemd drop-ins',
 );
 assert.doesNotMatch(
@@ -698,14 +708,21 @@ assert.ok(rollbackBaseline.includes('cannot remove baseline while later migratio
 assert.ok(rollbackBaseline.includes('DELETE FROM public.schema_migrations'));
 
 const migrationManifest = JSON.parse(read('backend/migrations/manifest.json'));
+const adminUserHardDeleteMigration = read('backend/migrations/202609190001_admin_user_hard_delete.sql');
+const resourceAlertActionClaimsMigration = read('backend/migrations/202609190002_resource_alert_action_claims.sql');
+const adminConsoleUserService = read('backend/internal/service/admin_console_user_service.go');
+const gormUserRepository = read('backend/internal/repository/user_repository.go');
+const supabaseRepository = read('backend/pkg/supabase/repository.go');
 assert.equal(migrationManifest.schema, 'yistack.database-migrations.v1');
 assert.equal(migrationManifest.baseline_version, '000000000000_contributor_alpha');
-assert.equal(migrationManifest.latest_version, '202609070001_migration_integrity');
+assert.equal(migrationManifest.latest_version, '202609190002_resource_alert_action_claims');
 assert.deepEqual(
   migrationManifest.migrations.map((entry) => entry.version),
   [
     '000000000000_contributor_alpha',
     '202609070001_migration_integrity',
+    '202609190001_admin_user_hard_delete',
+    '202609190002_resource_alert_action_claims',
   ],
 );
 for (const entry of migrationManifest.migrations) {
@@ -728,7 +745,46 @@ for (const entry of migrationManifest.migrations) {
     assert.ok(entry.irreversible_recovery, `missing recovery steps: ${entry.version}`);
   }
 }
+assert.match(
+  resourceAlertActionClaimsMigration,
+  /PRIMARY KEY \(project_id, source_event_id, action\)[\s\S]*CREATE OR REPLACE FUNCTION public\.claim_project_resource_alert_action[\s\S]*ON CONFLICT \(project_id, source_event_id, action\) DO NOTHING/,
+  'resource alert side effects must use a database-level unique atomic claim',
+);
+assert.match(
+  supabaseRepository,
+  /rpc\/claim_project_resource_alert_action[\s\S]*rpc\/complete_project_resource_alert_action/,
+  'Supabase resource alert actions must use the atomic claim RPCs',
+);
+assert.match(
+  adminUserHardDeleteMigration,
+  /CREATE OR REPLACE FUNCTION public\.admin_delete_user\(p_user_id uuid\)[\s\S]*DELETE FROM public\.projects WHERE user_id = p_user_id;[\s\S]*DELETE FROM public\.users WHERE id = p_user_id;/,
+  'administrator user deletion must remove related project rows and the user in one database transaction',
+);
+assert.match(
+  adminUserHardDeleteMigration,
+  /CREATE OR REPLACE FUNCTION public\.admin_delete_user_with_audit\([\s\S]*PERFORM public\.admin_delete_user\(p_user_id\);[\s\S]*INSERT INTO public\.admin_audit_log/,
+  'administrator user deletion and its audit must commit in one database transaction',
+);
 
+assert.match(
+  adminConsoleUserService,
+  /deleteUserWithAuditAndConfirm[\s\S]*userRepo\.DeleteWithAudit\(ctx, userID, operatorID, detail, ip\)/,
+  'administrator deletion must use the atomic repository deletion and audit contract',
+);
+assert.doesNotMatch(
+  adminConsoleUserService,
+  /writeAudit\(ctx, operatorID, "delete_user"/,
+  'administrator deletion must not write its audit after the deletion transaction',
+);
+assert.match(
+  gormUserRepository,
+  /SELECT public\.admin_delete_user_with_audit\(\?, \?, \?, \?\)/,
+  'PostgreSQL user repository must call the atomic deletion and audit RPC',
+);
+assert.ok(
+  supabaseRepository.includes('rpc/admin_delete_user_with_audit'),
+  'Supabase user repository must call the atomic deletion and audit RPC',
+);
 const migrationRunner = read('backend/internal/migration/runner.go');
 const databaseCommand = read('backend/cmd/server/database_command.go');
 const databaseBackup = read('deploy/bin/yistack-database-backup');
@@ -767,6 +823,11 @@ assert.doesNotMatch(
   'archive upgrades must not require an unauthenticated checksum sidecar',
 );
 assert.match(upgradeScript, /file inventory does not match MANIFEST\.sha256/, 'upgrades must reject incomplete Release manifests');
+assert.match(
+  upgradeScript,
+  /rollback_database_to_version "\$database_version_before_upgrade"[\s\S]*run_backup_command restore/,
+  'failed upgrades must roll migrations back before restoring the pre-upgrade database backup',
+);
 assert.match(databaseCommand, /status\|plan\|migrate\|verify\|rollback/, 'database CLI must expose lifecycle commands');
 assert.match(databaseCommand, /case "supabase"[\s\S]*buildSupabaseDirectDatabaseConfig/, 'Supabase migrations must use direct PostgreSQL access');
 assert.match(serverMain, /if !autoMigrate \{[\s\S]*runner\.VerifyCurrent/, 'production startup must verify the latest manifest version');
@@ -821,6 +882,7 @@ assert.match(
   'database backup and recovery must execute the staged helper',
 );
 assert.match(upgradeValidation, /Successful upgrade acceptance[\s\S]*MOCK_NEW_HEALTH_FAIL=true[\s\S]*Previous Release v1\.0\.0 restored/, 'Release acceptance must cover successful upgrade and failed-health recovery');
+assert.match(upgradeValidation, /normal-mode[\s\S]*EPHEMERAL_MAINTENANCE_ENABLED=false[\s\S]*Normal-mode upgrade unexpectedly enabled/, 'Release acceptance must prove that a normal-mode installation stays in normal mode');
 assert.match(upgradeScript, /detect_managed_postgres[\s\S]*ensure_managed_postgres_ready[\s\S]*run_database_command "\$PACKAGE_ROOT" plan/, 'upgrade preflight must restore managed PostgreSQL before database planning');
 assert.match(upgradeScript, /recover_failed_upgrade[\s\S]*stop yistack-postgres\.service[\s\S]*restore_previous_release_files[\s\S]*start yistack-postgres\.service[\s\S]*wait-ready[\s\S]*run_backup_command restore/, 'upgrade recovery must restore the previous PostgreSQL unit before restoring the database');
 assert.match(upgradeValidation, /podman stop --time 20[\s\S]*Managed PostgreSQL is not running; starting it before the upgrade/, 'upgrade acceptance must begin with a stopped managed PostgreSQL container');
@@ -829,7 +891,7 @@ assert.match(upgradeValidation, /success_root[\s\S]*releases\/v1\.0\.0[\s\S]*fai
 assert.match(uninstallScript, /uninstall \[--purge\][\s\S]*External databases are[\s\S]*never deleted/, 'uninstall must expose preserve and explicit purge modes');
 assert.match(uninstallScript, /label=yistack\.project_id[\s\S]*POSTGRES_CONTAINER_NAME[\s\S]*validate_managed_directory/, 'purge must target only managed runtime resources and guarded directories');
 assert.match(uninstallValidation, /preserve_root[\s\S]*purge_root[\s\S]*cleanup_failure_root[\s\S]*process_failure_root[\s\S]*account_failure_root[\s\S]*refusing unsafe INSTALL_ROOT/, 'uninstall acceptance must cover preservation, purge, runtime cleanup failure, residual service-user processes, account cleanup failure, and unsafe path rejection');
-assert.match(releaseValidation, /database\/migrations\/manifest\.json[\s\S]*rollback\/202609070001_migration_integrity\.sql/, 'Release validation must require the complete migration set');
+assert.match(releaseValidation, /database\/migrations\/manifest\.json[\s\S]*rollback\/202609070001_migration_integrity\.sql[\s\S]*rollback\/202609190001_admin_user_hard_delete\.sql[\s\S]*rollback\/202609190002_resource_alert_action_claims\.sql/, 'Release validation must require the complete migration set');
 assert.match(yistackctl, /database\)[\s\S]*migrate \| rollback\)[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*systemctl is-active --quiet yistack-backend\.service[\s\S]*yistack-server" database/, 'database schema writes must require stopped application services');
 assert.match(migrationValidation, /advisory lock contention[\s\S]*tampered and unknown histories[\s\S]*Rolling back one version/, 'PostgreSQL acceptance must cover locking, integrity boundaries, and rollback');
 assert.match(installer, /flock -n[\s\S]*systemctl is-active --quiet yistack\.target[\s\S]*Stop YiStack before installing or upgrading/, 'Release installation must lock and reject a running application stack');
@@ -886,25 +948,25 @@ assert.match(
 );
 assert.match(
   readme,
-  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.9-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.9-linux-amd64/,
+  /v1\.1\.0 或 v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.10-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.10-linux-amd64[\s\S]*已安装 v1\.1\.9[\s\S]*yistack-v1\.1\.10-linux-amd64\.tar\.gz/,
   'README must document the sidecar-free upgrade path for older controllers',
 );
 assert.match(
   readmeEnglish,
-  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.9-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.9-linux-amd64/,
+  /v1\.1\.0 and v1\.1\.1[\s\S]*tar -xzf yistack-v1\.1\.10-linux-amd64\.tar\.gz[\s\S]*sudo yistackctl upgrade \.\/yistack-v1\.1\.10-linux-amd64[\s\S]*installed v1\.1\.9[\s\S]*yistack-v1\.1\.10-linux-amd64\.tar\.gz/,
   'English README must document the sidecar-free upgrade path for older controllers',
 );
 assert.match(readme, /yistackctl uninstall[\s\S]*yistackctl uninstall --purge[\s\S]*外部 Supabase 或 PostgreSQL/);
 assert.match(readmeEnglish, /yistackctl uninstall[\s\S]*yistackctl uninstall --purge[\s\S]*external Supabase or PostgreSQL/);
 assert.match(
   readme,
-  /首次创建并启用配置[\s\S]*test ! -e \/etc\/yistack\/ephemeral-maintenance\.env[\s\S]*采集基线并启用计划[\s\S]*ephemeral snapshot &&[\s\S]*ephemeral apply-schedule &&[\s\S]*ephemeral status/,
-  'README must separate one-time ephemeral configuration from fail-closed baseline scheduling',
+  /#### 启用[\s\S]*ephemeral enable[\s\S]*不会删除当前在线数据[\s\S]*baseline=verified[\s\S]*#### 停用[\s\S]*ephemeral disable[\s\S]*#### 修改配置并重新启用[\s\S]*sudoedit \/etc\/yistack\/ephemeral-maintenance\.env[\s\S]*#### 升级后的处理[\s\S]*EPHEMERAL_MAINTENANCE_ENABLED/,
+  'README must document the complete ephemeral mode lifecycle',
 );
 assert.match(
   readmeEnglish,
-  /Create and Enable the Configuration Once[\s\S]*test ! -e \/etc\/yistack\/ephemeral-maintenance\.env[\s\S]*Capture the Baseline and Enable the Schedule[\s\S]*ephemeral snapshot &&[\s\S]*ephemeral apply-schedule &&[\s\S]*ephemeral status/,
-  'English README must separate one-time ephemeral configuration from fail-closed baseline scheduling',
+  /#### Enable[\s\S]*ephemeral enable[\s\S]*does not delete live data[\s\S]*baseline=verified[\s\S]*#### Disable[\s\S]*ephemeral disable[\s\S]*#### Change Configuration and Re-enable[\s\S]*sudoedit \/etc\/yistack\/ephemeral-maintenance\.env[\s\S]*#### After an Upgrade[\s\S]*EPHEMERAL_MAINTENANCE_ENABLED/,
+  'English README must document the complete ephemeral mode lifecycle',
 );
 
 const envExample = read('.env.example');
@@ -919,4 +981,4 @@ for (const key of [
   assert.ok(envExample.includes(key), `.env.example must document ${key}`);
 }
 
-console.log(`[R7] v1.1.9 public release repository contract valid (${requiredFiles.length} required files).`);
+console.log(`[R7] v1.1.10 public release repository contract valid (${requiredFiles.length} required files).`);

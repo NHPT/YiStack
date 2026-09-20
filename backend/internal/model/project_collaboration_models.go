@@ -8,7 +8,7 @@ type ProjectMember struct {
 	UserID          string    `gorm:"uniqueIndex:project_member_unique;index;type:uuid;not null" json:"user_id"`
 	Role            string    `gorm:"index;size:32;not null" json:"role"`
 	Status          string    `gorm:"index;size:32;not null" json:"status"`
-	InvitedByUserID string    `gorm:"type:uuid;not null" json:"invited_by_user_id"`
+	InvitedByUserID *string   `gorm:"type:uuid" json:"invited_by_user_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }

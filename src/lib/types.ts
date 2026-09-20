@@ -746,6 +746,7 @@ export interface ProjectResourceAlertNotificationReadiness {
 export type ProjectResourceAlertNotificationSendStatus =
   | 'sent'
   | 'failed'
+  | 'uncertain'
   | 'blocked'
   | 'empty'
   | 'disabled'
@@ -811,6 +812,7 @@ export interface ProjectContainerStopResponse {
 export type ProjectResourceAlertEnforcementExecuteStatus =
   | 'executed'
   | 'failed'
+  | 'uncertain'
   | 'blocked'
   | 'disabled'
   | 'empty'

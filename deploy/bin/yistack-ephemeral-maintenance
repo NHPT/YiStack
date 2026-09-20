@@ -14,6 +14,9 @@ if [ -r "$YISTACK_EPHEMERAL_ENV_FILE" ]; then
   # shellcheck disable=SC1090
   source "$YISTACK_EPHEMERAL_ENV_FILE"
 fi
+if [ -n "${YISTACK_EPHEMERAL_LOCK_FILE:-}" ]; then
+  EPHEMERAL_LOCK_FILE="$YISTACK_EPHEMERAL_LOCK_FILE"
+fi
 
 : "${YISTACK_INSTALL_DIR:=/opt/yistack/current}"
 : "${YISTACK_DATA_DIR:=/var/lib/yistack}"
@@ -22,6 +25,7 @@ fi
 : "${CONTAINER_PROJECT_DIR:=$YISTACK_DATA_DIR/runtime/projects}"
 : "${CONTAINER_TEMPLATE_DIR:=$YISTACK_DATA_DIR/runtime/templates}"
 : "${CONTAINER_DATA_DIR:=$YISTACK_DATA_DIR/runtime/container-data}"
+: "${PROJECT_BACKUP_DIR:=$YISTACK_DATA_DIR/runtime/backups}"
 : "${YISTACK_BROWSER_EVIDENCE_DIR:=$YISTACK_DATA_DIR/runtime/generation-evidence}"
 : "${PLAYWRIGHT_BROWSERS_PATH:=$YISTACK_DATA_DIR/ms-playwright}"
 : "${EPHEMERAL_MAINTENANCE_ENABLED:=false}"
@@ -43,11 +47,49 @@ fi
 : "${YISTACK_SYSTEMD_UNIT_DIR:=/etc/systemd/system}"
 : "${SERVICE_USER:=yistack}"
 : "${YISTACK_SERVICE_USER_EXEC:=$YISTACK_INSTALL_DIR/bin/yistack-service-user-exec}"
+: "${YISTACK_EPHEMERAL_CONFIG_TEMPLATE:=$YISTACK_INSTALL_DIR/config/yistack-ephemeral-maintenance.env.example}"
+: "${SYSTEMCTL_BIN:=systemctl}"
 
 APP_RESTORE_ON_EXIT=false
 RUNNING_CONTAINERS_FILE=""
 TEMP_PATHS=()
 POSTGRES_CONFIG_LOADED=false
+EPHEMERAL_LOCK_FD=""
+EPHEMERAL_USER_DATA_TABLES=(
+  users
+  projects
+  project_files
+  chat_messages
+  commits
+  project_engineering_states
+  project_capability_execution_audits
+  project_resource_alert_events
+  project_resource_alert_action_claims
+  generation_jobs
+  generation_attempts
+  generation_events
+  github_connections
+  github_oauth_states
+  github_project_bindings
+  github_sync_operations
+  github_webhook_deliveries
+  project_deployment_bindings
+  project_deployment_releases
+  project_deployment_domains
+  project_deployment_operations
+  enterprise_organizations
+  enterprise_teams
+  enterprise_members
+  enterprise_project_ownerships
+  enterprise_project_access_guard_activation_audits
+  enterprise_audit_export_tasks
+  enterprise_audit_export_delivery_reports
+  enterprise_audit_export_worker_execution_requests
+  project_members
+  project_collaboration_audits
+  project_collaboration_sessions
+  project_collaboration_events
+)
 
 log() {
   printf '[ephemeral-maintenance] %s\n' "$*"
@@ -60,9 +102,11 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: yistackctl ephemeral {snapshot|reset|cleanup|enforce|apply-schedule|status}
+Usage: yistackctl ephemeral {snapshot|enable|disable|reset|cleanup|enforce|apply-schedule|status}
 
-  snapshot  Capture a verified baseline with no user or project data
+  snapshot  Capture a baseline that excludes user and project data, even while disabled
+  enable    Capture a fresh clean baseline, enable the mode, and start both schedules
+  disable   Stop both schedules and disable the mode without deleting the baseline
   reset     Restore the clean baseline and remove managed transient data
   cleanup   Apply project, container, evidence, cache, and log retention rules
   enforce   Run cleanup and enforce the configured disk high/low watermarks
@@ -135,6 +179,7 @@ resolve_managed_paths() {
   BROWSER_RUNTIME_DIR="$(canonical_path "$PLAYWRIGHT_BROWSERS_PATH")"
   PROJECT_DIR="$(canonical_path "$CONTAINER_PROJECT_DIR")"
   CONTAINER_STATE_DIR="$(canonical_path "$CONTAINER_DATA_DIR")"
+  PROJECT_BACKUP_ROOT="$(canonical_path "$PROJECT_BACKUP_DIR")"
   EVIDENCE_DIR="$(canonical_path "$YISTACK_BROWSER_EVIDENCE_DIR")"
   BASELINE_DIR="$(canonical_path "$EPHEMERAL_BASELINE_DIR")"
   CACHE_DIR="$(canonical_path "$YISTACK_CACHE_DIR")"
@@ -162,8 +207,15 @@ resolve_managed_paths() {
       ;;
   esac
   for path in "$DATA_DIR" "$TEMPLATE_DIR" "$BROWSER_RUNTIME_DIR" "$PROJECT_DIR" \
-    "$CONTAINER_STATE_DIR" "$EVIDENCE_DIR" "$BASELINE_DIR"; do
+    "$CONTAINER_STATE_DIR" "$PROJECT_BACKUP_ROOT" "$EVIDENCE_DIR" "$BASELINE_DIR"; do
     assert_not_symlink "$path"
+  done
+  assert_safe_auxiliary_dir PROJECT_BACKUP_DIR "$PROJECT_BACKUP_ROOT"
+  for protected_dir in "$PROJECT_DIR" "$TEMPLATE_DIR" "$BROWSER_RUNTIME_DIR" \
+    "$CONTAINER_STATE_DIR" "$EVIDENCE_DIR" "$BASELINE_DIR" "$INSTALL_DIR" "$CONFIG_DIR"; do
+    if paths_overlap "$PROJECT_BACKUP_ROOT" "$protected_dir"; then
+      die "PROJECT_BACKUP_DIR must not overlap another managed or protected directory"
+    fi
   done
   assert_safe_auxiliary_dir YISTACK_CACHE_DIR "$CACHE_DIR"
   assert_safe_auxiliary_dir YISTACK_LOG_DIR "$LOG_DIR"
@@ -214,6 +266,67 @@ require_enabled() {
     die "Ephemeral experience mode is disabled; set EPHEMERAL_MAINTENANCE_ENABLED=true explicitly"
 }
 
+reload_ephemeral_configuration() {
+  [ -r "$YISTACK_EPHEMERAL_ENV_FILE" ] ||
+    die "Ephemeral experience mode configuration is missing: $YISTACK_EPHEMERAL_ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$YISTACK_EPHEMERAL_ENV_FILE"
+  if [ -n "${YISTACK_EPHEMERAL_LOCK_FILE:-}" ]; then
+    EPHEMERAL_LOCK_FILE="$YISTACK_EPHEMERAL_LOCK_FILE"
+  fi
+}
+
+ensure_ephemeral_configuration() {
+  local config_dir
+  [ ! -L "$YISTACK_EPHEMERAL_ENV_FILE" ] ||
+    die "Ephemeral experience mode configuration must not be a symbolic link: $YISTACK_EPHEMERAL_ENV_FILE"
+  if [ -f "$YISTACK_EPHEMERAL_ENV_FILE" ]; then
+    return 0
+  fi
+  [ -f "$YISTACK_EPHEMERAL_CONFIG_TEMPLATE" ] ||
+    die "Ephemeral experience mode configuration template is missing: $YISTACK_EPHEMERAL_CONFIG_TEMPLATE"
+  config_dir="$(dirname "$YISTACK_EPHEMERAL_ENV_FILE")"
+  install -d -m 0750 "$config_dir"
+  install -m 0640 "$YISTACK_EPHEMERAL_CONFIG_TEMPLATE" "$YISTACK_EPHEMERAL_ENV_FILE"
+  if [ "$(id -u)" -eq 0 ]; then
+    chown root:"$SERVICE_USER" "$YISTACK_EPHEMERAL_ENV_FILE"
+  fi
+  # shellcheck disable=SC1090
+  source "$YISTACK_EPHEMERAL_ENV_FILE"
+  log "Ephemeral experience mode configuration created at $YISTACK_EPHEMERAL_ENV_FILE"
+}
+
+set_ephemeral_enabled() {
+  local value="$1"
+  local temp_file
+  require_bool EPHEMERAL_MAINTENANCE_ENABLED "$value"
+  ensure_ephemeral_configuration
+  temp_file="$(mktemp "${YISTACK_EPHEMERAL_ENV_FILE}.tmp.XXXXXX")"
+  TEMP_PATHS+=("$temp_file")
+  awk -v value="$value" '
+    BEGIN { found = 0 }
+    /^[[:space:]]*EPHEMERAL_MAINTENANCE_ENABLED[[:space:]]*=/ {
+      if (found == 0) {
+        print "EPHEMERAL_MAINTENANCE_ENABLED=" value
+        found = 1
+      }
+      next
+    }
+    { print }
+    END {
+      if (found == 0) {
+        print "EPHEMERAL_MAINTENANCE_ENABLED=" value
+      }
+    }
+  ' "$YISTACK_EPHEMERAL_ENV_FILE" > "$temp_file"
+  chmod 0640 "$temp_file"
+  if [ "$(id -u)" -eq 0 ]; then
+    chown root:"$SERVICE_USER" "$temp_file"
+  fi
+  mv -f -- "$temp_file" "$YISTACK_EPHEMERAL_ENV_FILE"
+  EPHEMERAL_MAINTENANCE_ENABLED="$value"
+}
+
 load_postgres_configuration() {
   [ "$POSTGRES_CONFIG_LOADED" = "true" ] && return 0
   [ "${DB_TYPE:-}" = "postgres" ] ||
@@ -235,19 +348,25 @@ load_postgres_configuration() {
   POSTGRES_CONFIG_LOADED=true
 }
 
-run_as_service() {
+run_as_service() (
+  local lock_fd="$EPHEMERAL_LOCK_FD"
+  local command_status
   if [ "$(id -u)" -eq 0 ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
     [ -x "$YISTACK_SERVICE_USER_EXEC" ] ||
       die "service-user execution helper is missing: $YISTACK_SERVICE_USER_EXEC"
-    YISTACK_SERVICE_USER="$SERVICE_USER" \
-    YISTACK_DATA_DIR="$DATA_DIR" \
-      "$YISTACK_SERVICE_USER_EXEC" env \
-      PATH="$PATH" \
-      "$@"
+    export YISTACK_SERVICE_USER="$SERVICE_USER"
+    export YISTACK_DATA_DIR="$DATA_DIR"
+    set -- "$YISTACK_SERVICE_USER_EXEC" env PATH="$PATH" "$@"
+  fi
+  set +e
+  if [ -n "$lock_fd" ]; then
+    "$@" {lock_fd}>&-
   else
     "$@"
   fi
-}
+  command_status="$?"
+  exit "$command_status"
+)
 
 podman_cmd() {
   run_as_service podman "$@"
@@ -264,8 +383,8 @@ postgres_query() {
 
 ensure_postgres_running() {
   load_postgres_configuration
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl start yistack-postgres.service
+  if command -v "$SYSTEMCTL_BIN" >/dev/null 2>&1; then
+    "$SYSTEMCTL_BIN" start yistack-postgres.service
   else
     run_as_service "$YISTACK_INSTALL_DIR/bin/yistack-postgres" start
   fi
@@ -274,22 +393,36 @@ ensure_postgres_running() {
 }
 
 acquire_lock() {
+  local failure_message="${1:-Another ephemeral experience maintenance operation is already running}"
+  local inherited_fd="${YISTACK_EPHEMERAL_LOCK_FD:-}"
   require_command flock
   install -d -m 0755 "$(dirname "$EPHEMERAL_LOCK_FILE")"
+  if [ -n "$inherited_fd" ]; then
+    [[ "$inherited_fd" =~ ^[0-9]+$ ]] ||
+      die "YISTACK_EPHEMERAL_LOCK_FD must be a file descriptor number"
+    [ -e "/proc/$$/fd/$inherited_fd" ] ||
+      die "Inherited ephemeral maintenance lock descriptor is not open"
+    [ "/proc/$$/fd/$inherited_fd" -ef "$EPHEMERAL_LOCK_FILE" ] ||
+      die "Inherited ephemeral maintenance lock descriptor does not match EPHEMERAL_LOCK_FILE"
+    flock -n "$inherited_fd" || die "$failure_message"
+    EPHEMERAL_LOCK_FD="$inherited_fd"
+    return 0
+  fi
   exec 9>"$EPHEMERAL_LOCK_FILE"
-  flock -n 9 || die "Another ephemeral experience maintenance operation is already running"
+  flock -n 9 || die "$failure_message"
+  EPHEMERAL_LOCK_FD=9
 }
 
 pause_application() {
-  if systemctl is-active --quiet yistack.target; then
-    systemctl stop yistack.target
+  if "$SYSTEMCTL_BIN" is-active --quiet yistack.target; then
+    "$SYSTEMCTL_BIN" stop yistack.target
     APP_RESTORE_ON_EXIT=true
   fi
 }
 
 resume_application() {
   if [ "$APP_RESTORE_ON_EXIT" = "true" ]; then
-    systemctl start yistack.target
+    "$SYSTEMCTL_BIN" start yistack.target
     APP_RESTORE_ON_EXIT=false
   fi
 }
@@ -311,7 +444,7 @@ cleanup_on_exit() {
   trap - EXIT
   restore_running_containers
   if [ "$APP_RESTORE_ON_EXIT" = "true" ]; then
-    systemctl start yistack.target >/dev/null 2>&1 || true
+    "$SYSTEMCTL_BIN" start yistack.target >/dev/null 2>&1 || true
   fi
   for path in "${TEMP_PATHS[@]}"; do
     [ -n "$path" ] && rm -rf -- "$path"
@@ -395,7 +528,7 @@ delete_project() {
 clear_directory_contents() {
   local path="$1"
   case "$path" in
-    "$CONTAINER_STATE_DIR" | "$EVIDENCE_DIR" | "$CACHE_DIR" | "$LOG_DIR") ;;
+    "$CONTAINER_STATE_DIR" | "$PROJECT_BACKUP_ROOT" | "$EVIDENCE_DIR" | "$CACHE_DIR" | "$LOG_DIR") ;;
     *) die "Refusing to clear unmanaged directory: $path" ;;
   esac
   install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$path"
@@ -525,14 +658,14 @@ write_baseline_metadata() {
   [ -r "$YISTACK_INSTALL_DIR/VERSION" ] && version="$(tr -d '[:space:]' < "$YISTACK_INSTALL_DIR/VERSION")"
   [ -r "$YISTACK_INSTALL_DIR/SOURCE_COMMIT" ] && source_commit="$(tr -d '[:space:]' < "$YISTACK_INSTALL_DIR/SOURCE_COMMIT")"
   cat > "$destination" <<EOF
-schema=ephemeral-experience-baseline.v1
+schema=ephemeral-experience-baseline.v2
 created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 version=$version
 source_commit=$source_commit
 db_type=postgres
 db_name=$POSTGRES_DB
 project_dir=$PROJECT_DIR
-user_data_policy=empty
+user_data_policy=excluded
 EOF
 }
 
@@ -550,10 +683,12 @@ verify_baseline() {
     cd "$BASELINE_DIR"
     sha256sum --check --quiet FILES.sha256
   ) || die "Baseline checksum verification failed"
-  [ "$(metadata_value schema)" = "ephemeral-experience-baseline.v1" ] ||
+  [ "$(metadata_value schema)" = "ephemeral-experience-baseline.v2" ] ||
     die "Unsupported ephemeral experience baseline schema"
-  [ "$(metadata_value user_data_policy)" = "empty" ] ||
-    die "Ephemeral experience baseline does not require empty user data"
+  [ "$(metadata_value db_type)" = "postgres" ] ||
+    die "Ephemeral experience baseline database type is not PostgreSQL"
+  [ "$(metadata_value user_data_policy)" = "excluded" ] ||
+    die "Ephemeral experience baseline does not exclude user data"
   [ "$(metadata_value db_name)" = "$POSTGRES_DB" ] || die "Baseline database name does not match POSTGRES_DB"
   [ "$(metadata_value project_dir)" = "$PROJECT_DIR" ] || die "Baseline project directory does not match this installation"
 
@@ -628,13 +763,12 @@ assert_empty_project_workspaces() {
 }
 
 snapshot_baseline() {
-  local parent temp_dir previous_dir
+  local parent temp_dir previous_dir table
+  local dump_args=()
   ensure_postgres_running
   pause_application
   stop_running_project_containers
   install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$PROJECT_DIR"
-  assert_no_database_user_data "Refusing to capture the ephemeral experience baseline because the database"
-  assert_empty_project_workspaces "Refusing to capture the ephemeral experience baseline because the project directory"
 
   parent="$(dirname "$BASELINE_DIR")"
   install -d -m 0750 "$parent"
@@ -644,10 +778,14 @@ snapshot_baseline() {
   temp_dir="$(mktemp -d "${BASELINE_DIR}.tmp.XXXXXX")"
   TEMP_PATHS+=("$temp_dir")
 
+  for table in "${EPHEMERAL_USER_DATA_TABLES[@]}"; do
+    dump_args+=("--exclude-table-data=public.$table")
+  done
   podman_cmd exec "$POSTGRES_CONTAINER_NAME" \
     pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-      --format=custom --no-owner --no-privileges > "$temp_dir/database.dump"
-  tar --sort=name --numeric-owner -czf "$temp_dir/workspace.tar.gz" -C "$PROJECT_DIR" .
+      --format=custom --no-owner --no-privileges \
+      "${dump_args[@]}" > "$temp_dir/database.dump"
+  tar --sort=name --numeric-owner -czf "$temp_dir/workspace.tar.gz" --files-from /dev/null
   write_baseline_metadata "$temp_dir/METADATA"
   (
     cd "$temp_dir"
@@ -726,18 +864,19 @@ wait_for_health() {
 reset_to_baseline() {
   ensure_postgres_running
   verify_baseline
-  systemctl stop yistack.target
+  "$SYSTEMCTL_BIN" stop yistack.target
   APP_RESTORE_ON_EXIT=false
   remove_all_project_resources
   restore_database
   restore_workspaces
   clear_directory_contents "$CONTAINER_STATE_DIR"
+  clear_directory_contents "$PROJECT_BACKUP_ROOT"
   clear_directory_contents "$EVIDENCE_DIR"
   clear_directory_contents "$CACHE_DIR"
   clear_directory_contents "$LOG_DIR"
 
   if [ "$EPHEMERAL_RESTART_AFTER_RESET" = "true" ]; then
-    systemctl start yistack.target
+    "$SYSTEMCTL_BIN" start yistack.target
     wait_for_health
   fi
   log "Ephemeral experience state restored from the verified clean baseline"
@@ -765,21 +904,21 @@ write_timer_override() {
   local randomized_delay="$3"
   local override_dir="$SYSTEMD_UNIT_DIR/${timer_name}.d"
   local temp_file
-  install -d -m 0755 "$override_dir"
-  temp_file="$(mktemp "$override_dir/.10-schedule.conf.XXXXXX")"
+  install -d -m 0755 "$override_dir" || return 1
+  temp_file="$(mktemp "$override_dir/.10-schedule.conf.XXXXXX")" || return 1
   TEMP_PATHS+=("$temp_file")
   {
     printf '[Timer]\n'
     printf 'OnCalendar=\n'
     printf 'OnCalendar=%s\n' "$calendar"
     printf 'RandomizedDelaySec=%s\n' "$randomized_delay"
-  } > "$temp_file"
-  chmod 0644 "$temp_file"
-  mv -f -- "$temp_file" "$override_dir/10-schedule.conf"
+  } > "$temp_file" || return 1
+  chmod 0644 "$temp_file" || return 1
+  mv -f -- "$temp_file" "$override_dir/10-schedule.conf" || return 1
 }
 
 apply_timer_schedule() {
-  SYSTEMD_UNIT_DIR="$(canonical_path "$YISTACK_SYSTEMD_UNIT_DIR")"
+  SYSTEMD_UNIT_DIR="$(canonical_path "$YISTACK_SYSTEMD_UNIT_DIR")" || return 1
   [[ "$SYSTEMD_UNIT_DIR" = /*/*/* ]] ||
     die "YISTACK_SYSTEMD_UNIT_DIR must contain at least three path components"
   assert_not_symlink "$SYSTEMD_UNIT_DIR"
@@ -794,34 +933,148 @@ apply_timer_schedule() {
   write_timer_override \
     yistack-ephemeral-reset.timer \
     "$EPHEMERAL_RESET_ON_CALENDAR" \
-    "$EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC"
+    "$EPHEMERAL_RESET_RANDOMIZED_DELAY_SEC" || return 1
   write_timer_override \
     yistack-ephemeral-cleanup.timer \
     "$EPHEMERAL_CLEANUP_ON_CALENDAR" \
-    "$EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC"
-  systemctl daemon-reload
-  systemctl enable --now yistack-ephemeral-reset.timer yistack-ephemeral-cleanup.timer
-  systemctl restart yistack-ephemeral-reset.timer yistack-ephemeral-cleanup.timer
+    "$EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC" || return 1
+  "$SYSTEMCTL_BIN" daemon-reload || return 1
+  "$SYSTEMCTL_BIN" enable --now \
+    yistack-ephemeral-reset.timer \
+    yistack-ephemeral-cleanup.timer || return 1
+  "$SYSTEMCTL_BIN" restart \
+    yistack-ephemeral-reset.timer \
+    yistack-ephemeral-cleanup.timer || return 1
   log "Ephemeral experience schedules applied"
+}
+
+stop_ephemeral_maintenance_units() {
+  local failed=false
+  if ! "$SYSTEMCTL_BIN" disable --now \
+    yistack-ephemeral-reset.timer \
+    yistack-ephemeral-cleanup.timer; then
+    failed=true
+  fi
+  if ! "$SYSTEMCTL_BIN" stop \
+    yistack-ephemeral-reset.service \
+    yistack-ephemeral-cleanup.service; then
+    failed=true
+  fi
+  [ "$failed" = "false" ]
+}
+
+prepare_enable_mode() {
+  set_ephemeral_enabled false
+  stop_ephemeral_maintenance_units ||
+    die "Ephemeral mode was marked disabled, but maintenance units could not be fully stopped before enable"
+}
+
+enable_mode() {
+  local baseline_existed=false
+  local rollback_dir="${BASELINE_DIR}.enable-rollback.$$"
+  rm -rf -- "$rollback_dir"
+  if [ -e "$BASELINE_DIR" ] || [ -L "$BASELINE_DIR" ]; then
+    cp -a -- "$BASELINE_DIR" "$rollback_dir" ||
+      die "Failed to preserve the previous baseline before enable"
+    baseline_existed=true
+  fi
+  local snapshot_status enable_status
+  set +e
+  (set -e; snapshot_baseline)
+  snapshot_status="$?"
+  set -e
+  if [ "$snapshot_status" -ne 0 ]; then
+    rm -rf -- "$BASELINE_DIR"
+    if [ "$baseline_existed" = "true" ]; then
+      mv -- "$rollback_dir" "$BASELINE_DIR" ||
+        die "Failed to restore the previous baseline after snapshot failure"
+    fi
+    die "Failed to enable ephemeral experience mode while capturing a new baseline"
+  fi
+  set +e
+  (
+    set -e
+    set_ephemeral_enabled true
+    apply_timer_schedule
+  )
+  enable_status="$?"
+  set -e
+  if [ "$enable_status" -ne 0 ]; then
+    set_ephemeral_enabled false
+    stop_ephemeral_maintenance_units >/dev/null 2>&1 || true
+    rm -rf -- "$BASELINE_DIR"
+    if [ "$baseline_existed" = "true" ]; then
+      mv -- "$rollback_dir" "$BASELINE_DIR" ||
+        die "Failed to restore the previous baseline after enable failure"
+    fi
+    die "Failed to enable ephemeral experience mode; the mode remains disabled"
+  fi
+  EPHEMERAL_MAINTENANCE_ENABLED=true
+  rm -rf -- "$rollback_dir"
+  log "Ephemeral experience mode enabled"
+}
+
+disable_mode() {
+  set_ephemeral_enabled false
+  stop_ephemeral_maintenance_units ||
+    die "Ephemeral mode was marked disabled, but maintenance units could not be fully stopped"
+  log "Ephemeral experience mode disabled; the baseline was preserved"
 }
 
 show_status() {
   local baseline_status=missing usage=unknown project_count=unknown
-  if [ -f "$BASELINE_DIR/FILES.sha256" ]; then
+  local reset_timer=inactive cleanup_timer=inactive
+  local reset_timer_enabled=false cleanup_timer_enabled=false
+  local expected_commit current_commit
+  if [ "${DB_TYPE:-}" = "postgres" ] && [ -r "$YISTACK_POSTGRES_ENV_FILE" ]; then
+    load_postgres_configuration
+  fi
+  if [ -d "$BASELINE_DIR" ] &&
+    [ -f "$BASELINE_DIR/FILES.sha256" ] &&
+    [ -f "$BASELINE_DIR/METADATA" ] &&
+    [ -f "$BASELINE_DIR/database.dump" ] &&
+    [ -f "$BASELINE_DIR/workspace.tar.gz" ]; then
     if (cd "$BASELINE_DIR" && sha256sum --check --quiet FILES.sha256 2>/dev/null); then
-      baseline_status=verified
+      if [ "$(metadata_value schema)" != "ephemeral-experience-baseline.v2" ] ||
+        [ "$(metadata_value db_type)" != "postgres" ] ||
+        [ "$(metadata_value user_data_policy)" != "excluded" ] ||
+        [ "$(metadata_value project_dir)" != "$PROJECT_DIR" ] ||
+        [ "$POSTGRES_CONFIG_LOADED" != "true" ] ||
+        [ "$(metadata_value db_name)" != "$POSTGRES_DB" ]; then
+        baseline_status=invalid
+      else
+        baseline_status=verified
+        expected_commit="$(metadata_value source_commit)"
+        current_commit=unknown
+        [ -r "$YISTACK_INSTALL_DIR/SOURCE_COMMIT" ] &&
+          current_commit="$(tr -d '[:space:]' < "$YISTACK_INSTALL_DIR/SOURCE_COMMIT")"
+        if [ "$expected_commit" != "$current_commit" ]; then
+          baseline_status=stale
+        fi
+      fi
     else
       baseline_status=invalid
     fi
+  elif [ -e "$BASELINE_DIR" ]; then
+    baseline_status=invalid
+  fi
+  if command -v "$SYSTEMCTL_BIN" >/dev/null 2>&1; then
+    "$SYSTEMCTL_BIN" is-active --quiet yistack-ephemeral-reset.timer 2>/dev/null && reset_timer=active
+    "$SYSTEMCTL_BIN" is-active --quiet yistack-ephemeral-cleanup.timer 2>/dev/null && cleanup_timer=active
+    "$SYSTEMCTL_BIN" is-enabled --quiet yistack-ephemeral-reset.timer 2>/dev/null && reset_timer_enabled=true
+    "$SYSTEMCTL_BIN" is-enabled --quiet yistack-ephemeral-cleanup.timer 2>/dev/null && cleanup_timer_enabled=true
   fi
   usage="$(disk_usage_percent 2>/dev/null || printf unknown)"
-  if [ "${DB_TYPE:-}" = "postgres" ] && [ -r "$YISTACK_POSTGRES_ENV_FILE" ]; then
-    load_postgres_configuration
+  if [ "$POSTGRES_CONFIG_LOADED" = "true" ]; then
     if [ "$(podman_cmd inspect --format '{{.State.Running}}' "$POSTGRES_CONTAINER_NAME" 2>/dev/null || true)" = "true" ]; then
       project_count="$(postgres_query -c 'SELECT count(*) FROM public.projects;' 2>/dev/null || printf unknown)"
     fi
   fi
   printf 'enabled=%s\n' "$EPHEMERAL_MAINTENANCE_ENABLED"
+  printf 'reset_timer=%s\n' "$reset_timer"
+  printf 'cleanup_timer=%s\n' "$cleanup_timer"
+  printf 'reset_timer_enabled=%s\n' "$reset_timer_enabled"
+  printf 'cleanup_timer_enabled=%s\n' "$cleanup_timer_enabled"
   printf 'database_mode=%s\n' "${DB_TYPE:-unset}"
   printf 'baseline=%s\n' "$baseline_status"
   printf 'baseline_dir=%s\n' "$BASELINE_DIR"
@@ -837,6 +1090,32 @@ show_status() {
 
 main() {
   local command="${1:-status}"
+  if [ "$command" = "disable" ]; then
+    acquire_lock "A maintenance operation is still running; retry disable after it finishes"
+    ensure_ephemeral_configuration
+    reload_ephemeral_configuration
+    require_command "$SYSTEMCTL_BIN"
+    disable_mode
+    return 0
+  fi
+  case "$command" in
+    snapshot)
+      acquire_lock "A maintenance operation is still running; retry snapshot after it finishes"
+      ensure_ephemeral_configuration
+      reload_ephemeral_configuration
+      ;;
+    enable)
+      acquire_lock "A maintenance operation is still running; retry enable after it finishes"
+      ensure_ephemeral_configuration
+      reload_ephemeral_configuration
+      prepare_enable_mode
+      ;;
+    apply-schedule | reset | cleanup | enforce)
+      acquire_lock
+      reload_ephemeral_configuration
+      require_enabled
+      ;;
+  esac
   require_command realpath
   require_command sha256sum
   validate_configuration
@@ -845,24 +1124,33 @@ main() {
     status)
       show_status
       ;;
-    apply-schedule)
-      require_enabled
-      require_command systemctl
+    enable)
       require_command systemd-analyze
-      acquire_lock
+      enable_mode
+      show_status
+      ;;
+    apply-schedule)
+      require_command "$SYSTEMCTL_BIN"
+      require_command systemd-analyze
       apply_timer_schedule
       ;;
-    snapshot | reset | cleanup | enforce)
-      require_enabled
+    snapshot)
       require_command date
       require_command find
       require_command podman
       require_command runuser
-      require_command systemctl
+      require_command "$SYSTEMCTL_BIN"
       require_command tar
-      acquire_lock
+      snapshot_baseline
+      ;;
+    reset | cleanup | enforce)
+      require_command date
+      require_command find
+      require_command podman
+      require_command runuser
+      require_command "$SYSTEMCTL_BIN"
+      require_command tar
       case "$command" in
-        snapshot) snapshot_baseline ;;
         reset) reset_to_baseline ;;
         cleanup) run_cleanup ;;
         enforce) enforce_disk_watermarks ;;
@@ -878,4 +1166,6 @@ main() {
   esac
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

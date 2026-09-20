@@ -57,6 +57,8 @@ type ProjectResourceAlertEventRepo interface {
 	Create(ctx context.Context, event *model.ProjectResourceAlertEvent) error
 	ListByProjectID(ctx context.Context, projectID, status string, offset, limit int) ([]model.ProjectResourceAlertEvent, int64, error)
 	DeleteByProjectID(ctx context.Context, projectID string) error
+	ClaimAction(ctx context.Context, claim *model.ProjectResourceAlertActionClaim, pendingEvent *model.ProjectResourceAlertEvent) (bool, error)
+	CompleteAction(ctx context.Context, projectID string, sourceEventID int64, action, status string, updatedAt time.Time) error
 }
 
 // GeneratedFileRepo 生成文件仓储接口
@@ -140,6 +142,8 @@ type UserRepo interface {
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
 	Update(ctx context.Context, user *model.User) error
 	UpdateLLMConfig(ctx context.Context, userID string, llmModel, temperature string, maxTokens int) error
+	Delete(ctx context.Context, userID string) error
+	DeleteWithAudit(ctx context.Context, userID, adminID, detail, ipAddress string) error
 	List(ctx context.Context, offset, limit int) ([]model.User, int64, error)
 }
 

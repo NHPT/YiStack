@@ -220,10 +220,21 @@ func (t *Table) Insert(data interface{}) (*QueryResult, error) {
 	return t.execute("POST", nil, data)
 }
 
+// InsertContext inserts data and binds the HTTP request lifecycle to ctx.
+func (t *Table) InsertContext(ctx context.Context, data interface{}) (*QueryResult, error) {
+	return t.executeContext(ctx, "POST", nil, data)
+}
+
 // Upsert 插入或更新
 func (t *Table) Upsert(data interface{}) (*QueryResult, error) {
 	t.returns = "representation"
 	return t.execute("POST", nil, data)
+}
+
+// SelectQueryContext queries rows and binds retries and HTTP requests to ctx.
+func (t *Table) SelectQueryContext(ctx context.Context) (*QueryResult, error) {
+	params := t.buildParams()
+	return t.executeContext(ctx, "GET", params, nil)
 }
 
 // Select 查询数据
@@ -247,22 +258,39 @@ func (t *Table) First() (*QueryResult, error) {
 	return t.execute("GET", params, nil)
 }
 
+// FirstContext returns the first row and binds retries and HTTP requests to ctx.
+func (t *Table) FirstContext(ctx context.Context) (*QueryResult, error) {
+	params := t.buildParams()
+	params.Add("limit", "1")
+	return t.executeContext(ctx, "GET", params, nil)
+}
+
 // Update 更新数据
 func (t *Table) Update(data interface{}) (*QueryResult, error) {
+	return t.UpdateContext(context.Background(), data)
+}
+
+// UpdateContext updates rows and binds the HTTP request lifecycle to ctx.
+func (t *Table) UpdateContext(ctx context.Context, data interface{}) (*QueryResult, error) {
 	if len(t.filters) == 0 {
 		return nil, fmt.Errorf("update requires filter conditions")
 	}
 	params := t.buildParams()
-	return t.execute("PATCH", params, data)
+	return t.executeContext(ctx, "PATCH", params, data)
 }
 
 // Delete 删除数据
 func (t *Table) Delete() (*QueryResult, error) {
+	return t.DeleteContext(context.Background())
+}
+
+// DeleteContext deletes rows and binds the HTTP request lifecycle to ctx.
+func (t *Table) DeleteContext(ctx context.Context) (*QueryResult, error) {
 	if len(t.filters) == 0 {
 		return nil, fmt.Errorf("delete requires filter conditions")
 	}
 	params := t.buildParams()
-	return t.execute("DELETE", params, nil)
+	return t.executeContext(ctx, "DELETE", params, nil)
 }
 
 // Count 计数
@@ -326,6 +354,10 @@ func (t *Table) buildParams() url.Values {
 
 func (t *Table) execute(method string, params url.Values, data interface{}) (*QueryResult, error) {
 	// 构建 URL
+	return t.executeContext(context.Background(), method, params, data)
+}
+
+func (t *Table) executeContext(ctx context.Context, method string, params url.Values, data interface{}) (*QueryResult, error) {
 	reqURL := fmt.Sprintf("%s/rest/v1/%s", t.client.URL, t.tableName)
 	if params != nil {
 		reqURL += "?" + params.Encode()
@@ -346,7 +378,7 @@ func (t *Table) execute(method string, params url.Values, data interface{}) (*Qu
 		maxAttempts += len(supabaseReadRetryDelays)
 	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		result, err := t.executeOnce(method, reqURL, jsonData)
+		result, err := t.executeOnce(ctx, method, reqURL, jsonData)
 		if err == nil {
 			return result, nil
 		}
@@ -354,17 +386,23 @@ func (t *Table) execute(method string, params url.Values, data interface{}) (*Qu
 		if method != http.MethodGet || !isRetryableSupabaseReadError(err) || attempt == maxAttempts-1 {
 			return nil, err
 		}
-		time.Sleep(supabaseReadRetryDelays[attempt])
+		timer := time.NewTimer(supabaseReadRetryDelays[attempt])
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	return nil, lastErr
 }
 
-func (t *Table) executeOnce(method, reqURL string, jsonData []byte) (*QueryResult, error) {
+func (t *Table) executeOnce(ctx context.Context, method, reqURL string, jsonData []byte) (*QueryResult, error) {
 	var body io.Reader
 	if jsonData != nil {
 		body = bytes.NewReader(jsonData)
 	}
-	req, err := http.NewRequest(method, reqURL, body)
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

@@ -108,7 +108,7 @@ _yistackctl() {
     ephemeral)
       mapfile -t COMPREPLY < <(
         compgen -W \
-          "snapshot reset cleanup enforce apply-schedule status" \
+          "snapshot enable disable reset cleanup enforce apply-schedule status" \
           -- "$current"
       )
       ;;
@@ -148,7 +148,7 @@ Runtime, database, and release commands:
   uninstall [--purge]           Remove YiStack; --purge also deletes local data
 
 Ephemeral experience commands:
-  ephemeral {snapshot|reset|cleanup|enforce|apply-schedule|status}
+  ephemeral {snapshot|enable|disable|reset|cleanup|enforce|apply-schedule|status}
 
 Shell integration:
   completion bash               Print Bash completion script

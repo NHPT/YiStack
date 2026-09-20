@@ -875,11 +875,15 @@ const authMiddleware = readProjectFile('backend/internal/middleware/auth_middlew
   'FindByID(ctx context.Context, id string) (*model.User, error)',
   'type AuthAdminLookup interface',
   'FindByID(ctx context.Context, id string) (*model.Admin, error)',
-  'cfg.AdminRepo.FindByID(c, claims.UserID)',
-  'cfg.UserRepo.FindByID(c, claims.UserID)',
+  'BeginCancellableUserProjectOperation(',
+  'cfg.AdminRepo.FindByID(requestContext, claims.UserID)',
+  'cfg.UserRepo.FindByID(requestContext, claims.UserID)',
+  'ctx.Next(requestContext)',
   '"登录用户不存在，请重新登录"',
   '"管理员登录状态已失效，请重新登录"',
   'func NewUserAuthConfig(jwtCfg *config.JWTConfig, userRepo AuthUserLookup) *AuthConfig',
+  'func NewUserAuthConfigWithOperationGate(',
+  'cfg.UserOperationGate = userOperationGate',
   'func NewAdminAuthConfig(jwtCfg *config.JWTConfig, adminRepo AuthAdminLookup) *AuthConfig',
 ].forEach((snippet) => {
   if (!authMiddleware.includes(snippet)) {
@@ -887,9 +891,10 @@ const authMiddleware = readProjectFile('backend/internal/middleware/auth_middlew
   }
 });
 [
-  'authProtected.Use(middleware.Auth(middleware.NewUserAuthConfig(jwtCfg, userRepo)))',
-  'chatProtected.Use(middleware.Auth(middleware.NewUserAuthConfig(jwtCfg, userRepo)))',
-  'project.Use(middleware.Auth(middleware.NewUserAuthConfig(jwtCfg, userRepo)))',
+  'authProtected.Use(middleware.Auth(middleware.NewUserAuthConfigWithOperationGate(jwtCfg, userRepo, userOperationGate)))',
+  'chatProtected.Use(middleware.Auth(middleware.NewUserAuthConfigWithOperationGate(jwtCfg, userRepo, userOperationGate)))',
+  'githubProtected.Use(middleware.Auth(middleware.NewUserAuthConfigWithOperationGate(jwtCfg, userRepo, userOperationGate)))',
+  'project.Use(middleware.Auth(middleware.NewUserAuthConfigWithOperationGate(jwtCfg, userRepo, userOperationGate)))',
   'adminAuthProtected.Use(middleware.Auth(middleware.NewAdminAuthConfig(jwtCfg, adminRepo)))',
   'admin.Use(middleware.Auth(middleware.NewAdminAuthConfig(jwtCfg, adminRepo)))',
 ].forEach((snippet) => {

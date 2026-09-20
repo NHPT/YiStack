@@ -273,6 +273,12 @@ type gitCommitSnapshot struct {
 }
 
 func (s *ProjectService) GetProjectGitCommits(ctx context.Context, projectID string) ([]GitCommitRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -297,6 +303,12 @@ func (s *ProjectService) GetProjectGitCommits(ctx context.Context, projectID str
 }
 
 func (s *ProjectService) GetProjectGitBranches(ctx context.Context, projectID string) ([]GitBranchRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -321,6 +333,12 @@ func (s *ProjectService) GetProjectGitBranches(ctx context.Context, projectID st
 }
 
 func (s *ProjectService) GetProjectGitRemoteBranches(ctx context.Context, projectID string) ([]GitRemoteBranchRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -345,6 +363,12 @@ func (s *ProjectService) GetProjectGitRemoteBranches(ctx context.Context, projec
 }
 
 func (s *ProjectService) GetProjectGitRemotes(ctx context.Context, projectID string) ([]GitRemoteRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -369,6 +393,12 @@ func (s *ProjectService) GetProjectGitRemotes(ctx context.Context, projectID str
 }
 
 func (s *ProjectService) RefreshProjectGitRemoteBranches(ctx context.Context, projectID, remoteName string) (*GitRemoteBranchRefreshResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	remoteName, err := normalizeGitRemoteName(remoteName)
 	if err != nil {
 		return nil, err
@@ -394,6 +424,12 @@ func (s *ProjectService) RefreshProjectGitRemoteBranches(ctx context.Context, pr
 }
 
 func (s *ProjectService) GetProjectGitTags(ctx context.Context, projectID string) ([]GitTagRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -414,6 +450,12 @@ func (s *ProjectService) GetProjectGitTags(ctx context.Context, projectID string
 }
 
 func (s *ProjectService) CreateProjectGitTag(ctx context.Context, projectID, tagName string) (*GitTagCreateResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	tagName, err := normalizeGitTagName(tagName)
 	if err != nil {
 		return nil, err
@@ -439,6 +481,12 @@ func (s *ProjectService) CreateProjectGitTag(ctx context.Context, projectID, tag
 }
 
 func (s *ProjectService) DeleteProjectGitTag(ctx context.Context, projectID, tagName string) (*GitTagDeleteResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	tagName, err := normalizeGitTagName(tagName)
 	if err != nil {
 		return nil, err
@@ -464,6 +512,12 @@ func (s *ProjectService) DeleteProjectGitTag(ctx context.Context, projectID, tag
 }
 
 func (s *ProjectService) GetProjectGitStashes(ctx context.Context, projectID string) ([]GitStashRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -484,6 +538,12 @@ func (s *ProjectService) GetProjectGitStashes(ctx context.Context, projectID str
 }
 
 func (s *ProjectService) ApplyProjectGitStash(ctx context.Context, projectID, stashRef string) (*GitStashApplyResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	normalizedRef, err := normalizeGitStashRef(stashRef)
 	if err != nil {
 		return nil, err
@@ -521,6 +581,12 @@ func (s *ProjectService) ApplyProjectGitStash(ctx context.Context, projectID, st
 }
 
 func (s *ProjectService) CreateProjectGitStash(ctx context.Context, projectID, message string) (*GitStashCreateResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	normalizedMessage, err := normalizeGitStashMessage(message)
 	if err != nil {
 		return nil, err
@@ -551,6 +617,12 @@ func (s *ProjectService) CreateProjectGitStash(ctx context.Context, projectID, m
 }
 
 func (s *ProjectService) GetProjectGitWorktreeStatus(ctx context.Context, projectID string) (*GitWorktreeStatusRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -578,6 +650,12 @@ func (s *ProjectService) GetProjectGitWorktreeStatus(ctx context.Context, projec
 }
 
 func (s *ProjectService) DiscardProjectGitWorktreeFile(ctx context.Context, projectID, filePath string) (*GitWorktreeFileDiscardResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	normalizedPath, err := normalizeProjectRelativePath(filePath)
 	if err != nil {
 		return nil, err
@@ -609,6 +687,12 @@ func (s *ProjectService) DiscardProjectGitWorktreeFile(ctx context.Context, proj
 }
 
 func (s *ProjectService) CommitProjectGitWorktree(ctx context.Context, projectID, message string) (*GitWorktreeCommitResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return nil, fmt.Errorf("commit message is required")
@@ -653,6 +737,12 @@ func (s *ProjectService) CommitProjectGitWorktree(ctx context.Context, projectID
 }
 
 func (s *ProjectService) GetProjectGitBranchCompare(ctx context.Context, projectID, baseBranch, headBranch string) (*GitBranchCompareRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	baseBranch, err := normalizeGitBranchName(baseBranch)
 	if err != nil {
 		return nil, err
@@ -690,6 +780,12 @@ func (s *ProjectService) GetProjectGitBranchCompare(ctx context.Context, project
 }
 
 func (s *ProjectService) ApplyProjectGitBranchCompareFile(ctx context.Context, projectID, baseBranch, headBranch, filePath string) (*GitBranchCompareFileApplyResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	baseBranch, err := normalizeGitBranchName(baseBranch)
 	if err != nil {
 		return nil, err
@@ -736,6 +832,12 @@ func (s *ProjectService) ApplyProjectGitBranchCompareFile(ctx context.Context, p
 }
 
 func (s *ProjectService) GetProjectGitBranchSwitchReadiness(ctx context.Context, projectID, targetBranch string) (*GitBranchSwitchReadinessRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	targetBranch, err := normalizeGitBranchName(targetBranch)
 	if err != nil {
 		return nil, err
@@ -761,6 +863,12 @@ func (s *ProjectService) GetProjectGitBranchSwitchReadiness(ctx context.Context,
 }
 
 func (s *ProjectService) SwitchProjectGitBranch(ctx context.Context, projectID, targetBranch string) (*GitBranchSwitchResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	targetBranch, err := normalizeGitBranchName(targetBranch)
 	if err != nil {
 		return nil, err
@@ -786,6 +894,12 @@ func (s *ProjectService) SwitchProjectGitBranch(ctx context.Context, projectID, 
 }
 
 func (s *ProjectService) CreateProjectGitBranch(ctx context.Context, projectID, branchName string) (*GitBranchCreateResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	branchName, err := normalizeGitBranchName(branchName)
 	if err != nil {
 		return nil, err
@@ -811,6 +925,12 @@ func (s *ProjectService) CreateProjectGitBranch(ctx context.Context, projectID, 
 }
 
 func (s *ProjectService) CreateProjectGitBranchFromRemote(ctx context.Context, projectID, remoteBranch, branchName string) (*GitBranchCreateFromRemoteResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	remoteBranch, err := normalizeGitRemoteBranchName(remoteBranch)
 	if err != nil {
 		return nil, err
@@ -840,6 +960,12 @@ func (s *ProjectService) CreateProjectGitBranchFromRemote(ctx context.Context, p
 }
 
 func (s *ProjectService) DeleteProjectGitBranch(ctx context.Context, projectID, branchName string) (*GitBranchDeleteResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	branchName, err := normalizeGitBranchName(branchName)
 	if err != nil {
 		return nil, err
@@ -865,6 +991,12 @@ func (s *ProjectService) DeleteProjectGitBranch(ctx context.Context, projectID, 
 }
 
 func (s *ProjectService) RenameProjectGitBranch(ctx context.Context, projectID, previousName, nextName string) (*GitBranchRenameResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	previousName, err := normalizeGitBranchName(previousName)
 	if err != nil {
 		return nil, err
@@ -894,6 +1026,12 @@ func (s *ProjectService) RenameProjectGitBranch(ctx context.Context, projectID, 
 }
 
 func (s *ProjectService) GetProjectGitCommit(ctx context.Context, projectID, commitHash string) (*GitCommitRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	normalizedHash, err := normalizeGitCommitHash(commitHash)
 	if err != nil {
 		return nil, err
@@ -918,6 +1056,12 @@ func (s *ProjectService) GetProjectGitCommit(ctx context.Context, projectID, com
 }
 
 func (s *ProjectService) RestoreProjectGitCommit(ctx context.Context, projectID, commitHash string) error {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	normalizedHash, err := normalizeGitCommitHash(commitHash)
 	if err != nil {
 		return err
@@ -952,6 +1096,12 @@ func (s *ProjectService) RestoreProjectGitCommit(ctx context.Context, projectID,
 }
 
 func (s *ProjectService) RestoreProjectGitCommitFile(ctx context.Context, projectID, commitHash, filePath string) (*GitCommitFileRestoreResultRecord, error) {
+	operationCtx, finishMutation, mutationErr := s.BeginCancellableProjectMutation(ctx, projectID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+	ctx = operationCtx
 	normalizedHash, err := normalizeGitCommitHash(commitHash)
 	if err != nil {
 		return nil, err

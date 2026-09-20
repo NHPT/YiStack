@@ -32,12 +32,20 @@ type AuthAdminLookup interface {
 	FindByID(ctx context.Context, id string) (*model.Admin, error)
 }
 
+type AuthUserOperationGate interface {
+	BeginCancellableUserProjectOperation(
+		ctx context.Context,
+		userID string,
+	) (context.Context, func(), error)
+}
+
 // AuthConfig 认证配置
 type AuthConfig struct {
-	JWTConfig *config.JWTConfig
-	SkipPaths []string
-	UserRepo  AuthUserLookup
-	AdminRepo AuthAdminLookup
+	JWTConfig         *config.JWTConfig
+	SkipPaths         []string
+	UserRepo          AuthUserLookup
+	AdminRepo         AuthAdminLookup
+	UserOperationGate AuthUserOperationGate
 }
 
 // Auth JWT认证中间件
@@ -90,8 +98,24 @@ func Auth(cfg *AuthConfig) app.HandlerFunc {
 			return
 		}
 
+		requestContext := c
+		if cfg != nil &&
+			cfg.UserRepo != nil &&
+			cfg.UserOperationGate != nil &&
+			shouldHoldUserOperationGate(ctx) {
+			operationContext, finishUserOperation, err :=
+				cfg.UserOperationGate.BeginCancellableUserProjectOperation(c, claims.UserID)
+			if err != nil {
+				respondError(ctx, consts.StatusUnauthorized, 1002, "用户账号正在删除，当前请求已停止")
+				ctx.Abort()
+				return
+			}
+			requestContext = operationContext
+			defer finishUserOperation()
+		}
+
 		if cfg != nil && cfg.AdminRepo != nil {
-			admin, err := cfg.AdminRepo.FindByID(c, claims.UserID)
+			admin, err := cfg.AdminRepo.FindByID(requestContext, claims.UserID)
 			if err != nil || admin == nil {
 				respondError(ctx, consts.StatusUnauthorized, 1002, "管理员登录状态已失效，请重新登录")
 				ctx.Abort()
@@ -120,7 +144,7 @@ func Auth(cfg *AuthConfig) app.HandlerFunc {
 		}
 
 		if cfg != nil && cfg.UserRepo != nil {
-			user, err := cfg.UserRepo.FindByID(c, claims.UserID)
+			user, err := cfg.UserRepo.FindByID(requestContext, claims.UserID)
 			if err != nil || user == nil {
 				respondError(ctx, consts.StatusUnauthorized, 1002, "登录用户不存在，请重新登录")
 				ctx.Abort()
@@ -152,7 +176,7 @@ func Auth(cfg *AuthConfig) app.HandlerFunc {
 			ctx.Set("admin_id", claims.UserID)
 		}
 
-		ctx.Next(c)
+		ctx.Next(requestContext)
 	}
 }
 
@@ -286,10 +310,56 @@ func NewUserAuthConfig(jwtCfg *config.JWTConfig, userRepo AuthUserLookup) *AuthC
 	return cfg
 }
 
+func NewUserAuthConfigWithOperationGate(
+	jwtCfg *config.JWTConfig,
+	userRepo AuthUserLookup,
+	userOperationGate AuthUserOperationGate,
+) *AuthConfig {
+	cfg := NewUserAuthConfig(jwtCfg, userRepo)
+	cfg.UserOperationGate = userOperationGate
+	return cfg
+}
+
 func NewAdminAuthConfig(jwtCfg *config.JWTConfig, adminRepo AuthAdminLookup) *AuthConfig {
 	cfg := NewAuthConfig(jwtCfg)
 	cfg.AdminRepo = adminRepo
 	return cfg
+}
+
+func shouldHoldUserOperationGate(ctx *app.RequestContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if string(ctx.Method()) == consts.MethodGet {
+		return shouldHoldUserOperationGateForProjectRead(string(ctx.Request.URI().Path()))
+	}
+	switch string(ctx.Request.URI().Path()) {
+	case "/api/chat/generate", "/api/project/plans":
+		return false
+	default:
+		return true
+	}
+}
+
+func shouldHoldUserOperationGateForProjectRead(path string) bool {
+	if !strings.HasPrefix(path, "/api/project/") {
+		return false
+	}
+	for _, marker := range []string{
+		"/commits",
+		"/branches",
+		"/remote-branches",
+		"/remotes",
+		"/tags",
+		"/stashes",
+		"/worktree-status",
+		"/files",
+	} {
+		if strings.Contains(path, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldSkipAuth(path string, skipPaths []string) bool {

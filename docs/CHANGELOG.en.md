@@ -16,6 +16,25 @@ starting with v1.0.0.
 
 No public changes yet.
 
+## [1.1.10] - 2026-09-19
+
+### Added
+
+- Added `yistackctl ephemeral enable|disable` to manage baseline capture, configuration state, and systemd timers through one lifecycle. Enabling now creates a clean baseline that excludes existing regular users and projects.
+- Administrator deletion now permanently removes regular users in a database transaction after cleaning their project containers, networks, terminal sessions, workspaces, local and remote backups (with CopyObject response validation and HEAD-confirmed staging copies), and related database records. Any resource cleanup failure blocks the database deletion. Remote backups first move into a recoverable object-storage staging area and are restored after a database failure or service restart.
+
+### Changed
+
+- Ephemeral mode status now reports full baseline compatibility plus the active and enabled states of both timers. Upgrades use `EPHEMERAL_MAINTENANCE_ENABLED` as the source of truth: an enabled installation automatically rebuilds a clean baseline for the new Release and restores both timers, while normal mode remains disabled. A failed upgrade restores the previous configuration, baseline, and timer state.
+- Daily ephemeral reset now removes local project backups. Regular-user data is excluded from new baselines, and enabling the mode does not immediately delete live data.
+- Rewrote the Chinese and English README instructions around enabling, disabling, changing configuration, re-enabling, and post-upgrade handling.
+- Plan generation now requires Simplified Chinese for user-facing analysis and candidate-plan text; administrator prompt overrides can no longer replace the mandatory language and stage-output contracts.
+- Permanent user deletion now blocks new user requests and project mutations, cancels active generation and runtime preparation, and stages workspaces and local backups so database failures can restore local data instead of leaving a partial deletion.
+- Project deployment, rollback, domain, and release reads now enter the project deletion barrier. After destructive cleanup starts, cleanup or final hard-delete failures keep the project soft-deleted and retry instead of exposing a partially removed project.
+- Ephemeral mode enable and disable now acquire the maintenance lock before stopping systemd maintenance services, preventing a concurrent `reset` from being terminated during database restoration.
+- Upgrades and ephemeral maintenance share the maintenance lock, and a failed `enable` restores the previous baseline. Project metadata updates, container stops, remote backup uploads, and resource-alert side effects now share the user and project deletion barriers. Resource-alert notification and enforcement now persist the database claim and pending intent atomically across instances, and template creation compensation preserves and reports database or workspace rollback failures.
+- Resource-alert webhooks and quota enforcement persist a pending intent before the external action. Unknown outcomes or failed success-record persistence block automatic replay to prevent duplicate notifications or container stops.
+
 ## [1.1.9] - 2026-09-18
 
 ### Fixed

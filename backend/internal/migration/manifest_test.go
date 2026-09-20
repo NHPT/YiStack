@@ -18,11 +18,11 @@ func TestLoadRepositoryManifest(t *testing.T) {
 	if manifest.BaselineVersion != "000000000000_contributor_alpha" {
 		t.Fatalf("baseline = %q", manifest.BaselineVersion)
 	}
-	if manifest.LatestVersion != "202609070001_migration_integrity" {
+	if manifest.LatestVersion != "202609190002_resource_alert_action_claims" {
 		t.Fatalf("latest = %q", manifest.LatestVersion)
 	}
-	if len(manifest.Migrations) != 2 {
-		t.Fatalf("migration count = %d, want 2", len(manifest.Migrations))
+	if len(manifest.Migrations) != 4 {
+		t.Fatalf("migration count = %d, want 4", len(manifest.Migrations))
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,12 @@ type stubProjectListRepo struct {
 	listAllPageSize          int
 	listAllErr               error
 	findByProjectIDErr       error
+	listIncludingDeletedErr  error
+	listSoftDeletedErr       error
+	hardDeleteErr            error
+	hardDeleteErrors         []error
+	hardDeleteCalls          int
+	hardDeletedProject       string
 	projects                 []model.Project
 	createdProjects          []model.Project
 	total                    int64
@@ -26,6 +34,15 @@ type stubProjectListRepo struct {
 	updatedContainerStatus   string
 	updatedFieldsProjectID   string
 	updatedFields            map[string]interface{}
+	restoreMu                sync.Mutex
+	softDeletedProject       string
+	restoredProject          string
+	restoredProjects         []string
+	restoreDeletedErrors     map[string]error
+	restoreByOwnerErr        error
+	restoreDeletedFailures   map[string]int
+	confirmedProject         *model.Project
+	confirmationErr          error
 }
 
 func (r *stubProjectListRepo) Create(_ context.Context, project *model.Project) error {
@@ -67,6 +84,34 @@ func (r *stubProjectListRepo) ListByUserID(_ context.Context, userID string, _, 
 		}
 	}
 	return projects, int64(len(projects)), nil
+}
+
+func (r *stubProjectListRepo) ListByUserIDIncludingDeleted(_ context.Context, userID string) ([]model.Project, error) {
+	if r.listIncludingDeletedErr != nil {
+		return nil, r.listIncludingDeletedErr
+	}
+	projects := []model.Project{}
+	for i := range r.projects {
+		if r.projects[i].UserID == userID {
+			projects = append(projects, r.projects[i])
+		}
+	}
+	return projects, nil
+}
+
+func (r *stubProjectListRepo) ListSoftDeleted(context.Context) ([]model.Project, error) {
+	if r.listSoftDeletedErr != nil {
+		return nil, r.listSoftDeletedErr
+	}
+	r.restoreMu.Lock()
+	defer r.restoreMu.Unlock()
+	projects := make([]model.Project, 0)
+	for i := range r.projects {
+		if r.projects[i].DeletedAt != nil {
+			projects = append(projects, r.projects[i])
+		}
+	}
+	return projects, nil
 }
 
 func (r *stubProjectListRepo) ListAll(_ context.Context, page, pageSize int) ([]model.Project, int64, error) {
@@ -121,25 +166,91 @@ func (r *stubProjectListRepo) UpdatePlanData(context.Context, string, string, st
 	return nil
 }
 
-func (r *stubProjectListRepo) SoftDelete(context.Context, string) error {
+func (r *stubProjectListRepo) SoftDelete(_ context.Context, projectID string) error {
+	r.restoreMu.Lock()
+	defer r.restoreMu.Unlock()
+	r.softDeletedProject = projectID
+	now := time.Now().UTC()
+	for i := range r.projects {
+		if r.projects[i].ProjectID == projectID {
+			r.projects[i].DeletedAt = &now
+		}
+	}
 	return nil
 }
 
-func (r *stubProjectListRepo) RestoreDeleted(context.Context, string) error {
+func (r *stubProjectListRepo) RestoreDeleted(_ context.Context, projectID string) error {
+	r.restoreMu.Lock()
+	defer r.restoreMu.Unlock()
+	r.restoredProject = projectID
+	r.restoredProjects = append(r.restoredProjects, projectID)
+	if restoreErr := r.restoreDeletedErrors[projectID]; restoreErr != nil {
+		if failures, controlled := r.restoreDeletedFailures[projectID]; controlled {
+			if failures > 0 {
+				r.restoreDeletedFailures[projectID] = failures - 1
+				return restoreErr
+			}
+		} else {
+			return restoreErr
+		}
+	}
+	for i := range r.projects {
+		if r.projects[i].ProjectID == projectID {
+			r.projects[i].DeletedAt = nil
+		}
+	}
 	return nil
 }
 
 func (r *stubProjectListRepo) RestoreDeletedByOwner(_ context.Context, projectID, userID string) (*model.Project, error) {
+	r.restoreMu.Lock()
+	defer r.restoreMu.Unlock()
+	if r.restoreByOwnerErr != nil {
+		return nil, r.restoreByOwnerErr
+	}
 	for i := range r.projects {
 		if r.projects[i].ProjectID == projectID && r.projects[i].UserID == userID {
+			r.projects[i].DeletedAt = nil
 			return &r.projects[i], nil
 		}
 	}
 	return nil, errors.New("project not found")
 }
 
-func (r *stubProjectListRepo) HardDelete(context.Context, string) error {
-	return nil
+func (r *stubProjectListRepo) FindByProjectIDIncludingDeletedByOwner(
+	_ context.Context,
+	projectID string,
+	userID string,
+) (*model.Project, error) {
+	if r.confirmationErr != nil {
+		return nil, r.confirmationErr
+	}
+	if r.confirmedProject != nil {
+		r.restoreMu.Lock()
+		defer r.restoreMu.Unlock()
+		project := *r.confirmedProject
+		return &project, nil
+	}
+	for i := range r.projects {
+		if r.projects[i].ProjectID == projectID && r.projects[i].UserID == userID {
+			project := r.projects[i]
+			return &project, nil
+		}
+	}
+	return nil, errors.New("project not found")
+}
+
+func (r *stubProjectListRepo) HardDelete(_ context.Context, projectID string) error {
+	r.restoreMu.Lock()
+	defer r.restoreMu.Unlock()
+	r.hardDeleteCalls++
+	r.hardDeletedProject = projectID
+	if len(r.hardDeleteErrors) > 0 {
+		err := r.hardDeleteErrors[0]
+		r.hardDeleteErrors = r.hardDeleteErrors[1:]
+		return err
+	}
+	return r.hardDeleteErr
 }
 
 func TestProjectPreviewShareEnableCreatesPublicPath(t *testing.T) {
@@ -200,8 +311,10 @@ func TestProjectPreviewShareDisableInvalidatesPublicPath(t *testing.T) {
 }
 
 type stubProjectCleanupStateRepo struct {
-	projectID string
-	err       error
+	projectID    string
+	err          error
+	deleteErrors []error
+	deleteCalls  int
 }
 
 func (r *stubProjectCleanupStateRepo) UpsertSnapshot(context.Context, *model.ProjectEngineeringState) error {
@@ -213,7 +326,13 @@ func (r *stubProjectCleanupStateRepo) FindByProjectID(context.Context, string) (
 }
 
 func (r *stubProjectCleanupStateRepo) DeleteByProjectID(_ context.Context, projectID string) error {
+	r.deleteCalls++
 	r.projectID = projectID
+	if len(r.deleteErrors) > 0 {
+		err := r.deleteErrors[0]
+		r.deleteErrors = r.deleteErrors[1:]
+		return err
+	}
 	return r.err
 }
 
@@ -246,6 +365,20 @@ func (r *stubProjectCleanupResourceAlertEventRepo) ListByProjectID(context.Conte
 
 func (r *stubProjectCleanupResourceAlertEventRepo) DeleteByProjectID(_ context.Context, projectID string) error {
 	r.projectID = projectID
+	return r.err
+}
+
+func (r *stubProjectCleanupResourceAlertEventRepo) ClaimAction(
+	context.Context,
+	*model.ProjectResourceAlertActionClaim,
+	*model.ProjectResourceAlertEvent,
+) (bool, error) {
+	return false, r.err
+}
+
+func (r *stubProjectCleanupResourceAlertEventRepo) CompleteAction(
+	context.Context, string, int64, string, string, time.Time,
+) error {
 	return r.err
 }
 
@@ -740,7 +873,7 @@ func TestProjectTerminalManagerUnavailablePersistsRuntimeSnapshot(t *testing.T) 
 		ContainerCfg: &config.ContainerConfig{ProjectDir: rootDir},
 	})
 
-	_, err := service.CreateTerminalSession(context.Background(), "proj_terminal_unavailable", 24, 80)
+	_, err := service.CreateTerminalSession(context.Background(), "user-terminal", "proj_terminal_unavailable", 24, 80)
 
 	if err == nil {
 		t.Fatal("expected terminal error")
@@ -1072,7 +1205,7 @@ func TestProjectStopContainerManagerUnavailableReturnsStructuredResult(t *testin
 		ContainerCfg: &config.ContainerConfig{ProjectDir: rootDir},
 	})
 
-	result, err := service.StopProjectContainer(context.Background(), "proj_stop_unavailable")
+	result, err := service.StopProjectContainer(context.Background(), "proj_stop_unavailable", "stop-user")
 
 	if err == nil {
 		t.Fatal("expected stop error")
@@ -1117,7 +1250,7 @@ func TestProjectStopContainerManagerUnavailableExposesPersistenceFailure(t *test
 		ContainerCfg: &config.ContainerConfig{ProjectDir: rootDir},
 	})
 
-	result, err := service.StopProjectContainer(context.Background(), "proj_stop_unavailable")
+	result, err := service.StopProjectContainer(context.Background(), "proj_stop_unavailable", "stop-user")
 
 	if err == nil {
 		t.Fatal("expected stop error")
@@ -1213,6 +1346,8 @@ func TestProjectDeletionCleanupScopeIncludesAllProjectOwnedResources(t *testing.
 		"container",
 		"project_network",
 		"project_directory",
+		"local_backup_archives",
+		"remote_backup_objects",
 		"chat_messages",
 		"generated_file_metadata",
 		"git_commits",
@@ -1256,7 +1391,8 @@ func TestRestoreDeletedProjectRestoresByOwnerDuringOpenWindow(t *testing.T) {
 		}},
 	}
 	service := NewProjectService(ProjectServiceOptions{ProjectRepo: repo})
-	service.deleteRestoreWindows.Store("proj_restore", time.Now().Add(ProjectDeletionRestoreWindow()))
+	restoreState := &projectDeleteRestoreState{deadline: time.Now().Add(ProjectDeletionRestoreWindow())}
+	service.deleteRestoreStates.Store("proj_restore", restoreState)
 
 	project, err := service.RestoreDeletedProject(context.Background(), "proj_restore", "user_restore")
 
@@ -1266,7 +1402,1537 @@ func TestRestoreDeletedProjectRestoresByOwnerDuringOpenWindow(t *testing.T) {
 	if project == nil || project.ProjectID != "proj_restore" || project.UserID != "user_restore" {
 		t.Fatalf("expected restored owner project, got %#v", project)
 	}
-	if _, ok := service.deleteRestoreRequests.Load("proj_restore"); !ok {
-		t.Fatal("expected restore request marker for background cleanup cancellation")
+	restoreState.mu.Lock()
+	restoreRequested := restoreState.restoreRequested
+	restoreState.mu.Unlock()
+	if !restoreRequested {
+		t.Fatal("expected atomic restore state to cancel background cleanup")
+	}
+}
+
+func TestRestoreDeletedProjectReleasesAsyncDeletionBarrier(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID: "proj_restore_barrier",
+		UserID:    "user_restore_barrier",
+	}}}
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:          repo,
+		LifecycleCoordinator: coordinator,
+	})
+
+	if err := service.DeleteProjectAsync(
+		context.Background(),
+		"proj_restore_barrier",
+	); err != nil {
+		t.Fatalf("DeleteProjectAsync() error = %v", err)
+	}
+	if _, err := service.RestoreDeletedProject(
+		context.Background(),
+		"proj_restore_barrier",
+		"user_restore_barrier",
+	); err != nil {
+		t.Fatalf("RestoreDeletedProject() error = %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		finish, err := coordinator.acquireProjectMutation(
+			"proj_restore_barrier",
+		)
+		if err == nil {
+			finish()
+			break
+		}
+		if !errors.Is(err, errProjectDeletionInProgress) {
+			t.Fatalf("acquireProjectMutation() error = %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("restore did not release the asynchronous deletion barrier")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	if _, exists := service.deleteTasks.Load("proj_restore_barrier"); exists {
+		t.Fatal("restore left the asynchronous deletion task registered")
+	}
+}
+func TestRestoreDeletedProjectConfirmsAmbiguousRepositoryResponse(t *testing.T) {
+	now := time.Now().UTC()
+	repo := &stubProjectListRepo{
+		projects: []model.Project{{
+			ProjectID: "proj_restore_ambiguous",
+			UserID:    "user_restore_ambiguous",
+			DeletedAt: &now,
+		}},
+		restoreByOwnerErr: context.DeadlineExceeded,
+		confirmedProject: &model.Project{
+			ProjectID: "proj_restore_ambiguous",
+			UserID:    "user_restore_ambiguous",
+		},
+	}
+	service := NewProjectService(ProjectServiceOptions{ProjectRepo: repo})
+	state := &projectDeleteRestoreState{
+		deadline:      time.Now().Add(ProjectDeletionRestoreWindow()),
+		restoreSignal: make(chan struct{}),
+	}
+	service.deleteRestoreStates.Store("proj_restore_ambiguous", state)
+
+	project, err := service.RestoreDeletedProject(
+		context.Background(),
+		"proj_restore_ambiguous",
+		"user_restore_ambiguous",
+	)
+	if err != nil {
+		t.Fatalf("RestoreDeletedProject() error = %v", err)
+	}
+	if project == nil || project.DeletedAt != nil {
+		t.Fatalf("confirmed project = %#v, want active project", project)
+	}
+	state.mu.Lock()
+	restoreRequested := state.restoreRequested
+	state.mu.Unlock()
+	if !restoreRequested {
+		t.Fatal("ambiguous restore confirmation did not stop project cleanup")
+	}
+}
+
+func TestRestoreDeletedProjectPausesCleanupWhenConfirmationIsUnavailable(t *testing.T) {
+	now := time.Now().UTC()
+	repo := &stubProjectListRepo{
+		projects: []model.Project{{
+			ProjectID: "proj_restore_uncertain",
+			UserID:    "user_restore_uncertain",
+			DeletedAt: &now,
+		}},
+		restoreByOwnerErr: context.DeadlineExceeded,
+		confirmationErr:   context.DeadlineExceeded,
+	}
+	service := NewProjectService(ProjectServiceOptions{ProjectRepo: repo})
+	state := &projectDeleteRestoreState{
+		deadline:      time.Now().Add(10 * time.Millisecond),
+		restoreSignal: make(chan struct{}),
+	}
+	service.deleteRestoreStates.Store("proj_restore_uncertain", state)
+
+	_, err := service.RestoreDeletedProject(
+		context.Background(),
+		"proj_restore_uncertain",
+		"user_restore_uncertain",
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RestoreDeletedProject() error = %v, want ambiguous deadline", err)
+	}
+
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
+	defer cancelWait()
+	if restored := service.waitProjectDeletionRestoreWindow(
+		waitCtx,
+		"proj_restore_uncertain",
+	); restored {
+		t.Fatal("uncertain restore was reported as confirmed")
+	}
+	state.mu.Lock()
+	cleanupStarted := state.cleanupStarted
+	restoreUncertain := state.restoreUncertain
+	state.mu.Unlock()
+	if cleanupStarted || !restoreUncertain {
+		t.Fatalf("uncertain restore state = cleanupStarted:%t restoreUncertain:%t", cleanupStarted, restoreUncertain)
+	}
+
+	repo.restoreMu.Lock()
+	repo.restoreByOwnerErr = nil
+	repo.confirmationErr = nil
+	repo.restoreMu.Unlock()
+	project, retryErr := service.RestoreDeletedProject(
+		context.Background(),
+		"proj_restore_uncertain",
+		"user_restore_uncertain",
+	)
+	if retryErr != nil {
+		t.Fatalf("RestoreDeletedProject() retry after deadline error = %v", retryErr)
+	}
+	if project == nil || project.DeletedAt != nil {
+		t.Fatalf("retry restored project = %#v, want active project", project)
+	}
+	state.mu.Lock()
+	restoreRequested := state.restoreRequested
+	state.mu.Unlock()
+	if !restoreRequested {
+		t.Fatal("retry after an uncertain restore did not stop cleanup")
+	}
+}
+
+func TestRestoreDeletedProjectRejectsCleanupDecisionAtomically(t *testing.T) {
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID: "proj_cleanup_started",
+		UserID:    "user_restore",
+	}}}
+	service := NewProjectService(ProjectServiceOptions{ProjectRepo: repo})
+	state := &projectDeleteRestoreState{
+		deadline:       time.Now().Add(ProjectDeletionRestoreWindow()),
+		cleanupStarted: true,
+	}
+	service.deleteRestoreStates.Store("proj_cleanup_started", state)
+
+	_, err := service.RestoreDeletedProject(
+		context.Background(),
+		"proj_cleanup_started",
+		"user_restore",
+	)
+	if err == nil || !strings.Contains(err.Error(), "cleanup already started") {
+		t.Fatalf("RestoreDeletedProject() error = %v, want cleanup boundary rejection", err)
+	}
+	state.mu.Lock()
+	restoreRequested := state.restoreRequested
+	state.mu.Unlock()
+	if restoreRequested {
+		t.Fatal("restore request crossed the cleanup decision")
+	}
+}
+func TestDeleteUserWithProjectResourcesRemovesActiveAndSoftDeletedLocalData(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "projects")
+	backupRoot := filepath.Join(root, "backups")
+	targetProjectIDs := []string{"target-active", "target-soft-deleted"}
+	otherProjectID := "other-user-project"
+	for _, projectID := range append(targetProjectIDs, otherProjectID) {
+		if err := os.MkdirAll(filepath.Join(projectRoot, projectID), 0o755); err != nil {
+			t.Fatalf("create project directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(projectRoot, projectID, "app.txt"), []byte(projectID), 0o600); err != nil {
+			t.Fatalf("write project file: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(backupRoot, projectID), 0o755); err != nil {
+			t.Fatalf("create project backup directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(backupRoot, projectID, "snapshot.tar.gz"), []byte(projectID), 0o600); err != nil {
+			t.Fatalf("write project backup: %v", err)
+		}
+	}
+	deletedAt := time.Now().UTC()
+	repo := &stubProjectListRepo{projects: []model.Project{
+		{
+			ProjectID:     targetProjectIDs[0],
+			UserID:        "target-user",
+			DirectoryPath: filepath.Join(projectRoot, targetProjectIDs[0]),
+		},
+		{
+			ProjectID: targetProjectIDs[1],
+			UserID:    "target-user",
+			DeletedAt: &deletedAt,
+		},
+		{
+			ProjectID:     otherProjectID,
+			UserID:        "other-user",
+			DirectoryPath: filepath.Join(projectRoot, otherProjectID),
+		},
+	}}
+	previousProjectRoot := currentProjectRootDir()
+	t.Cleanup(func() {
+		configureProjectRootDir(&config.ContainerConfig{ProjectDir: previousProjectRoot})
+	})
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:  repo,
+		ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+		ProjectCfg:   &config.ProjectConfig{BackupDir: backupRoot},
+	})
+
+	deleteCalled := false
+	if err := projectService.DeleteUserWithProjectResources(
+		context.Background(),
+		"target-user",
+		func(context.Context) error {
+			deleteCalled = true
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("DeleteUserWithProjectResources() error = %v", err)
+	}
+	if !deleteCalled {
+		t.Fatal("expected database deletion callback")
+	}
+	for _, projectID := range targetProjectIDs {
+		if _, err := os.Stat(filepath.Join(projectRoot, projectID)); !os.IsNotExist(err) {
+			t.Fatalf("project directory %q still exists: %v", projectID, err)
+		}
+		if _, err := os.Stat(filepath.Join(backupRoot, projectID)); !os.IsNotExist(err) {
+			t.Fatalf("project backup directory %q still exists: %v", projectID, err)
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(projectRoot, otherProjectID, "app.txt"),
+		filepath.Join(backupRoot, otherProjectID, "snapshot.tar.gz"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("other user's data was removed at %q: %v", path, err)
+		}
+	}
+}
+
+func TestDeleteUserWithProjectResourcesRestoresLocalDataWhenDatabaseDeleteFails(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "projects")
+	backupRoot := filepath.Join(root, "backups")
+	projectID := "target-project"
+	projectDir := filepath.Join(projectRoot, projectID)
+	projectBackupDir := filepath.Join(backupRoot, projectID)
+	for path, content := range map[string]string{
+		filepath.Join(projectDir, "app.txt"):               "project data",
+		filepath.Join(projectBackupDir, "snapshot.tar.gz"): "backup data",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create test directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write test data: %v", err)
+		}
+	}
+
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID:     projectID,
+		UserID:        "target-user",
+		DirectoryPath: projectDir,
+	}}}
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+	projectService := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:  repo,
+		ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+		ProjectCfg:   &config.ProjectConfig{BackupDir: backupRoot},
+	})
+	deleteErr := errors.New("database unavailable")
+
+	err := projectService.DeleteUserWithProjectResources(
+		context.Background(),
+		"target-user",
+		func(context.Context) error {
+			return deleteErr
+		},
+	)
+	if !errors.Is(err, deleteErr) {
+		t.Fatalf("expected database error, got %v", err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(projectDir, "app.txt"):               "project data",
+		filepath.Join(projectBackupDir, "snapshot.tar.gz"): "backup data",
+	} {
+		actual, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read restored data %q: %v", path, readErr)
+		}
+		if string(actual) != content {
+			t.Fatalf("restored data %q = %q, want %q", path, actual, content)
+		}
+	}
+}
+
+func TestDeleteUserWithProjectResourcesRejectsConcurrentProjectCreation(t *testing.T) {
+	repo := &stubProjectListRepo{}
+	projectService := NewProjectService(ProjectServiceOptions{ProjectRepo: repo})
+	deleteStarted := make(chan struct{})
+	releaseDelete := make(chan struct{})
+	deleteDone := make(chan error, 1)
+
+	go func() {
+		deleteDone <- projectService.DeleteUserWithProjectResources(
+			context.Background(),
+			"target-user",
+			func(context.Context) error {
+				close(deleteStarted)
+				<-releaseDelete
+				return nil
+			},
+		)
+	}()
+	<-deleteStarted
+
+	createDone := make(chan error, 1)
+	go func() {
+		_, err := projectService.CreateProject(context.Background(), &CreateProjectRequest{
+			UserID:      "target-user",
+			Name:        "Concurrent project",
+			Description: "must wait for deletion",
+			AppType:     "web",
+		})
+		createDone <- err
+	}()
+
+	select {
+	case err := <-createDone:
+		if !errors.Is(err, errUserDeletionInProgress) {
+			t.Fatalf("CreateProject() error = %v, want deletion in progress", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("project creation waited instead of rejecting the deletion boundary")
+	}
+
+	close(releaseDelete)
+	if err := <-deleteDone; err != nil {
+		t.Fatalf("DeleteUserWithProjectResources() error = %v", err)
+	}
+}
+
+func TestProjectLifecycleDeletionCancelsGenerationAndRejectsNewMutation(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	releaseMutation, err := coordinator.acquireProjectMutation("target-project")
+	if err != nil {
+		t.Fatalf("acquireProjectMutation() error = %v", err)
+	}
+	generationCtx, cancelGeneration := context.WithCancel(context.Background())
+	unregister := coordinator.registerGeneration("target-project", cancelGeneration)
+
+	deletionReady := make(chan func(bool), 1)
+	deletionErr := make(chan error, 1)
+	go func() {
+		finish, _, beginErr := coordinator.beginProjectDeletion(
+			context.Background(),
+			[]string{"target-project"},
+		)
+		if beginErr != nil {
+			deletionErr <- beginErr
+			return
+		}
+		deletionReady <- finish
+	}()
+
+	select {
+	case <-generationCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("administrator deletion did not cancel active generation")
+	}
+	unregister()
+	releaseMutation()
+
+	var finish func(bool)
+	select {
+	case err := <-deletionErr:
+		t.Fatalf("beginProjectDeletion() error = %v", err)
+	case finish = <-deletionReady:
+	case <-time.After(time.Second):
+		t.Fatal("administrator deletion did not wait for active mutation completion")
+	}
+	defer finish(false)
+
+	if release, err := coordinator.acquireProjectMutation("target-project"); err == nil {
+		release()
+		t.Fatal("new project mutation was accepted during administrator deletion")
+	}
+}
+
+func TestProjectLifecycleUserDeletionWaitsForAuthenticatedOperation(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	finishOperation, err := coordinator.acquireUserOperation("target-user")
+	if err != nil {
+		t.Fatalf("acquireUserOperation() error = %v", err)
+	}
+
+	deletionReady := make(chan func(bool), 1)
+	deletionErr := make(chan error, 1)
+	go func() {
+		finish, beginErr := coordinator.beginUserDeletion(
+			context.Background(),
+			"target-user",
+		)
+		if beginErr != nil {
+			deletionErr <- beginErr
+			return
+		}
+		deletionReady <- finish
+	}()
+
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+		t.Fatal("user deletion crossed an active authenticated operation")
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	finishOperation()
+	var finishDeletion func(bool)
+	select {
+	case finishDeletion = <-deletionReady:
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("user deletion did not continue after active operation finished")
+	}
+	defer finishDeletion(false)
+
+	if finish, err := coordinator.acquireUserOperation("target-user"); err == nil {
+		finish()
+		t.Fatal("new user operation was accepted during deletion")
+	}
+}
+
+func TestProjectLifecycleUserDeletionCancelsCollaboratorActivity(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	finishUserOperation, err := coordinator.acquireUserOperation("collaborator")
+	if err != nil {
+		t.Fatalf("acquireUserOperation() error = %v", err)
+	}
+	activityCtx, cancelActivity := context.WithCancel(context.Background())
+	unregister := coordinator.registerUserProjectActivity(
+		"collaborator",
+		"owner-project",
+		cancelActivity,
+		true,
+	)
+	finishMutation, err := coordinator.acquireProjectMutationContext(
+		activityCtx,
+		"owner-project",
+	)
+	if err != nil {
+		t.Fatalf("acquireProjectMutationContext() error = %v", err)
+	}
+
+	deletionReady := make(chan func(bool), 1)
+	deletionErr := make(chan error, 1)
+	go func() {
+		finish, beginErr := coordinator.beginUserDeletion(
+			context.Background(),
+			"collaborator",
+		)
+		if beginErr != nil {
+			deletionErr <- beginErr
+			return
+		}
+		deletionReady <- finish
+	}()
+
+	select {
+	case <-activityCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("user deletion did not cancel the collaborator activity")
+	}
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+		t.Fatal("user deletion completed before the canceled activity exited")
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	finishMutation()
+	unregister()
+	finishUserOperation()
+
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("user deletion did not continue after the collaborator activity exited")
+	}
+}
+
+func TestProjectLifecycleUserDeletionCancelsCollaboratorQueuedMutation(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	projectService := &ProjectService{lifecycleCoordinator: coordinator}
+	finishOwnerMutation, err := projectService.BeginProjectMutation("owner-project")
+	if err != nil {
+		t.Fatalf("BeginProjectMutation() error = %v", err)
+	}
+	defer finishOwnerMutation()
+
+	operationCtx, finishUserOperation, err :=
+		projectService.BeginCancellableUserProjectOperation(
+			context.Background(),
+			"collaborator",
+		)
+	if err != nil {
+		t.Fatalf("BeginCancellableUserProjectOperation() error = %v", err)
+	}
+
+	queuedErr := make(chan error, 1)
+	go func() {
+		finish, acquireErr := projectService.BeginProjectMutationContext(
+			operationCtx,
+			"owner-project",
+		)
+		if acquireErr == nil {
+			finish()
+		}
+		queuedErr <- acquireErr
+	}()
+
+	gate := coordinator.projectGate("owner-project")
+	deadline := time.Now().Add(time.Second)
+	for {
+		gate.mu.Lock()
+		active := gate.active
+		gate.mu.Unlock()
+		if active == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			finishUserOperation()
+			t.Fatal("collaborator mutation did not enter the project gate")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	deletionReady := make(chan func(bool), 1)
+	deletionErr := make(chan error, 1)
+	go func() {
+		finish, beginErr := coordinator.beginUserDeletion(
+			context.Background(),
+			"collaborator",
+		)
+		if beginErr != nil {
+			deletionErr <- beginErr
+			return
+		}
+		deletionReady <- finish
+	}()
+
+	select {
+	case err := <-queuedErr:
+		if !errors.Is(err, context.Canceled) {
+			finishUserOperation()
+			t.Fatalf("queued collaborator mutation error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		finishUserOperation()
+		t.Fatal("user deletion did not cancel the queued collaborator mutation")
+	}
+
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+		finishUserOperation()
+		t.Fatal("user deletion completed before the canceled request exited")
+	case err := <-deletionErr:
+		finishUserOperation()
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	finishUserOperation()
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("user deletion waited for another user's active project mutation")
+	}
+}
+
+func TestProjectLifecycleDeletionCancelsQueuedMutation(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	finishFirst, err := coordinator.acquireProjectMutation("target-project")
+	if err != nil {
+		t.Fatalf("acquireProjectMutation() error = %v", err)
+	}
+
+	queuedCtx, cancelQueued := context.WithCancel(context.Background())
+	unregisterQueued := coordinator.registerProjectActivity(
+		"target-project",
+		cancelQueued,
+		false,
+	)
+	queuedErr := make(chan error, 1)
+	go func() {
+		finish, acquireErr := coordinator.acquireProjectMutationContext(
+			queuedCtx,
+			"target-project",
+		)
+		if acquireErr == nil {
+			finish()
+		}
+		queuedErr <- acquireErr
+	}()
+	gate := coordinator.projectGate("target-project")
+	deadline := time.Now().Add(time.Second)
+	for {
+		gate.mu.Lock()
+		active := gate.active
+		gate.mu.Unlock()
+		if active == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("queued mutation did not enter the project gate")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	deletionReady := make(chan func(bool), 1)
+	deletionErr := make(chan error, 1)
+	go func() {
+		finish, _, beginErr := coordinator.beginProjectDeletion(
+			context.Background(),
+			[]string{"target-project"},
+		)
+		if beginErr != nil {
+			deletionErr <- beginErr
+			return
+		}
+		deletionReady <- finish
+	}()
+
+	select {
+	case err := <-queuedErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued mutation error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("project deletion did not cancel the queued mutation")
+	}
+	unregisterQueued()
+	cancelQueued()
+
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+		t.Fatal("project deletion completed before the active mutation exited")
+	case err := <-deletionErr:
+		t.Fatalf("beginProjectDeletion() error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	finishFirst()
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+	case err := <-deletionErr:
+		t.Fatalf("beginProjectDeletion() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("project deletion did not continue after the active mutation exited")
+	}
+}
+
+func TestProjectLifecycleSerializesProjectMutations(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	finishFirst, err := coordinator.acquireProjectMutation("target-project")
+	if err != nil {
+		t.Fatalf("first acquireProjectMutation() error = %v", err)
+	}
+
+	secondReady := make(chan func(), 1)
+	secondErr := make(chan error, 1)
+	go func() {
+		finish, acquireErr := coordinator.acquireProjectMutation("target-project")
+		if acquireErr != nil {
+			secondErr <- acquireErr
+			return
+		}
+		secondReady <- finish
+	}()
+
+	select {
+	case finish := <-secondReady:
+		finish()
+		t.Fatal("concurrent project mutation was not serialized")
+	case err := <-secondErr:
+		t.Fatalf("second acquireProjectMutation() error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	finishFirst()
+	select {
+	case finish := <-secondReady:
+		finish()
+	case err := <-secondErr:
+		t.Fatalf("second acquireProjectMutation() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("second project mutation did not continue after the first completed")
+	}
+}
+
+func TestRecoverPendingUserDeletionStagingPurgesCommittedBeforeLookupFailure(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "projects")
+	backupRoot := filepath.Join(root, "backups")
+	committedRoots := []string{
+		filepath.Join(projectRoot, projectDeletionStagingPrefix+"project"),
+		filepath.Join(backupRoot, projectDeletionStagingPrefix+"backup"),
+	}
+	for _, stagingRoot := range committedRoots {
+		if err := os.MkdirAll(filepath.Join(stagingRoot, "data"), 0o700); err != nil {
+			t.Fatalf("create committed staging directory: %v", err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(stagingRoot, projectDeletionCommittedMarker),
+			[]byte("committed\n"),
+			0o600,
+		); err != nil {
+			t.Fatalf("write committed marker: %v", err)
+		}
+	}
+	pendingRoot := filepath.Join(projectRoot, projectDeletionStagingPrefix+"pending")
+	if err := os.MkdirAll(filepath.Join(pendingRoot, "data"), 0o700); err != nil {
+		t.Fatalf("create pending staging directory: %v", err)
+	}
+
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+	service := NewProjectService(ProjectServiceOptions{
+		ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+		ProjectCfg:   &config.ProjectConfig{BackupDir: backupRoot},
+	})
+	if err := service.RecoverPendingUserDeletionStaging(context.Background()); err == nil {
+		t.Fatal("staging recovery succeeded without a project lookup repository")
+	}
+
+	for _, stagingRoot := range committedRoots {
+		if _, err := os.Stat(stagingRoot); !os.IsNotExist(err) {
+			t.Fatalf("committed staging directory still exists at %q: %v", stagingRoot, err)
+		}
+	}
+	if _, err := os.Stat(pendingRoot); err != nil {
+		t.Fatalf("pending staging directory must be preserved for recovery: %v", err)
+	}
+}
+
+func TestRecoverPendingUserDeletionStagingReconcilesUnmarkedData(t *testing.T) {
+	previousProjectRoot := currentProjectRootDir()
+	t.Cleanup(func() {
+		configureProjectRootDir(&config.ContainerConfig{ProjectDir: previousProjectRoot})
+	})
+
+	t.Run("restore when project row still exists", func(t *testing.T) {
+		projectRoot := filepath.Join(t.TempDir(), "projects")
+		projectID := "project-existing"
+		projectDir := filepath.Join(projectRoot, projectID)
+		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+			t.Fatalf("create project directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(projectDir, "app.txt"), []byte("keep"), 0o600); err != nil {
+			t.Fatalf("write project data: %v", err)
+		}
+		staged, err := stageProjectDirectory(projectDir, "target-user", projectID, "project")
+		if err != nil {
+			t.Fatalf("stageProjectDirectory() error = %v", err)
+		}
+
+		service := NewProjectService(ProjectServiceOptions{
+			ProjectRepo: &stubProjectListRepo{projects: []model.Project{{
+				ProjectID:     projectID,
+				UserID:        "target-user",
+				DirectoryPath: projectDir,
+			}}},
+			ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+		})
+		if err := service.RecoverPendingUserDeletionStaging(context.Background()); err != nil {
+			t.Fatalf("RecoverPendingUserDeletionStaging() error = %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(projectDir, "app.txt"))
+		if err != nil || string(content) != "keep" {
+			t.Fatalf("pending staging was not restored: content=%q err=%v", content, err)
+		}
+		if _, err := os.Stat(staged.stagingRoot); !os.IsNotExist(err) {
+			t.Fatalf("restored staging root still exists: %v", err)
+		}
+	})
+
+	t.Run("purge when project row no longer exists", func(t *testing.T) {
+		projectRoot := filepath.Join(t.TempDir(), "projects")
+		projectID := "project-deleted"
+		projectDir := filepath.Join(projectRoot, projectID)
+		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+			t.Fatalf("create project directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(projectDir, "app.txt"), []byte("remove"), 0o600); err != nil {
+			t.Fatalf("write project data: %v", err)
+		}
+		staged, err := stageProjectDirectory(projectDir, "target-user", projectID, "project")
+		if err != nil {
+			t.Fatalf("stageProjectDirectory() error = %v", err)
+		}
+
+		service := NewProjectService(ProjectServiceOptions{
+			ProjectRepo:  &stubProjectListRepo{},
+			ContainerCfg: &config.ContainerConfig{ProjectDir: projectRoot},
+		})
+
+		if err := service.RecoverPendingUserDeletionStaging(context.Background()); err != nil {
+			t.Fatalf("RecoverPendingUserDeletionStaging() error = %v", err)
+		}
+		if _, err := os.Stat(projectDir); !os.IsNotExist(err) {
+			t.Fatalf("deleted project directory was restored: %v", err)
+		}
+		if _, err := os.Stat(staged.stagingRoot); !os.IsNotExist(err) {
+			t.Fatalf("deleted project staging root still exists: %v", err)
+		}
+	})
+}
+
+func TestDeleteUserWithProjectResourcesCancelsAsyncProjectRestoreWait(t *testing.T) {
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID: "async-delete-project",
+		UserID:    "async-delete-user",
+	}}}
+	service := NewProjectService(ProjectServiceOptions{ProjectRepo: repo})
+
+	if err := service.DeleteProjectAsync(context.Background(), "async-delete-project"); err != nil {
+		t.Fatalf("DeleteProjectAsync() error = %v", err)
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		deleteDone <- service.DeleteUserWithProjectResources(
+			context.Background(),
+			"async-delete-user",
+			func(context.Context) error { return nil },
+		)
+	}()
+
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatalf("DeleteUserWithProjectResources() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("user deletion waited for the asynchronous project restore window")
+	}
+}
+
+func TestProjectGitEntryHoldsMutationGate(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo: &stubProjectListRepo{projects: []model.Project{{
+			ProjectID: "git-gated-project",
+			UserID:    "git-gated-user",
+		}}},
+		LifecycleCoordinator: coordinator,
+	})
+
+	finishMutation, err := coordinator.acquireProjectMutation("git-gated-project")
+	if err != nil {
+		t.Fatalf("acquireProjectMutation() error = %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = service.GetProjectGitCommits(ctx, "git-gated-project")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("GetProjectGitCommits() error = %v, want mutation gate timeout", err)
+	}
+	finishMutation()
+}
+
+func TestProjectDeletionCancelsQueuedGitEntry(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID: "git-cancel-project",
+		UserID:    "git-cancel-user",
+	}}}
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:          repo,
+		LifecycleCoordinator: coordinator,
+	})
+	finishFirst, err := coordinator.acquireProjectMutation("git-cancel-project")
+	if err != nil {
+		t.Fatalf("acquireProjectMutation() error = %v", err)
+	}
+	firstReleased := false
+	defer func() {
+		if !firstReleased {
+			finishFirst()
+		}
+	}()
+
+	gitDone := make(chan error, 1)
+	go func() {
+		_, gitErr := service.GetProjectGitCommits(context.Background(), "git-cancel-project")
+		gitDone <- gitErr
+	}()
+	gate := coordinator.projectGate("git-cancel-project")
+	deadline := time.Now().Add(time.Second)
+	for {
+		gate.mu.Lock()
+		active := gate.active
+		gate.mu.Unlock()
+		if active == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Git request did not enter the project mutation queue")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		deleteDone <- service.DeleteProjectAsync(
+			context.Background(),
+			"git-cancel-project",
+		)
+	}()
+
+	select {
+	case gitErr := <-gitDone:
+		if !errors.Is(gitErr, context.Canceled) {
+			t.Fatalf("GetProjectGitCommits() error = %v, want context canceled", gitErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("project deletion did not cancel the queued Git request")
+	}
+	finishFirst()
+	firstReleased = true
+	select {
+	case deleteErr := <-deleteDone:
+		if deleteErr != nil {
+			t.Fatalf("DeleteProjectAsync() error = %v", deleteErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("DeleteProjectAsync() did not finish after the active mutation exited")
+	}
+
+	if finish, mutationErr := coordinator.acquireProjectMutation("git-cancel-project"); mutationErr == nil {
+		finish()
+		t.Fatal("new Git mutation was accepted during asynchronous deletion")
+	}
+
+	takeoverDone := make(chan error, 1)
+	go func() {
+		takeoverDone <- service.DeleteUserWithProjectResources(
+			context.Background(),
+			"git-cancel-user",
+			func(context.Context) error { return nil },
+		)
+	}()
+	select {
+	case takeoverErr := <-takeoverDone:
+		if takeoverErr != nil {
+			t.Fatalf("DeleteUserWithProjectResources() error = %v", takeoverErr)
+		}
+
+	case <-time.After(time.Second):
+		t.Fatal("administrator deletion did not take over asynchronous cleanup")
+	}
+}
+func TestUserDeletionRollbackRestoresTransferredAsyncProject(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID: "async-rollback-project",
+		UserID:    "async-rollback-user",
+	}}}
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:          repo,
+		LifecycleCoordinator: coordinator,
+	})
+
+	if err := service.DeleteProjectAsync(
+		context.Background(),
+		"async-rollback-project",
+	); err != nil {
+		t.Fatalf("DeleteProjectAsync() error = %v", err)
+	}
+	if repo.softDeletedProject != "async-rollback-project" {
+		t.Fatalf("soft-deleted project = %q", repo.softDeletedProject)
+	}
+
+	databaseErr := errors.New("database deletion failed")
+	err := service.DeleteUserWithProjectResources(
+		context.Background(),
+		"async-rollback-user",
+		func(context.Context) error { return databaseErr },
+	)
+	if !errors.Is(err, databaseErr) {
+		t.Fatalf("DeleteUserWithProjectResources() error = %v, want %v", err, databaseErr)
+	}
+	if repo.restoredProject != "async-rollback-project" {
+		t.Fatalf(
+			"restored project = %q, want async-rollback-project",
+			repo.restoredProject,
+		)
+	}
+
+	finish, mutationErr := coordinator.acquireProjectMutation(
+		"async-rollback-project",
+	)
+	if mutationErr != nil {
+		t.Fatalf(
+			"acquireProjectMutation() after rollback error = %v",
+			mutationErr,
+		)
+	}
+	finish()
+}
+
+func TestUserDeletionRollbackPreservesOnlyFailedProjectRestoreBarrier(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	restoreErr := errors.New("restore failed")
+	repo := &stubProjectListRepo{
+		projects: []model.Project{
+			{ProjectID: "async-restore-success", UserID: "mixed-restore-user"},
+			{ProjectID: "async-restore-failure", UserID: "mixed-restore-user"},
+		},
+		restoreDeletedErrors: map[string]error{
+			"async-restore-failure": restoreErr,
+		},
+		restoreDeletedFailures: map[string]int{
+			"async-restore-failure": 2,
+		},
+	}
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:          repo,
+		LifecycleCoordinator: coordinator,
+	})
+	for _, projectID := range []string{
+		"async-restore-success",
+		"async-restore-failure",
+	} {
+		if err := service.DeleteProjectAsync(
+			context.Background(),
+			projectID,
+		); err != nil {
+			t.Fatalf("DeleteProjectAsync(%q) error = %v", projectID, err)
+		}
+	}
+
+	databaseErr := errors.New("database deletion failed")
+	err := service.DeleteUserWithProjectResources(
+		context.Background(),
+		"mixed-restore-user",
+		func(context.Context) error { return databaseErr },
+	)
+	if !errors.Is(err, databaseErr) {
+		t.Fatalf("DeleteUserWithProjectResources() error = %v, want %v", err, databaseErr)
+	}
+
+	finishSuccess, successErr := coordinator.acquireProjectMutation(
+		"async-restore-success",
+	)
+	if successErr != nil {
+		t.Fatalf("restored project barrier was not released: %v", successErr)
+	}
+	finishSuccess()
+
+	finishFailure, failureErr := coordinator.acquireProjectMutation(
+		"async-restore-failure",
+	)
+	if failureErr == nil {
+		finishFailure()
+		t.Fatal("failed project restore reopened the deletion barrier")
+	}
+	if !errors.Is(failureErr, errProjectDeletionInProgress) {
+		t.Fatalf(
+			"failed project restore barrier error = %v, want deletion in progress",
+			failureErr,
+		)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		finishRecovered, recoveryErr := coordinator.acquireProjectMutation(
+			"async-restore-failure",
+		)
+		if recoveryErr == nil {
+			finishRecovered()
+			break
+		}
+		if !errors.Is(recoveryErr, errProjectDeletionInProgress) {
+			t.Fatalf("background recovery barrier error = %v", recoveryErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background project restore did not release the preserved barrier")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestDeleteUserUnknownOutcomeKeepsStagingUntilBackgroundConfirmation(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "projects")
+	projectID := "unknown-delete-project"
+	projectDir := filepath.Join(projectRoot, projectID)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "app.txt"), []byte("project data"), 0o600); err != nil {
+		t.Fatalf("write project data: %v", err)
+	}
+
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID:     projectID,
+		UserID:        "unknown-delete-user",
+		DirectoryPath: projectDir,
+	}}}
+	coordinator := NewProjectLifecycleCoordinator()
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:          repo,
+		ContainerCfg:         &config.ContainerConfig{ProjectDir: projectRoot},
+		LifecycleCoordinator: coordinator,
+	})
+
+	var attempts atomic.Int32
+	retryStarted := make(chan struct{})
+	releaseRetry := make(chan struct{})
+	err := service.DeleteUserWithProjectResources(
+		context.Background(),
+		"unknown-delete-user",
+		func(context.Context) error {
+			if attempts.Add(1) == 1 {
+				return &userDeletionOutcomeUnknownError{cause: errors.New("ambiguous delete response")}
+			}
+			close(retryStarted)
+			<-releaseRetry
+			return nil
+		},
+	)
+	if !isUserDeletionOutcomeUnknown(err) {
+		t.Fatalf("DeleteUserWithProjectResources() error = %v, want unknown outcome", err)
+	}
+
+	select {
+	case <-retryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("background deletion confirmation did not start")
+	}
+	if _, statErr := os.Stat(projectDir); !os.IsNotExist(statErr) {
+		t.Fatalf("uncertain deletion restored staged data early: %v", statErr)
+	}
+	if finish, gateErr := coordinator.acquireUserOperation("unknown-delete-user"); gateErr == nil {
+		finish()
+		t.Fatal("uncertain deletion released the user barrier")
+	}
+	runtimeLockAcquired := make(chan func(), 1)
+	go func() {
+		runtimeLockAcquired <- lockProjectRuntimeCreation([]string{projectID})
+	}()
+	select {
+	case unlock := <-runtimeLockAcquired:
+		unlock()
+		t.Fatal("uncertain deletion released the runtime creation lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseRetry)
+	select {
+	case unlock := <-runtimeLockAcquired:
+		unlock()
+	case <-time.After(2 * time.Second):
+		t.Fatal("confirmed deletion did not release the runtime creation lock")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		matches, globErr := filepath.Glob(filepath.Join(projectRoot, projectDeletionStagingPrefix+"*"))
+		if globErr != nil {
+			t.Fatalf("list staging directories: %v", globErr)
+		}
+		if len(matches) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("confirmed deletion left staging directories: %v", matches)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, statErr := os.Stat(projectDir); !os.IsNotExist(statErr) {
+		t.Fatalf("confirmed deletion restored local project data: %v", statErr)
+	}
+}
+
+func TestProjectLifecycleRejectsTakeoverAfterDestructiveCleanupStarts(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+	releaseMutation, finishDeletion, markCleanupStarted, unregister, err :=
+		coordinator.beginAsyncProjectDeletion(
+			cleanupCtx,
+			"cleanup-started-project",
+			cancelCleanup,
+		)
+	if err != nil {
+		t.Fatalf("beginAsyncProjectDeletion() error = %v", err)
+	}
+	defer cancelCleanup()
+	defer unregister()
+	defer releaseMutation()
+	defer finishDeletion(false)
+
+	if !markCleanupStarted() {
+		t.Fatal("asynchronous deletion did not enter destructive cleanup")
+	}
+	takeoverFinish, transferred, takeoverErr := coordinator.beginProjectDeletion(
+		context.Background(),
+		[]string{"cleanup-started-project"},
+	)
+	if !errors.Is(takeoverErr, errProjectDeletionInProgress) {
+		t.Fatalf("beginProjectDeletion() error = %v, want deletion in progress", takeoverErr)
+	}
+	if takeoverFinish != nil || len(transferred) != 0 {
+		t.Fatalf("destructive cleanup was transferred: finish=%v projects=%v", takeoverFinish != nil, transferred)
+	}
+}
+
+func TestAsyncProjectDeletionRetriesHardDeleteWithoutRestoringProject(t *testing.T) {
+	now := time.Now().UTC()
+	projectID := "async-restore-recovery"
+	repo := &stubProjectListRepo{
+		projects: []model.Project{{
+			ProjectID: projectID,
+			UserID:    "async-restore-recovery-user",
+			DeletedAt: &now,
+		}},
+		hardDeleteErrors: []error{
+			errors.New("temporary hard delete failure"),
+			nil,
+		},
+	}
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo: repo,
+	})
+	service.deleteRestoreStates.Store(projectID, &projectDeleteRestoreState{
+		deadline:      time.Now().Add(-time.Second),
+		restoreSignal: make(chan struct{}),
+	})
+
+	preserve := service.cleanupDeletedProject(
+		context.Background(),
+		&repo.projects[0],
+		func() bool { return true },
+	)
+	if !preserve {
+		t.Fatal("destructive cleanup did not preserve the deletion barrier")
+	}
+	if repo.restoredProject != "" {
+		t.Fatalf("destructively cleaned project was restored as %q", repo.restoredProject)
+	}
+	repo.restoreMu.Lock()
+	hardDeleteCalls := repo.hardDeleteCalls
+	repo.restoreMu.Unlock()
+	if hardDeleteCalls != 2 {
+		t.Fatalf("hard delete calls = %d, want 2", hardDeleteCalls)
+	}
+}
+
+func TestProjectFileReadRejectedDuringDeletion(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	finishDeletion, _, err := coordinator.beginProjectDeletion(
+		context.Background(),
+		[]string{"file-read-deleting-project"},
+	)
+	if err != nil {
+		t.Fatalf("beginProjectDeletion() error = %v", err)
+	}
+	defer finishDeletion(false)
+	service := NewProjectService(ProjectServiceOptions{LifecycleCoordinator: coordinator})
+
+	_, err = service.GetProjectFileTree(context.Background(), "file-read-deleting-project")
+	if !errors.Is(err, errProjectDeletionInProgress) {
+		t.Fatalf("GetProjectFileTree() error = %v, want deletion in progress", err)
+	}
+}
+
+func TestRecoverPendingUserDeletionStagingReturnsLookupFailure(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "projects")
+	projectID := "recovery-lookup-failure"
+	projectDir := filepath.Join(projectRoot, projectID)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "app.txt"), []byte("project data"), 0o600); err != nil {
+		t.Fatalf("write project data: %v", err)
+	}
+	staged, err := stageProjectDirectory(
+		projectDir,
+		"recovery-lookup-user",
+		projectID,
+		"project",
+	)
+	if err != nil {
+		t.Fatalf("stageProjectDirectory() error = %v", err)
+	}
+	lookupErr := errors.New("database temporarily unavailable")
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo: &stubProjectListRepo{listIncludingDeletedErr: lookupErr},
+		ContainerCfg: &config.ContainerConfig{
+			ProjectDir: projectRoot,
+		},
+	})
+
+	err = service.RecoverPendingUserDeletionStaging(context.Background())
+	if err == nil || !strings.Contains(err.Error(), lookupErr.Error()) {
+		t.Fatalf("RecoverPendingUserDeletionStaging() error = %v, want lookup failure", err)
+	}
+	if _, statErr := os.Stat(projectDir); !os.IsNotExist(statErr) {
+		t.Fatalf("failed recovery recreated the project path: %v", statErr)
+	}
+	if _, statErr := os.Stat(staged.stagedPath); statErr != nil {
+		t.Fatalf("failed recovery lost staged project data: %v", statErr)
+	}
+}
+
+func TestDeleteUserRollbackFailureKeepsBarriersUntilStagingIsRestored(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "projects")
+	projectID := "rollback-retry-project"
+	projectDir := filepath.Join(projectRoot, projectID)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "app.txt"), []byte("project data"), 0o600); err != nil {
+		t.Fatalf("write project data: %v", err)
+	}
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID:     projectID,
+		UserID:        "rollback-retry-user",
+		DirectoryPath: projectDir,
+	}}}
+	coordinator := NewProjectLifecycleCoordinator()
+	restoreProjectRoot := configureProjectRootDirForTest(t, projectRoot)
+	defer restoreProjectRoot()
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:          repo,
+		ContainerCfg:         &config.ContainerConfig{ProjectDir: projectRoot},
+		LifecycleCoordinator: coordinator,
+	})
+	databaseErr := errors.New("database deletion rejected")
+
+	err := service.DeleteUserWithProjectResources(
+		context.Background(),
+		"rollback-retry-user",
+		func(context.Context) error {
+			if mkdirErr := os.MkdirAll(projectDir, 0o755); mkdirErr != nil {
+				t.Fatalf("create rollback conflict: %v", mkdirErr)
+			}
+			return databaseErr
+		},
+	)
+	if !errors.Is(err, databaseErr) || !strings.Contains(err.Error(), "restore staged project data") {
+		t.Fatalf("DeleteUserWithProjectResources() error = %v, want rollback failure", err)
+	}
+	if finish, gateErr := coordinator.acquireUserOperation("rollback-retry-user"); gateErr == nil {
+		finish()
+		t.Fatal("rollback failure released the user barrier")
+	}
+	if finish, gateErr := coordinator.acquireProjectMutation(projectID); gateErr == nil {
+		finish()
+		t.Fatal("rollback failure released the project barrier")
+	}
+	runtimeLockAcquired := make(chan func(), 1)
+	go func() {
+		runtimeLockAcquired <- lockProjectRuntimeCreation([]string{projectID})
+	}()
+	select {
+	case unlock := <-runtimeLockAcquired:
+		unlock()
+		t.Fatal("rollback failure released the runtime creation lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	if err := os.RemoveAll(projectDir); err != nil {
+		t.Fatalf("remove rollback conflict: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		content, readErr := os.ReadFile(filepath.Join(projectDir, "app.txt"))
+		if readErr == nil && string(content) == "project data" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background rollback did not restore project data: content=%q err=%v", content, readErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case unlock := <-runtimeLockAcquired:
+		unlock()
+	case <-time.After(2 * time.Second):
+		t.Fatal("successful background rollback did not release the runtime lock")
+	}
+	finishUser, userErr := coordinator.acquireUserOperation("rollback-retry-user")
+	if userErr != nil {
+		t.Fatalf("successful background rollback retained the user barrier: %v", userErr)
+	}
+	finishUser()
+}
+
+func TestResumePendingProjectDeletionsContinuesExpiredCleanup(t *testing.T) {
+	deletedAt := time.Now().Add(-ProjectDeletionRestoreWindow() - time.Second)
+	projectID := "restart-expired-deletion"
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID: projectID,
+		UserID:    "restart-delete-user",
+		DeletedAt: &deletedAt,
+	}}}
+	service := NewProjectService(ProjectServiceOptions{ProjectRepo: repo})
+
+	if err := service.ResumePendingProjectDeletions(context.Background()); err != nil {
+		t.Fatalf("ResumePendingProjectDeletions() error = %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		repo.restoreMu.Lock()
+		hardDeletedProject := repo.hardDeletedProject
+		repo.restoreMu.Unlock()
+		if hardDeletedProject == projectID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expired project deletion did not resume cleanup")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestResumePendingProjectDeletionsPreservesRestoreWindow(t *testing.T) {
+	deletedAt := time.Now().Add(-time.Second)
+	projectID := "restart-restorable-deletion"
+	userID := "restart-restore-user"
+	repo := &stubProjectListRepo{projects: []model.Project{{
+		ProjectID: projectID,
+		UserID:    userID,
+		DeletedAt: &deletedAt,
+	}}}
+	coordinator := NewProjectLifecycleCoordinator()
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:          repo,
+		LifecycleCoordinator: coordinator,
+	})
+
+	if err := service.ResumePendingProjectDeletions(context.Background()); err != nil {
+		t.Fatalf("ResumePendingProjectDeletions() error = %v", err)
+	}
+	restored, err := service.RestoreDeletedProject(context.Background(), projectID, userID)
+	if err != nil {
+		t.Fatalf("RestoreDeletedProject() after restart error = %v", err)
+	}
+	if restored == nil || restored.DeletedAt != nil {
+		t.Fatalf("restored project = %#v, want active project", restored)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		finish, mutationErr := coordinator.acquireProjectMutation(projectID)
+		if mutationErr == nil {
+			finish()
+			break
+		}
+		if !errors.Is(mutationErr, errProjectDeletionInProgress) {
+			t.Fatalf("restored project gate error = %v", mutationErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("restored project did not release resumed deletion barrier")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	repo.restoreMu.Lock()
+	hardDeletedProject := repo.hardDeletedProject
+	repo.restoreMu.Unlock()
+	if hardDeletedProject != "" {
+		t.Fatalf("restored project was hard deleted: %s", hardDeletedProject)
+	}
+}
+
+func TestResumePendingProjectDeletionsFailsClosedOnLookupError(t *testing.T) {
+	lookupErr := errors.New("database temporarily unavailable")
+	service := NewProjectService(ProjectServiceOptions{
+		ProjectRepo: &stubProjectListRepo{listSoftDeletedErr: lookupErr},
+	})
+
+	err := service.ResumePendingProjectDeletions(context.Background())
+	if !errors.Is(err, lookupErr) {
+		t.Fatalf("ResumePendingProjectDeletions() error = %v, want %v", err, lookupErr)
 	}
 }

@@ -6,7 +6,7 @@
 
 YiStack 是由 **YES Engineering System** 驱动、面向开发者和小型团队的开源高性能 AI 应用生成平台。它以 Go 后端、独立 Workspace 和持久任务为基础，将需求与参考图、方案确认、全栈代码生成、项目级验证、有限自动修复、容器运行、浏览器验收和 Git 交付组织成一条真实、可追踪、可恢复的工程闭环。
 
-> 当前版本：**v1.1.9**。该版本修复 PostgreSQL 模式下管理员审计仓储缺失和默认 LLM Provider 更新失败的问题，并强化并发默认值切换与禁用状态约束；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
+> 当前版本：**v1.1.10**。该版本新增普通用户永久删除，允许在已有用户和项目时启用无痕体验模式，并让升级自动保持原有模式状态、重建当前 Release 的干净基线；稳定范围以本 README 和 [`docs/PRODUCT.md`](docs/PRODUCT.md) 声明的能力边界为准。全新安装使用当前 Release 的 `database/init.sql`，存量安装使用一键升级命令。
 
 ## 核心优势
 
@@ -160,7 +160,7 @@ sudo ./install.sh
 | `sudo yistackctl upgrade <release-directory\|release.tar.gz>` | 执行受校验的一键升级 |
 | `sudo yistackctl uninstall` | 卸载程序和服务，保留配置与数据 |
 | `sudo yistackctl uninstall --purge` | 彻底删除本地配置、数据、容器和服务账户 |
-| `sudo yistackctl ephemeral {snapshot\|reset\|cleanup\|enforce\|apply-schedule\|status}` | 管理无痕体验模式 |
+| `sudo yistackctl ephemeral {snapshot\|enable\|disable\|reset\|cleanup\|enforce\|apply-schedule\|status}` | 管理无痕体验模式 |
 | `yistackctl help` | 显示完整命令帮助 |
 
 `start` 和 `restart` 会等待前后端健康检查通过后才报告成功；`stop` 只在 systemd 停止成功后报告完成。这三个命令只控制应用服务，不会停止 PostgreSQL；数据库容器由 `yistackctl postgres` 单独管理。
@@ -306,21 +306,29 @@ sudo yistackctl upgrade ./yistack-vX.Y.Z-linux-amd64.tar.gz
 
 v1.1.0 或 v1.1.1 的已安装控制器仍会在读取新 Release 前检查同目录
 `.sha256`，且会把压缩包解压到仅 root 可穿越的临时目录。从这两个版本首次升级到
-v1.1.9 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
+v1.1.10 时，应先手动解压，再把目录交给同一个公开命令；此路径不需要 sidecar：
 
 ```bash
-tar -xzf yistack-v1.1.9-linux-amd64.tar.gz
-sudo yistackctl upgrade ./yistack-v1.1.9-linux-amd64
+tar -xzf yistack-v1.1.10-linux-amd64.tar.gz
+sudo yistackctl upgrade ./yistack-v1.1.10-linux-amd64
 ```
 
 完成该目录升级后，后续版本可直接传入 `.tar.gz`，且不会要求同目录 `.sha256`。
+已安装 v1.1.9 的实例可直接执行：
+
+```bash
+sudo yistackctl upgrade ./yistack-v1.1.10-linux-amd64.tar.gz
+```
 
 升级命令会校验 Release 和版本方向、预检数据库、停止应用及无痕体验模式 timer、
 创建并校验 PostgreSQL custom-format 备份、安装新 Release、执行并验证 migration、
-恢复升级前运行状态并完成健康检查。失败时会自动恢复旧配置、旧 Release、systemd
-单元和数据库备份；若自动恢复不完整，服务保持停止并输出备份位置。原先已停止的
-服务在升级后仍保持停止。升级完全成功后会删除 `/opt/yistack/releases` 中所有早于当前版本的
-Release 目录；数据库备份仍保留用于人工恢复。
+恢复升级前运行状态并完成健康检查。升级前无痕模式为启用时，会在新 Release
+上自动生成排除普通用户和项目数据的新基线并重新启用两个 timer；升级前为正常
+模式时仍保持关闭。失败时会自动恢复旧配置、旧基线、旧 Release、systemd 单元、
+数据库备份和原 timer 状态；若自动恢复不完整，服务保持停止并输出备份位置。
+原先已停止的服务在升级后仍保持停止。升级完全成功后会删除
+`/opt/yistack/releases` 中所有早于当前版本的 Release 目录；数据库备份仍保留
+用于人工恢复。
 
 备份默认保存在 `/var/lib/yistack/database-backups`，只覆盖 YiStack 管理的
 `public` schema；Supabase 的 `auth`、`storage` 等托管 schema 不在该备份范围内。
@@ -334,37 +342,53 @@ Supabase 升级必须配置直连密码 `SUPABASE_DB_PASSWORD`。生产启动仍
 
 该模式只支持安装器管理的本地 PostgreSQL；检测到外部 Supabase 时会拒绝执行，避免对外部数据库进行不完整或不可逆的重置。
 
-#### 首次创建并启用配置
+#### 启用
 
-以下配置初始化只需执行一次。`install` 会覆盖目标文件，因此配置已存在时不要重复复制，只需保留并编辑现有 `/etc/yistack/ephemeral-maintenance.env`：
-
-```bash
-if sudo test ! -e /etc/yistack/ephemeral-maintenance.env; then
-  sudo install -m 0640 -o root -g yistack \
-    /opt/yistack/current/config/yistack-ephemeral-maintenance.env.example \
-    /etc/yistack/ephemeral-maintenance.env
-fi
-
-sudo sed -i 's/^EPHEMERAL_MAINTENANCE_ENABLED=false$/EPHEMERAL_MAINTENANCE_ENABLED=true/' \
-  /etc/yistack/ephemeral-maintenance.env
-```
-
-#### 采集基线并启用计划
-
-先完成管理员密码、Provider 和系统策略配置，并确认没有普通用户、项目或项目工作区，再执行：
+先完成管理员密码、Provider 和系统策略配置，然后执行：
 
 ```bash
-sudo yistackctl ephemeral snapshot &&
-  sudo yistackctl ephemeral apply-schedule &&
+sudo yistackctl ephemeral enable
 sudo yistackctl ephemeral status
 ```
 
-三条命令使用 `&&` 串联：只有 `snapshot` 成功后才会启用定时任务。`snapshot` 会在短暂停止应用和项目容器后保存 PostgreSQL dump、空项目工作区、Release commit 和 SHA-256 清单。若数据库中仍有普通用户、项目或关联业务记录，或项目工作区非空，它会拒绝创建基线；此时不要单独执行 `apply-schedule`。它不会复制 `/etc/yistack` 中的密钥。
+`enable` 会在配置缺失时自动创建 `/etc/yistack/ephemeral-maintenance.env`，短暂停止应用和项目容器，采集当前 Release 的 PostgreSQL 基线和 SHA-256 清单，再启动每日重置和每小时磁盘水位检查两个 timer。基线会保留管理员、Provider 和系统配置，但主动排除普通用户、项目及关联业务表，并使用空项目工作区。因此，即使当前已有普通用户、项目或状态为 `deleted` 的旧用户记录，也能正常启用。
+
+启用过程不会删除当前在线数据，停止的应用和项目容器会恢复到原运行状态。已有普通用户、项目、项目工作区和本地项目备份会在下一次定时 `reset` 或手动执行 `sudo yistackctl ephemeral reset` 时统一删除。任一步骤失败都会保持模式关闭，不会留下已启用但缺少有效基线的计划。
+
+状态中的 `enabled=true`、`baseline=verified`、`reset_timer=active`、`cleanup_timer=active`、`reset_timer_enabled=true` 和 `cleanup_timer_enabled=true` 同时成立，才表示模式已完整启用。
+
+#### 停用
+
+```bash
+sudo yistackctl ephemeral disable
+sudo yistackctl ephemeral status
+```
+
+`disable` 会停止并禁用两个 timer，将配置标记为关闭，但保留现有基线。停用后不会自动还原或清理，已经产生的用户和项目数据会继续保留。
+
+#### 修改配置并重新启用
+
+```bash
+sudo yistackctl ephemeral disable
+sudoedit /etc/yistack/ephemeral-maintenance.env
+sudo yistackctl ephemeral enable
+sudo yistackctl ephemeral status
+```
+
+`enable` 每次都会重新采集当前 Release 的干净基线，因此管理员、Provider 或系统策略修改会成为新的还原起点，而现有普通用户和项目数据不会进入基线。若模式保持启用且只修改时间表达式，可执行 `sudo yistackctl ephemeral apply-schedule`，仅重新应用 timer 配置而不重建基线。
+
+#### 升级后的处理
+
+`EPHEMERAL_MAINTENANCE_ENABLED` 是升级时的模式真源。升级前为 `true` 时，升级器会在 migration 完成后自动为新 Release 采集排除普通用户和项目数据的基线，并重新启用两个 timer；现有在线数据仍保留到下一次 reset。升级前为 `false` 或该键缺失时，升级后保持正常模式且 timer 关闭。
+
+升级失败并回滚时，升级器会恢复旧配置、旧基线以及两个 timer 原有的 active/enabled 状态，不需要手工重新启用。
+
+#### 默认策略与手动操作
 
 默认策略为：
 
 - 每天 04:00 后随机延迟最多 10 分钟恢复干净基线；
-- 每次每日重置删除全部普通用户及其关联数据库记录、项目工作区、带 `yistack.project_id` 标签的容器和网络、容器状态、生成证据、缓存和受管文件日志；
+- 每次每日重置删除全部普通用户及其关联数据库记录、项目工作区、本地项目备份、带 `yistack.project_id` 标签的容器和网络、容器状态、生成证据、缓存和受管文件日志；
 - 每小时只检查磁盘使用率，低于 80% 时不删除任何内容；达到 80% 时才从最旧的项目开始清理，直至降到 70%；
 - 始终保留 Podman 基础镜像、`runtime/templates`、`ms-playwright`、管理员与 Provider 配置、配置目录和已安装 Release；
 - 不执行全局 `podman system prune`，不会删除供后续用户复用的镜像。
@@ -378,15 +402,12 @@ EPHEMERAL_CLEANUP_ON_CALENDAR="*-*-* *:30:00"
 EPHEMERAL_CLEANUP_RANDOMIZED_DELAY_SEC=5min
 ```
 
-时间表达式遵循 systemd calendar 语法并使用服务器时区。修改后执行 `sudo yistackctl ephemeral apply-schedule` 进行校验并原子更新 timer override。升级 YiStack 后，旧基线因 schema 或 `SOURCE_COMMIT` 不匹配而拒绝恢复，必须在新版本验证完成且没有普通用户和项目时重新执行 `snapshot`。手动操作和停用命令如下：
+时间表达式遵循 systemd calendar 语法并使用服务器时区。模式已启用时，也可以执行 `sudo yistackctl ephemeral apply-schedule` 单独校验配置并原子更新 timer override。其他手动操作如下：
 
 ```bash
 sudo yistackctl ephemeral cleanup
 sudo yistackctl ephemeral reset
 sudo systemctl list-timers 'yistack-ephemeral-*'
-sudo systemctl disable --now \
-  yistack-ephemeral-reset.timer \
-  yistack-ephemeral-cleanup.timer
 ```
 
 `sudo yistackctl ephemeral cleanup` 是显式人工维护命令，会按配置的 TTL 清理过期项目、已停止项目容器、生成证据、缓存和日志；每小时 timer 不会自动执行这组 TTL 清理。

@@ -214,6 +214,23 @@ CREATE TABLE IF NOT EXISTS public.project_resource_alert_events (
     created_at timestamp with time zone DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.project_resource_alert_action_claims (
+    project_id character varying(64) NOT NULL,
+    source_event_id bigint NOT NULL,
+    action character varying(32) NOT NULL,
+    status character varying(32) NOT NULL,
+    actor_user_id uuid,
+    claimed_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    PRIMARY KEY (project_id, source_event_id, action),
+    FOREIGN KEY (source_event_id)
+        REFERENCES public.project_resource_alert_events(id) ON DELETE CASCADE,
+    FOREIGN KEY (actor_user_id)
+        REFERENCES public.users(id) ON DELETE SET NULL,
+    CHECK (action IN ('notification', 'enforcement')),
+    CHECK (status IN ('pending', 'failed', 'succeeded'))
+);
+
 -- 8. 持久 Generation Job、attempt 与 SSE event 真源
 CREATE TABLE IF NOT EXISTS public.generation_jobs (
     id uuid PRIMARY KEY,
@@ -1049,6 +1066,10 @@ CREATE INDEX IF NOT EXISTS idx_project_resource_alert_events_user_id ON public.p
 CREATE INDEX IF NOT EXISTS idx_project_resource_alert_events_status ON public.project_resource_alert_events(status);
 CREATE INDEX IF NOT EXISTS idx_project_resource_alert_events_evaluation_id ON public.project_resource_alert_events(evaluation_id);
 CREATE INDEX IF NOT EXISTS idx_project_resource_alert_events_readiness_status ON public.project_resource_alert_events(readiness_status);
+CREATE INDEX IF NOT EXISTS idx_project_resource_alert_action_claims_status
+    ON public.project_resource_alert_action_claims(status);
+CREATE INDEX IF NOT EXISTS idx_project_resource_alert_action_claims_actor_user_id
+    ON public.project_resource_alert_action_claims(actor_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_project_id ON public.generation_jobs(project_id);
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_user_id ON public.generation_jobs(user_id);
@@ -1119,6 +1140,7 @@ ALTER TABLE public.commits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_engineering_states ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_capability_execution_audits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_resource_alert_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_resource_alert_action_claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.generation_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.generation_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.generation_events ENABLE ROW LEVEL SECURITY;
@@ -1202,6 +1224,8 @@ DROP POLICY IF EXISTS "Service role full access on project_capability_execution_
 CREATE POLICY "Service role full access on project_capability_execution_audits" ON public.project_capability_execution_audits FOR ALL USING (auth.role() = 'service_role');
 DROP POLICY IF EXISTS "Service role full access on project_resource_alert_events" ON public.project_resource_alert_events;
 CREATE POLICY "Service role full access on project_resource_alert_events" ON public.project_resource_alert_events FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on project_resource_alert_action_claims" ON public.project_resource_alert_action_claims;
+CREATE POLICY "Service role full access on project_resource_alert_action_claims" ON public.project_resource_alert_action_claims FOR ALL USING (auth.role() = 'service_role');
 DROP POLICY IF EXISTS "Service role full access on generation_jobs" ON public.generation_jobs;
 CREATE POLICY "Service role full access on generation_jobs" ON public.generation_jobs FOR ALL USING (auth.role() = 'service_role');
 DROP POLICY IF EXISTS "Service role full access on generation_attempts" ON public.generation_attempts;
@@ -1394,7 +1418,7 @@ WHERE COALESCE(provider.model, '') <> ''
 -- 默认系统配置
 INSERT INTO public.system_config (key, value, value_type, description) VALUES
     ('app_name', 'YiStack', 'string', '应用名称'),
-    ('app_version', '1.1.0', 'string', '应用版本'),
+    ('app_version', '1.1.10', 'string', '应用版本'),
     ('max_projects_per_user', '10', 'number', '每用户最大项目数'),
     ('max_file_size_mb', '50', 'number', '单文件最大大小(MB)'),
     ('container_idle_timeout_min', '30', 'number', '容器空闲超时(分钟)'),
@@ -1567,11 +1591,21 @@ CREATE TABLE IF NOT EXISTS public.project_members (
     user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     role character varying(32) NOT NULL CHECK (role IN ('viewer', 'editor')),
     status character varying(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
-    invited_by_user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
+    invited_by_user_id uuid REFERENCES public.users(id) ON DELETE SET NULL,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT project_members_project_user_unique UNIQUE (project_id, user_id)
 );
+ALTER TABLE public.project_members
+    ALTER COLUMN invited_by_user_id DROP NOT NULL;
+ALTER TABLE public.project_members
+    DROP CONSTRAINT IF EXISTS project_members_invited_by_user_id_fkey;
+ALTER TABLE public.project_members
+    ADD CONSTRAINT project_members_invited_by_user_id_fkey
+    FOREIGN KEY (invited_by_user_id)
+    REFERENCES public.users(id)
+    ON DELETE SET NULL;
+
 
 CREATE TABLE IF NOT EXISTS public.project_collaboration_audits (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1868,6 +1902,283 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.claim_project_resource_alert_action(
+    p_project_id text,
+    p_source_event_id bigint,
+    p_action text,
+    p_actor_user_id uuid,
+    p_claimed_at timestamp with time zone,
+    p_pending_status text,
+    p_evaluation_id text,
+    p_readiness_status text,
+    p_triggered_count integer,
+    p_triggered_thresholds text,
+    p_thresholds text,
+    p_evaluation_preview text,
+    p_message text,
+    p_recovery text
+)
+RETURNS TABLE(
+    acquired boolean,
+    status character varying,
+    event_id bigint,
+    event_created_at timestamp with time zone
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    affected_rows integer;
+BEGIN
+    IF p_action NOT IN ('notification', 'enforcement') THEN
+        RAISE EXCEPTION 'unsupported resource alert action';
+    END IF;
+    IF p_pending_status <> p_action || '_pending' THEN
+        RAISE EXCEPTION 'pending event status does not match action';
+    END IF;
+
+    INSERT INTO public.project_resource_alert_action_claims (
+        project_id, source_event_id, action, status,
+        actor_user_id, claimed_at, updated_at
+    ) VALUES (
+        p_project_id, p_source_event_id, p_action, 'pending',
+        p_actor_user_id, p_claimed_at, p_claimed_at
+    )
+    ON CONFLICT (project_id, source_event_id, action) DO NOTHING;
+    GET DIAGNOSTICS affected_rows = ROW_COUNT;
+    IF affected_rows = 0 THEN
+        UPDATE public.project_resource_alert_action_claims AS claims
+        SET status = 'pending',
+            actor_user_id = p_actor_user_id,
+            claimed_at = p_claimed_at,
+            updated_at = p_claimed_at
+        WHERE claims.project_id = p_project_id
+          AND claims.source_event_id = p_source_event_id
+          AND claims.action = p_action
+          AND claims.status = 'failed';
+        GET DIAGNOSTICS affected_rows = ROW_COUNT;
+    END IF;
+
+    IF affected_rows = 1 THEN
+        INSERT INTO public.project_resource_alert_events (
+            project_id,
+            user_id,
+            status,
+            evaluation_id,
+            readiness_status,
+            triggered_count,
+            triggered_thresholds,
+            thresholds,
+            evaluation_preview,
+            message,
+            recovery,
+            created_at
+        ) VALUES (
+            p_project_id,
+            p_actor_user_id,
+            p_pending_status,
+            p_evaluation_id,
+            p_readiness_status,
+            p_triggered_count,
+            p_triggered_thresholds,
+            p_thresholds,
+            p_evaluation_preview,
+            p_message,
+            p_recovery,
+            p_claimed_at
+        )
+        RETURNING id, created_at INTO event_id, event_created_at;
+        RETURN QUERY
+        SELECT true, 'pending'::character varying, event_id, event_created_at;
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT false, claims.status, NULL::bigint, NULL::timestamp with time zone
+    FROM public.project_resource_alert_action_claims AS claims
+    WHERE claims.project_id = p_project_id
+      AND claims.source_event_id = p_source_event_id
+      AND claims.action = p_action;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.complete_project_resource_alert_action(
+    p_project_id text,
+    p_source_event_id bigint,
+    p_action text,
+    p_status text,
+    p_updated_at timestamp with time zone
+)
+RETURNS TABLE(applied boolean)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    affected_rows integer;
+BEGIN
+    IF p_status NOT IN ('failed', 'succeeded') THEN
+        RAISE EXCEPTION 'unsupported resource alert action completion status';
+    END IF;
+
+    UPDATE public.project_resource_alert_action_claims AS claims
+    SET status = p_status,
+        updated_at = p_updated_at
+    WHERE claims.project_id = p_project_id
+      AND claims.source_event_id = p_source_event_id
+      AND claims.action = p_action
+      AND claims.status = 'pending';
+    GET DIAGNOSTICS affected_rows = ROW_COUNT;
+
+    RETURN QUERY
+    SELECT affected_rows = 1 OR EXISTS (
+        SELECT 1
+        FROM public.project_resource_alert_action_claims AS claims
+        WHERE claims.project_id = p_project_id
+          AND claims.source_event_id = p_source_event_id
+          AND claims.action = p_action
+          AND claims.status = p_status
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.claim_project_resource_alert_action(
+    text, bigint, text, uuid, timestamp with time zone,
+    text, text, text, integer, text, text, text, text, text
+)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_project_resource_alert_action(
+    text, bigint, text, uuid, timestamp with time zone,
+    text, text, text, integer, text, text, text, text, text
+)
+    TO service_role;
+REVOKE ALL ON FUNCTION public.complete_project_resource_alert_action(text, bigint, text, text, timestamp with time zone)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_project_resource_alert_action(text, bigint, text, text, timestamp with time zone)
+    TO service_role;
+
+CREATE OR REPLACE FUNCTION public.admin_delete_user(p_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    PERFORM 1
+    FROM public.users
+    WHERE id = p_user_id
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'user not found' USING ERRCODE = 'P0002';
+    END IF;
+
+    DELETE FROM public.project_collaboration_events
+    WHERE actor_user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_collaboration_sessions
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_collaboration_audits
+    WHERE actor_user_id = p_user_id
+       OR target_user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_members
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+
+    DELETE FROM public.enterprise_project_ownerships
+    WHERE project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.enterprise_members WHERE user_id = p_user_id;
+
+    DELETE FROM public.project_deployment_operations
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_deployment_domains
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_deployment_releases
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_deployment_bindings
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+
+    DELETE FROM public.github_webhook_deliveries
+    WHERE project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.github_sync_operations
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.github_project_bindings
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.github_oauth_states WHERE user_id = p_user_id;
+    DELETE FROM public.github_connections WHERE user_id = p_user_id;
+
+    DELETE FROM public.generation_events
+    WHERE project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id)
+       OR job_id IN (
+           SELECT id
+           FROM public.generation_jobs
+           WHERE user_id = p_user_id
+              OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id)
+       );
+    DELETE FROM public.generation_attempts
+    WHERE job_id IN (
+        SELECT id
+        FROM public.generation_jobs
+        WHERE user_id = p_user_id
+           OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id)
+    );
+    DELETE FROM public.generation_jobs
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+
+    DELETE FROM public.project_resource_alert_events
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_capability_execution_audits
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_engineering_states
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.commits
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.chat_messages
+    WHERE user_id = p_user_id
+       OR project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+    DELETE FROM public.project_files
+    WHERE project_id IN (SELECT project_id FROM public.projects WHERE user_id = p_user_id);
+
+    DELETE FROM public.projects WHERE user_id = p_user_id;
+    DELETE FROM public.users WHERE id = p_user_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_delete_user_with_audit(
+    p_user_id uuid,
+    p_admin_id uuid,
+    p_detail text,
+    p_ip_address text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    PERFORM public.admin_delete_user(p_user_id);
+    INSERT INTO public.admin_audit_log (
+        admin_id, action, target_type, target_id, detail, ip_address
+    ) VALUES (
+        p_admin_id, 'delete_user', 'user', p_user_id::text,
+        COALESCE(p_detail, ''), COALESCE(p_ip_address, '')
+    );
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.mutate_project_member(text, uuid, uuid, text, uuid, uuid, text, text, timestamp with time zone) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.mutate_project_member(text, uuid, uuid, text, uuid, uuid, text, text, timestamp with time zone) TO service_role;
 REVOKE ALL ON FUNCTION public.touch_project_collaboration_session(uuid, text, uuid, text, text, text, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, boolean, uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
@@ -1880,6 +2191,10 @@ REVOKE ALL ON FUNCTION public.publish_official_project_template_version(uuid, te
 GRANT EXECUTE ON FUNCTION public.publish_official_project_template_version(uuid, text, text, text, text, uuid, integer, jsonb, jsonb, text, uuid, text, uuid, timestamp with time zone) TO service_role;
 REVOKE ALL ON FUNCTION public.rollback_official_project_template_version(uuid, uuid, uuid, text, uuid, timestamp with time zone) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rollback_official_project_template_version(uuid, uuid, uuid, text, uuid, timestamp with time zone) TO service_role;
+REVOKE ALL ON FUNCTION public.admin_delete_user(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.admin_delete_user_with_audit(uuid, uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_delete_user_with_audit(uuid, uuid, text, text) TO service_role;
 -- Contributor Alpha schema baseline. Future upgrades are recorded here.
 CREATE TABLE IF NOT EXISTS public.schema_migrations (
     version character varying(80) PRIMARY KEY,
@@ -1907,6 +2222,16 @@ VALUES
         '202609070001_migration_integrity',
         'Add migration checksum integrity and v1.1.0 release metadata',
         '82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf'
+    ),
+    (
+        '202609190001_admin_user_hard_delete',
+        'Add transactional administrator user hard deletion',
+        '02fcf5bfd172cec450869b28feae2b4167a4cd5ced63f3429055c73890524d51'
+    ),
+    (
+        '202609190002_resource_alert_action_claims',
+        'Add cross-instance resource alert action claims',
+        '1893ce147476f621ddad5a74c87c7bf333bfcf6ad943a87ee3d2db229e467453'
     )
 ON CONFLICT (version) DO UPDATE
 SET description = EXCLUDED.description,

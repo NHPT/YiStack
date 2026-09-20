@@ -59,6 +59,7 @@ func TestEnterpriseSsoDiscoveryReadinessDisabledDoesNotCallUpstream(t *testing.T
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	readiness, err := service.GetEnterpriseSsoDiscoveryReadiness(context.Background())
@@ -85,6 +86,7 @@ func TestEnterpriseSsoDiscoveryReadinessMissingConfigDoesNotCallUpstream(t *test
 			enterpriseSsoEnabledConfigKey:   "true",
 			enterpriseSsoIssuerURLConfigKey: server.URL,
 		}}),
+		nil,
 		nil,
 		nil,
 		nil,
@@ -132,6 +134,7 @@ func TestEnterpriseSsoDiscoveryReadinessReady(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	readiness, err := service.getEnterpriseSsoDiscoveryReadinessWithClient(context.Background(), server.Client())
@@ -170,6 +173,7 @@ func TestEnterpriseSsoDiscoveryReadinessFailsOnIssuerMismatch(t *testing.T) {
 			enterpriseSsoClientIDConfigKey:     "client-a",
 			enterpriseSsoRedirectURIConfigKey:  "https://app.example.test/callback",
 		}}),
+		nil,
 		nil,
 		nil,
 		nil,

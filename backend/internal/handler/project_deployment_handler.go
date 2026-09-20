@@ -162,7 +162,7 @@ func (h *ProjectDeploymentHandler) respond(ctx *app.RequestContext, data interfa
 			status = consts.StatusForbidden
 		case strings.Contains(code, "not_found"), strings.Contains(code, "missing"):
 			status = consts.StatusNotFound
-		case strings.Contains(code, "conflict"), strings.Contains(code, "dirty"), strings.Contains(code, "stale"), strings.Contains(code, "in_progress"), strings.Contains(code, "confirmation"), strings.Contains(code, "required"):
+		case strings.Contains(code, "conflict"), strings.Contains(code, "dirty"), strings.Contains(code, "stale"), strings.Contains(code, "in_progress"), strings.Contains(code, "deleting"), strings.Contains(code, "confirmation"), strings.Contains(code, "required"):
 			status = consts.StatusConflict
 		case strings.Contains(code, "invalid"), strings.Contains(code, "too_large"):
 			status = consts.StatusBadRequest

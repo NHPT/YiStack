@@ -78,6 +78,12 @@ func (s *ProjectService) hasActiveGenerationJob(
 
 // StartProjectContainer 启动或恢复项目对应的开发容器。
 func (s *ProjectService) StartProjectContainer(ctx context.Context, projectID string) error {
+	unlockProject, err := s.lockProjectMutation(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	defer unlockProject()
+
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("project not found: %w", err)
@@ -121,6 +127,17 @@ func (s *ProjectService) ensureProjectContainerRunning(ctx context.Context, proj
 
 // StartProjectContainerAsync 启动主容器，并在后台准备运行时环境。
 func (s *ProjectService) StartProjectContainerAsync(ctx context.Context, projectID string) (*ProjectRuntimeStatus, error) {
+	unlockProject, err := s.lockProjectMutation(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	releaseProject := true
+	defer func() {
+		if releaseProject {
+			unlockProject()
+		}
+	}()
+
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("project not found: %w", err)
@@ -194,11 +211,27 @@ func (s *ProjectService) StartProjectContainerAsync(ctx context.Context, project
 	})
 
 	projectSnapshot := *project
-	go func(task *runtimePreparationTask, project model.Project, spec runtimeEnvironmentSpec, startedAt string) {
+	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
+	unregisterActivity := s.lifecycleCoordinator.registerProjectActivity(
+		projectID,
+		cancelRuntime,
+		false,
+	)
+	releaseProject = false
+	go func(
+		task *runtimePreparationTask,
+		project model.Project,
+		spec runtimeEnvironmentSpec,
+		startedAt string,
+		runtimeCtx context.Context,
+		cancelRuntime context.CancelFunc,
+		unregisterActivity func(),
+		unlockProject func(),
+	) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				panicErr := fmt.Errorf("start runtime task panic: %v", recovered)
-				failed := s.persistRuntimeStartFailure(context.Background(), project.ProjectID, ProjectRuntimeStatus{
+				failed := s.persistRuntimeStartFailure(runtimeCtx, project.ProjectID, ProjectRuntimeStatus{
 					ProjectID:       project.ProjectID,
 					TaskID:          task.TaskID,
 					Status:          "failed",
@@ -216,11 +249,14 @@ func (s *ProjectService) StartProjectContainerAsync(ctx context.Context, project
 			if current, ok := runtimePreparationTasks.Load(project.ProjectID); ok && current == task {
 				runtimePreparationTasks.Delete(project.ProjectID)
 			}
+			cancelRuntime()
+			unregisterActivity()
+			unlockProject()
 		}()
 
-		info, resolvedSpec, err := ensureProjectRuntimeBaseContainer(context.Background(), &project, s.projectRepo, s.containerMgr, s.containerCfg, s.getImageForRuntimeProfile)
+		info, resolvedSpec, err := ensureProjectRuntimeBaseContainer(runtimeCtx, &project, s.projectRepo, s.containerMgr, s.containerCfg, s.getImageForRuntimeProfile)
 		if err != nil {
-			failed := s.persistRuntimeStartFailure(context.Background(), project.ProjectID, ProjectRuntimeStatus{
+			failed := s.persistRuntimeStartFailure(runtimeCtx, project.ProjectID, ProjectRuntimeStatus{
 				ProjectID:       project.ProjectID,
 				TaskID:          task.TaskID,
 				Status:          "failed",
@@ -238,11 +274,11 @@ func (s *ProjectService) StartProjectContainerAsync(ctx context.Context, project
 		}
 		spec = resolvedSpec
 
-		verifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		verifyCtx, cancel := context.WithTimeout(runtimeCtx, 30*time.Second)
 		verifyErr := verifyRuntimeEnvironment(verifyCtx, s.containerMgr, &project, spec)
 		cancel()
 		if verifyErr == nil {
-			ready := s.prepareProjectPreviewReadyStatus(context.Background(), &project, spec, task.TaskID, startedAt, string(info.Status), true)
+			ready := s.prepareProjectPreviewReadyStatus(runtimeCtx, &project, spec, task.TaskID, startedAt, string(info.Status), true)
 			if ready.Status == "failed" {
 				log.Printf("Preview server start failed for project %s: %s", project.ProjectID, ready.Error)
 				return
@@ -262,8 +298,8 @@ func (s *ProjectService) StartProjectContainerAsync(ctx context.Context, project
 			StartedAt:       startedAt,
 		})
 
-		if err := prepareRuntimeEnvironment(context.Background(), s.containerMgr, &project, spec, runtimeAPTMirrors(s.containerCfg)); err != nil {
-			failed := s.persistRuntimeStartFailure(context.Background(), project.ProjectID, ProjectRuntimeStatus{
+		if err := prepareRuntimeEnvironment(runtimeCtx, s.containerMgr, &project, spec, runtimeAPTMirrors(s.containerCfg)); err != nil {
+			failed := s.persistRuntimeStartFailure(runtimeCtx, project.ProjectID, ProjectRuntimeStatus{
 				ProjectID:       project.ProjectID,
 				TaskID:          task.TaskID,
 				Status:          "failed",
@@ -291,11 +327,11 @@ func (s *ProjectService) StartProjectContainerAsync(ctx context.Context, project
 			StartedAt:       startedAt,
 		})
 
-		verifyCtx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		verifyCtx, cancel = context.WithTimeout(runtimeCtx, 30*time.Second)
 		verifyErr = verifyRuntimeEnvironment(verifyCtx, s.containerMgr, &project, spec)
 		cancel()
 		if verifyErr != nil {
-			failed := s.persistRuntimeStartFailure(context.Background(), project.ProjectID, ProjectRuntimeStatus{
+			failed := s.persistRuntimeStartFailure(runtimeCtx, project.ProjectID, ProjectRuntimeStatus{
 				ProjectID:       project.ProjectID,
 				TaskID:          task.TaskID,
 				Status:          "failed",
@@ -312,13 +348,22 @@ func (s *ProjectService) StartProjectContainerAsync(ctx context.Context, project
 			return
 		}
 
-		ready := s.prepareProjectPreviewReadyStatus(context.Background(), &project, spec, task.TaskID, startedAt, "running", true)
+		ready := s.prepareProjectPreviewReadyStatus(runtimeCtx, &project, spec, task.TaskID, startedAt, "running", true)
 		if ready.Status == "failed" {
 			log.Printf("Preview server start failed for project %s: %s", project.ProjectID, ready.Error)
 			return
 		}
 		log.Printf("Runtime environment and preview server ready for project %s", project.ProjectID)
-	}(task, projectSnapshot, runtimeSpec, startedAt)
+	}(
+		task,
+		projectSnapshot,
+		runtimeSpec,
+		startedAt,
+		runtimeCtx,
+		cancelRuntime,
+		unregisterActivity,
+		unlockProject,
+	)
 
 	return s.AttachPreviewStatus(project, &status), nil
 }
@@ -671,7 +716,16 @@ type ProjectContainerStopResult struct {
 }
 
 // StopProjectContainer 停止项目开发容器，并同步更新数据库状态。
-func (s *ProjectService) StopProjectContainer(ctx context.Context, projectID string) (*ProjectContainerStopResult, error) {
+func (s *ProjectService) StopProjectContainer(ctx context.Context, projectID, userID string) (*ProjectContainerStopResult, error) {
+	operationCtx, finishOperation, err := s.BeginCancellableUserProjectMutation(ctx, userID, projectID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	return s.stopProjectContainerUnderMutation(operationCtx, projectID)
+}
+
+func (s *ProjectService) stopProjectContainerUnderMutation(ctx context.Context, projectID string) (*ProjectContainerStopResult, error) {
 	result := &ProjectContainerStopResult{
 		ProjectID:                  projectID,
 		StopStatus:                 "stopped",
@@ -760,6 +814,13 @@ func (s *ProjectService) persistStoppedRuntimeStatus(ctx context.Context, projec
 // ExecuteInContainer 在项目容器内执行命令。
 // 执行前会先确保容器已经启动且 runtime 对当前项目运行配置可用。
 func (s *ProjectService) ExecuteInContainer(ctx context.Context, projectID, command string) (*container.ExecResult, error) {
+	operationCtx, finishMutation, err := s.BeginCancellableProjectMutation(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishMutation()
+	ctx = operationCtx
+
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("project not found: %w", err)

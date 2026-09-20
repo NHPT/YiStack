@@ -174,7 +174,12 @@ func (h *ProjectHandler) UploadBackupToRemoteStorage(c context.Context, ctx *app
 		return
 	}
 
-	result, err := projectService.UploadProjectBackupToRemoteStorage(c, projectID, req.BackupID)
+	result, err := projectService.UploadProjectBackupToRemoteStorage(
+		c,
+		projectID,
+		h.currentUserIDValue(ctx),
+		req.BackupID,
+	)
 	if err != nil {
 		ctx.JSON(consts.StatusInternalServerError, map[string]any{
 			"error":   "Failed to upload project backup to remote storage",

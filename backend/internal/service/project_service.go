@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -40,13 +40,22 @@ type ProjectService struct {
 	backupRemoteHTTPClient projectBackupRemoteHTTPClient
 	notificationHTTPClient projectResourceAlertNotificationHTTPClient
 	deleteTasks            sync.Map
-	deleteRestoreWindows   sync.Map
-	deleteRestoreRequests  sync.Map
+	deleteRestoreStates    sync.Map
 	projectCreateLocks     sync.Map
-	projectMutationLocks   sync.Map
+	lifecycleCoordinator   *ProjectLifecycleCoordinator
 }
 
 const projectCreateIdempotencyWindow = 2 * time.Minute
+
+type projectDeleteRestoreState struct {
+	mu               sync.Mutex
+	restoreUserID    string
+	deadline         time.Time
+	restoreRequested bool
+	restoreUncertain bool
+	cleanupStarted   bool
+	restoreSignal    chan struct{}
+}
 
 type projectBackupRemoteHTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -54,6 +63,20 @@ type projectBackupRemoteHTTPClient interface {
 
 type projectResourceAlertNotificationHTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
+}
+
+type projectRestoreConfirmationRepository interface {
+	FindByProjectIDIncludingDeletedByOwner(
+		ctx context.Context,
+		projectID string,
+		userID string,
+	) (*model.Project, error)
+}
+type userProjectDeletionRepository interface {
+	ListByUserIDIncludingDeleted(ctx context.Context, userID string) ([]model.Project, error)
+}
+type pendingProjectDeletionRepository interface {
+	ListSoftDeleted(ctx context.Context) ([]model.Project, error)
 }
 
 // ProjectServiceOptions 项目服务依赖项。
@@ -76,13 +99,18 @@ type ProjectServiceOptions struct {
 	ProjectSecretCfg       *config.ProjectSecretConfig
 	BackupRemoteHTTPClient projectBackupRemoteHTTPClient
 	NotificationHTTPClient projectResourceAlertNotificationHTTPClient
+	LifecycleCoordinator   *ProjectLifecycleCoordinator
 }
 
 // NewProjectService 创建项目服务。
 // 必需依赖通过 options 显式注入，可选能力通过 nil 表示未启用，避免继续膨胀多套构造器。
 func NewProjectService(options ProjectServiceOptions) *ProjectService {
 	configureProjectRootDir(options.ContainerCfg)
-	return &ProjectService{
+	lifecycleCoordinator := options.LifecycleCoordinator
+	if lifecycleCoordinator == nil {
+		lifecycleCoordinator = NewProjectLifecycleCoordinator()
+	}
+	service := &ProjectService{
 		projectRepo:            options.ProjectRepo,
 		ownershipRepo:          options.OwnershipRepo,
 		collaborationRepo:      options.CollaborationRepo,
@@ -102,7 +130,94 @@ func NewProjectService(options ProjectServiceOptions) *ProjectService {
 		projectSecretCfg:       options.ProjectSecretCfg,
 		backupRemoteHTTPClient: options.BackupRemoteHTTPClient,
 		notificationHTTPClient: options.NotificationHTTPClient,
+		lifecycleCoordinator:   lifecycleCoordinator,
 	}
+	return service
+}
+
+// RecoverPendingUserDeletionStaging reconciles interrupted administrator
+// deletions before the application starts accepting project operations.
+func (s *ProjectService) RecoverPendingUserDeletionStaging(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("project service not available")
+	}
+	backupDir := s.projectBackupConfig(ctx).BackupDir
+	localErr := recoverProjectDeletionStaging(
+		ctx,
+		s.projectRepo,
+		currentProjectRootDir(),
+		backupDir,
+	)
+	remoteErr := s.recoverProjectRemoteDeletionStaging(ctx, backupDir)
+	if localErr != nil && remoteErr != nil {
+		return fmt.Errorf("recover local deletion staging: %v; recover remote deletion staging: %v", localErr, remoteErr)
+	}
+	if localErr != nil {
+		return localErr
+	}
+	return remoteErr
+}
+
+// ResumePendingProjectDeletions rebuilds asynchronous deletion state after a
+// process restart. The original soft-delete timestamp preserves the restore
+// deadline; expired entries continue cleanup immediately.
+func (s *ProjectService) ResumePendingProjectDeletions(ctx context.Context) error {
+	if s == nil || s.projectRepo == nil {
+		return nil
+	}
+	repo, ok := s.projectRepo.(pendingProjectDeletionRepository)
+	if !ok {
+		return fmt.Errorf("project repository does not support pending deletion recovery")
+	}
+	projects, err := repo.ListSoftDeleted(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range projects {
+		project := projects[i]
+		if project.DeletedAt == nil {
+			continue
+		}
+		projectID := strings.TrimSpace(project.ProjectID)
+		if projectID == "" {
+			return fmt.Errorf("pending project deletion has an empty project id")
+		}
+		if _, exists := s.deleteTasks.LoadOrStore(projectID, struct{}{}); exists {
+			continue
+		}
+		cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+		unlockProject, finishDeletion, markCleanupStarted, unregisterCleanup, err :=
+			s.lifecycleCoordinator.beginAsyncProjectDeletion(
+				safeContext(ctx),
+				projectID,
+				cancelCleanup,
+			)
+		if err != nil {
+			cancelCleanup()
+			s.deleteTasks.Delete(projectID)
+			return fmt.Errorf("resume project deletion %s: %w", projectID, err)
+		}
+		s.deleteRestoreStates.Store(projectID, &projectDeleteRestoreState{
+			deadline:      project.DeletedAt.Add(ProjectDeletionRestoreWindow()),
+			restoreSignal: make(chan struct{}),
+		})
+		projectSnapshot := project
+		go func() {
+			preserveDeletionBarrier := true
+			defer func() {
+				cancelCleanup()
+				unregisterCleanup()
+				unlockProject()
+				finishDeletion(preserveDeletionBarrier)
+			}()
+			preserveDeletionBarrier = s.cleanupDeletedProject(
+				cleanupCtx,
+				&projectSnapshot,
+				markCleanupStarted,
+			)
+		}()
+	}
+	return nil
 }
 
 // ProjectDeletionCleanupScope 返回项目删除后台清理承诺覆盖的资源范围。
@@ -111,6 +226,8 @@ func ProjectDeletionCleanupScope() []string {
 		"container",
 		"project_network",
 		"project_directory",
+		"local_backup_archives",
+		"remote_backup_objects",
 		"chat_messages",
 		"generated_file_metadata",
 		"git_commits",
@@ -140,6 +257,21 @@ type CreateProjectRequest struct {
 // CreateProject 创建真实项目记录，并初始化用于容器挂载的宿主机目录。
 func (s *ProjectService) CreateProject(ctx context.Context, req *CreateProjectRequest) (*model.Project, error) {
 	project := s.buildProjectModel(req)
+	unlockUserProjects, err := s.BeginUserProjectOperation(project.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockUserProjects()
+	unlockProject, err := s.BeginProjectMutationContext(ctx, project.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockProject()
+
+	return s.createProjectUnderUserOperation(ctx, project)
+}
+
+func (s *ProjectService) createProjectUnderUserOperation(ctx context.Context, project *model.Project) (*model.Project, error) {
 	createLock := s.getProjectCreateLock(project)
 	if createLock != nil {
 		createLock.Lock()
@@ -150,12 +282,109 @@ func (s *ProjectService) CreateProject(ctx context.Context, req *CreateProjectRe
 		return existingProject, nil
 	}
 
+	return s.createProjectWithoutRecentReuseUnderUserOperation(ctx, project)
+}
+
+func (s *ProjectService) createProjectWithoutRecentReuseUnderUserOperation(
+	ctx context.Context,
+	project *model.Project,
+) (*model.Project, error) {
 	if err := s.projectRepo.Create(ctx, project); err != nil {
 		return nil, err
 	}
 
 	s.initializeProjectWorkspace(project)
 	return s.reloadProjectAfterCreate(ctx, project), nil
+}
+
+// BeginUserProjectOperation blocks administrator deletion while a user-level
+// project operation validates ownership and persists its database changes.
+func (s *ProjectService) BeginUserProjectOperation(userID string) (func(), error) {
+	if s == nil || s.lifecycleCoordinator == nil {
+		return func() {}, nil
+	}
+	return s.lifecycleCoordinator.acquireUserOperation(userID)
+}
+
+// BeginCancellableUserProjectOperation keeps an authenticated write inside the
+// user deletion barrier and propagates deletion cancellation to downstream
+// project lock waits and repository calls.
+func (s *ProjectService) BeginCancellableUserProjectOperation(
+	ctx context.Context,
+	userID string,
+) (context.Context, func(), error) {
+	if s == nil || s.lifecycleCoordinator == nil {
+		return ctx, func() {}, nil
+	}
+	finishUserOperation, err := s.BeginUserProjectOperation(userID)
+	if err != nil {
+		return ctx, nil, err
+	}
+	operationCtx, cancel := context.WithCancel(safeContext(ctx))
+	unregister := s.lifecycleCoordinator.registerUserProjectActivity(
+		userID,
+		"",
+		cancel,
+		false,
+	)
+	var once sync.Once
+	return operationCtx, func() {
+		once.Do(func() {
+			cancel()
+			unregister()
+			finishUserOperation()
+		})
+	}, nil
+}
+
+// BeginProjectMutation rejects new project mutations after administrator
+// deletion starts and keeps an accepted mutation inside the deletion barrier.
+func (s *ProjectService) BeginProjectMutation(projectID string) (func(), error) {
+	if s == nil || s.lifecycleCoordinator == nil {
+		return func() {}, nil
+	}
+	return s.lifecycleCoordinator.acquireProjectMutation(projectID)
+}
+
+// BeginProjectMutationContext is the cancellable form used by request-bound
+// mutations so user deletion can release queued project lock waiters.
+func (s *ProjectService) BeginProjectMutationContext(
+	ctx context.Context,
+	projectID string,
+) (func(), error) {
+	if s == nil || s.lifecycleCoordinator == nil {
+		return func() {}, nil
+	}
+	return s.lifecycleCoordinator.acquireProjectMutationContext(ctx, projectID)
+}
+
+// BeginCancellableProjectMutation lets administrator deletion cancel a
+// long-running project operation before waiting for its mutation gate.
+func (s *ProjectService) BeginCancellableProjectMutation(
+	ctx context.Context,
+	projectID string,
+) (context.Context, func(), error) {
+	return s.BeginCancellableUserProjectMutation(ctx, "", projectID, false)
+}
+
+// BeginCancellableUserProjectMutation registers a long-running mutation
+// against both the initiating user and target project before waiting for the
+// project serialization gate.
+func (s *ProjectService) BeginCancellableUserProjectMutation(
+	ctx context.Context,
+	userID string,
+	projectID string,
+	generation bool,
+) (context.Context, func(), error) {
+	if s == nil || s.lifecycleCoordinator == nil {
+		return ctx, func() {}, nil
+	}
+	return s.lifecycleCoordinator.beginCancellableUserProjectMutation(
+		ctx,
+		userID,
+		projectID,
+		generation,
+	)
 }
 
 func (s *ProjectService) getProjectCreateLock(project *model.Project) *sync.Mutex {
@@ -301,24 +530,76 @@ func (s *ProjectService) DeleteProject(ctx context.Context, projectID string) er
 
 // DeleteProjectAsync 立即删除项目数据库记录，并在后台清理容器、目录与附属元数据。
 func (s *ProjectService) DeleteProjectAsync(ctx context.Context, projectID string) error {
-	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
-	if err != nil {
-		return fmt.Errorf("project not found: %w", err)
-	}
-
 	if _, exists := s.deleteTasks.LoadOrStore(projectID, struct{}{}); exists {
 		log.Printf("Project %s deletion already in progress", projectID)
 		return nil
 	}
+	accepted := false
+	defer func() {
+		if !accepted {
+			s.deleteTasks.Delete(projectID)
+		}
+	}()
 
-	if err := s.projectRepo.SoftDelete(ctx, projectID); err != nil {
-		s.deleteTasks.Delete(projectID)
+	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+	setupCtx, cancelSetup := context.WithCancel(safeContext(ctx))
+	stopCleanupPropagation := context.AfterFunc(cleanupCtx, cancelSetup)
+	defer cancelSetup()
+	defer stopCleanupPropagation()
+
+	unlockProject, finishDeletion, markCleanupStarted, unregisterCleanup, err :=
+		s.lifecycleCoordinator.beginAsyncProjectDeletion(
+			setupCtx,
+			projectID,
+			cancelCleanup,
+		)
+	if err != nil {
+		cancelCleanup()
+		return err
+	}
+	releaseDeletion := true
+	defer func() {
+		if releaseDeletion {
+			cancelCleanup()
+			unregisterCleanup()
+			unlockProject()
+			finishDeletion(false)
+		}
+	}()
+
+	project, err := s.projectRepo.FindByProjectID(setupCtx, projectID)
+	if err != nil {
+		return fmt.Errorf("project not found: %w", err)
+	}
+	if project == nil {
+		return fmt.Errorf("project not found")
+	}
+
+	if err := s.projectRepo.SoftDelete(setupCtx, projectID); err != nil {
 		return fmt.Errorf("failed to mark project deleting: %w", err)
 	}
 
-	s.deleteRestoreWindows.Store(projectID, time.Now().Add(ProjectDeletionRestoreWindow()))
+	s.deleteRestoreStates.Store(projectID, &projectDeleteRestoreState{
+		deadline:      time.Now().Add(ProjectDeletionRestoreWindow()),
+		restoreSignal: make(chan struct{}),
+	})
 	projectSnapshot := *project
-	go s.cleanupDeletedProject(context.Background(), &projectSnapshot)
+	accepted = true
+	releaseDeletion = false
+	go func() {
+		preserveDeletionBarrier := true
+		defer func() {
+			cancelCleanup()
+			unregisterCleanup()
+			unlockProject()
+			finishDeletion(preserveDeletionBarrier)
+		}()
+		preserveDeletionBarrier = s.cleanupDeletedProject(
+			cleanupCtx,
+			&projectSnapshot,
+			markCleanupStarted,
+		)
+	}()
 	return nil
 }
 
@@ -331,17 +612,91 @@ func (s *ProjectService) RestoreDeletedProject(ctx context.Context, projectID, u
 	if projectID == "" || userID == "" {
 		return nil, fmt.Errorf("project_id and user_id are required")
 	}
-	if _, ok := s.deleteRestoreWindows.Load(projectID); !ok {
+	value, ok := s.deleteRestoreStates.Load(projectID)
+	if !ok {
 		return nil, fmt.Errorf("project restore window expired or cleanup already started")
 	}
-
-	s.deleteRestoreRequests.Store(projectID, struct{}{})
-	project, err := s.projectRepo.RestoreDeletedByOwner(ctx, projectID, userID)
+	state, ok := value.(*projectDeleteRestoreState)
+	if !ok || state == nil {
+		return nil, fmt.Errorf("project restore window state is invalid")
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.cleanupStarted ||
+		(!state.restoreUncertain && time.Now().After(state.deadline)) {
+		return nil, fmt.Errorf("project restore window expired or cleanup already started")
+	}
+	project, confirmed, err := s.attemptRestoreDeletedProjectByOwner(ctx, projectID, userID)
 	if err != nil {
-		s.deleteRestoreRequests.Delete(projectID)
+		state.restoreUncertain = !confirmed
+		if state.restoreUncertain {
+			state.restoreUserID = userID
+		} else {
+			state.restoreUserID = ""
+		}
+		notifyProjectDeleteRestoreStateLocked(state)
 		return nil, err
 	}
+	state.restoreRequested = true
+	state.restoreUncertain = false
+	state.restoreUserID = ""
+	notifyProjectDeleteRestoreStateLocked(state)
 	return project, nil
+}
+
+func (s *ProjectService) attemptRestoreDeletedProjectByOwner(
+	ctx context.Context,
+	projectID string,
+	userID string,
+) (*model.Project, bool, error) {
+	restoreCtx, cancelRestore := context.WithTimeout(safeContext(ctx), 10*time.Second)
+	project, err := s.projectRepo.RestoreDeletedByOwner(restoreCtx, projectID, userID)
+	cancelRestore()
+	if err == nil {
+		return project, true, nil
+	}
+	originalErr := err
+	confirmationRepo, ok := s.projectRepo.(projectRestoreConfirmationRepository)
+	if !ok {
+		return nil, false, originalErr
+	}
+	confirmationCtx, cancelConfirmation := context.WithTimeout(
+		context.WithoutCancel(safeContext(ctx)),
+		5*time.Second,
+	)
+	confirmedProject, confirmationErr := confirmationRepo.FindByProjectIDIncludingDeletedByOwner(
+		confirmationCtx,
+		projectID,
+		userID,
+	)
+	cancelConfirmation()
+	if confirmationErr != nil {
+		if isProjectNotFoundRepositoryError(confirmationErr) {
+			return nil, true, originalErr
+		}
+		return nil, false, originalErr
+	}
+	if confirmedProject != nil && confirmedProject.DeletedAt == nil {
+		return confirmedProject, true, nil
+	}
+	return nil, true, originalErr
+}
+
+func isProjectNotFoundRepositoryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return message == "record not found" ||
+		message == "project not found" ||
+		strings.Contains(message, "pgrst116")
+}
+
+func notifyProjectDeleteRestoreStateLocked(state *projectDeleteRestoreState) {
+	if state.restoreSignal != nil {
+		close(state.restoreSignal)
+	}
+	state.restoreSignal = make(chan struct{})
 }
 
 func (s *ProjectService) syncContainerState(ctx context.Context, project *model.Project) {
@@ -424,136 +779,172 @@ func applyContainerStateInMemory(project *model.Project, info *container.Contain
 	project.ContainerStatus = status
 }
 
-func (s *ProjectService) cleanupDeletedProject(ctx context.Context, project *model.Project) {
+func (s *ProjectService) cleanupDeletedProject(
+	ctx context.Context,
+	project *model.Project,
+	markCleanupStarted func() bool,
+) bool {
 	if project == nil || strings.TrimSpace(project.ProjectID) == "" {
-		return
+		return false
 	}
 
 	projectID := project.ProjectID
 	defer func() {
 		s.deleteTasks.Delete(projectID)
-		s.deleteRestoreWindows.Delete(projectID)
-		s.deleteRestoreRequests.Delete(projectID)
+		s.deleteRestoreStates.Delete(projectID)
 	}()
 
 	if s.waitProjectDeletionRestoreWindow(ctx, projectID) {
 		log.Printf("Project %s deletion cleanup cancelled by user restore request", projectID)
-		return
+		return false
 	}
 
-	var cleanupErr error
-	for attempt := 1; attempt <= 3; attempt++ {
+	if err := ctx.Err(); err != nil {
+		log.Printf("Project %s deletion cleanup handed off to administrator user deletion: %v", projectID, err)
+		return true
+	}
+	if markCleanupStarted == nil || !markCleanupStarted() {
+		log.Printf("Project %s deletion cleanup ownership was transferred before destructive cleanup", projectID)
+		return true
+	}
+	for attempt := 1; ; attempt++ {
 		attemptCtx, cancel := context.WithTimeout(safeContext(ctx), 90*time.Second)
-		cleanupErr = s.cleanupProjectResources(attemptCtx, project)
+		cleanupErr := s.cleanupProjectResources(attemptCtx, project)
 		cancel()
 		if cleanupErr == nil {
 			break
 		}
 		log.Printf("Project %s async cleanup attempt %d failed: %v", projectID, attempt, cleanupErr)
-		if attempt < 3 {
-			time.Sleep(time.Duration(attempt) * time.Second)
+		if !waitForProjectDeletionRetry(ctx, attempt) {
+			log.Printf(
+				"Project %s deletion cleanup stopped while retaining the deletion barrier: %v",
+				projectID,
+				ctx.Err(),
+			)
+			return true
 		}
-	}
-	if cleanupErr != nil {
-		log.Printf("Project %s cleanup failed after soft delete: %v", projectID, cleanupErr)
-		if restoreErr := s.restoreSoftDeletedProject(context.Background(), projectID); restoreErr != nil {
-			log.Printf("Warning: failed to restore project %s after cleanup failure: %v", projectID, restoreErr)
-			return
-		}
-		s.recordProjectDeletionRecoveryNotice(context.Background(), project, "cleanup_failed", cleanupErr)
-		return
 	}
 
-	if err := s.projectRepo.HardDelete(ctx, projectID); err != nil {
-		log.Printf("Project %s hard delete failed after cleanup: %v", projectID, err)
-		if restoreErr := s.restoreSoftDeletedProject(context.Background(), projectID); restoreErr != nil {
-			log.Printf("Warning: failed to restore project %s after hard delete failure: %v", projectID, restoreErr)
-			return
+	for attempt := 1; ; attempt++ {
+		attemptCtx, cancel := context.WithTimeout(safeContext(ctx), 90*time.Second)
+		err := s.projectRepo.HardDelete(attemptCtx, projectID)
+		cancel()
+		if err == nil {
+			log.Printf("Project %s async cleanup finished", projectID)
+			return true
 		}
-		s.recordProjectDeletionRecoveryNotice(context.Background(), project, "hard_delete_failed", err)
-		return
+		log.Printf("Project %s hard delete attempt %d failed after cleanup: %v", projectID, attempt, err)
+		if !waitForProjectDeletionRetry(ctx, attempt) {
+			log.Printf(
+				"Project %s hard delete stopped while retaining the deletion barrier: %v",
+				projectID,
+				ctx.Err(),
+			)
+			return true
+		}
 	}
+}
 
-	log.Printf("Project %s async cleanup finished", projectID)
+func waitForProjectDeletionRetry(ctx context.Context, attempt int) bool {
+	delay := time.Duration(attempt) * time.Second
+	if delay > 30*time.Second {
+		delay = 30 * time.Second
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-safeContext(ctx).Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func (s *ProjectService) waitProjectDeletionRestoreWindow(ctx context.Context, projectID string) bool {
-	restoreWindow := ProjectDeletionRestoreWindow()
-	if restoreWindow <= 0 {
-		s.deleteRestoreWindows.Delete(projectID)
+	value, ok := s.deleteRestoreStates.Load(projectID)
+	if !ok {
+		return false
+	}
+	state, ok := value.(*projectDeleteRestoreState)
+	if !ok || state == nil {
 		return false
 	}
 
-	timer := time.NewTimer(restoreWindow)
-	defer timer.Stop()
+	for {
+		state.mu.Lock()
+		if ctx.Err() != nil {
+			state.mu.Unlock()
+			return false
+		}
+		if state.restoreRequested {
+			state.mu.Unlock()
+			return true
+		}
+		if state.restoreUncertain {
+			if state.restoreSignal == nil {
+				state.restoreSignal = make(chan struct{})
+			}
+			signal := state.restoreSignal
+			userID := state.restoreUserID
+			state.mu.Unlock()
+			retryTimer := time.NewTimer(time.Second)
+			select {
+			case <-ctx.Done():
+				retryTimer.Stop()
+				return false
+			case <-signal:
+				if !retryTimer.Stop() {
+					<-retryTimer.C
+				}
+				continue
+			case <-retryTimer.C:
+			}
 
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-	}
-
-	s.deleteRestoreWindows.Delete(projectID)
-	_, restored := s.deleteRestoreRequests.Load(projectID)
-	return restored
-}
-
-func (s *ProjectService) recordProjectDeletionRecoveryNotice(ctx context.Context, project *model.Project, reasonCode string, cause error) {
-	if s == nil || s.chatRepo == nil || project == nil || strings.TrimSpace(project.ProjectID) == "" {
-		return
-	}
-
-	causeMessage := "后台清理失败"
-	if cause != nil {
-		causeMessage = cause.Error()
-	}
-	content := fmt.Sprintf("项目删除后台清理失败，系统已恢复项目：%s。容器、项目网络、项目目录、历史消息、工程状态、能力审计、生成文件元数据或 Git 提交记录可能仍存在未清理状态；请稍后重试删除，或联系管理员检查后台清理日志。", causeMessage)
-	payload := map[string]interface{}{
-		"kind":          "workflow",
-		"content":       content,
-		"statusContent": "Project deletion recovery: failed",
-		"workflowSteps": []map[string]interface{}{
-			{
-				"id":     "project-deletion:recovery",
-				"kind":   "project_deletion_recovery",
-				"title":  "项目删除后台清理失败，已恢复项目",
-				"detail": "删除请求已受理并执行软删，但后台资源清理或最终硬删除失败；系统已恢复项目，避免项目记录与关联资源状态继续漂移。",
-				"status": "failed",
-			},
-		},
-		"engineeringState": map[string]interface{}{
-			"phase": map[string]interface{}{
-				"current_phase": "项目删除恢复",
-				"current_task":  "后台资源清理失败后恢复项目",
-				"status":        "failed",
-				"next_action":   "稍后重试删除，或联系管理员检查后台清理日志",
-			},
-			"recovery": map[string]interface{}{
-				"reason_code":    reasonCode,
-				"reason_message": causeMessage,
-				"retry_label":    "重新删除项目",
-			},
-			"deletion_recovery": map[string]interface{}{
-				"status":         "restored_after_cleanup_failure",
-				"reason_code":    reasonCode,
-				"reason_message": causeMessage,
-				"cleanup_scope":  ProjectDeletionCleanupScope(),
-			},
-		},
-	}
-	rawContent, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Warning: failed to encode project deletion recovery notice for project %s: %v", project.ProjectID, err)
-		return
-	}
-	if err := s.chatRepo.Create(ctx, &model.ChatMessage{
-		ProjectID: project.ProjectID,
-		UserID:    project.UserID,
-		Role:      "assistant",
-		Content:   string(rawContent),
-		Model:     "system",
-	}); err != nil {
-		log.Printf("Warning: failed to record project deletion recovery notice for project %s: %v", project.ProjectID, err)
+			project, confirmed, restoreErr := s.attemptRestoreDeletedProjectByOwner(
+				ctx,
+				projectID,
+				userID,
+			)
+			state.mu.Lock()
+			if !state.restoreUncertain || state.cleanupStarted {
+				state.mu.Unlock()
+				continue
+			}
+			if restoreErr == nil && project != nil {
+				state.restoreRequested = true
+				state.restoreUncertain = false
+				state.restoreUserID = ""
+				notifyProjectDeleteRestoreStateLocked(state)
+			} else if confirmed {
+				state.restoreUncertain = false
+				state.restoreUserID = ""
+				notifyProjectDeleteRestoreStateLocked(state)
+			}
+			state.mu.Unlock()
+			continue
+		}
+		wait := time.Until(state.deadline)
+		if wait <= 0 {
+			state.cleanupStarted = true
+			state.mu.Unlock()
+			return false
+		}
+		if state.restoreSignal == nil {
+			state.restoreSignal = make(chan struct{})
+		}
+		signal := state.restoreSignal
+		state.mu.Unlock()
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false
+		case <-signal:
+			if !timer.Stop() {
+				<-timer.C
+			}
+		case <-timer.C:
+		}
 	}
 }
 
@@ -648,6 +1039,9 @@ func (s *ProjectService) cleanupProjectResources(ctx context.Context, project *m
 			}
 		}
 	}
+	if err := s.deleteProjectBackupResources(ctx, projectID); err != nil {
+		cleanupErrors = append(cleanupErrors, fmt.Sprintf("delete project backup resources: %v", err))
+	}
 
 	if len(cleanupErrors) > 0 {
 		return fmt.Errorf("%s", strings.Join(cleanupErrors, " | "))
@@ -709,6 +1103,515 @@ func isIgnorableProjectDeleteResourceError(err error) bool {
 	}
 
 	return false
+}
+
+func (s *ProjectService) restoreTransferredAsyncProjectDeletions(
+	projectIDs []string,
+	userID string,
+) []string {
+	failedProjectIDs := make([]string, 0)
+	for _, projectID := range projectIDs {
+		restoreCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := s.restoreSoftDeletedProject(restoreCtx, projectID)
+		cancel()
+		confirmationRepo, canConfirm := s.projectRepo.(projectRestoreConfirmationRepository)
+		if canConfirm {
+			confirmationCtx, cancelConfirmation := context.WithTimeout(context.Background(), 5*time.Second)
+			project, confirmationErr := confirmationRepo.FindByProjectIDIncludingDeletedByOwner(
+				confirmationCtx,
+				projectID,
+				userID,
+			)
+			cancelConfirmation()
+			if confirmationErr == nil && project != nil && project.DeletedAt == nil {
+				continue
+			}
+		} else if err == nil {
+			continue
+		}
+		if err == nil {
+			err = errors.New("project restore could not be confirmed")
+		}
+		failedProjectIDs = append(failedProjectIDs, projectID)
+		log.Printf(
+			"Warning: failed to restore project %s after administrator deletion rollback: %v",
+			projectID,
+			err,
+		)
+	}
+	return failedProjectIDs
+}
+
+func (s *ProjectService) reconcileTransferredAsyncProjectDeletions(
+	userID string,
+	preserved map[string]uint64,
+) {
+	for projectID, generation := range preserved {
+		projectID := projectID
+		generation := generation
+		go func() {
+			backoff := time.Second
+			for {
+				restoreCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := s.restoreSoftDeletedProject(restoreCtx, projectID)
+				cancel()
+				confirmationRepo, canConfirm := s.projectRepo.(projectRestoreConfirmationRepository)
+				if canConfirm {
+					confirmationCtx, cancelConfirmation := context.WithTimeout(context.Background(), 5*time.Second)
+					project, confirmationErr := confirmationRepo.FindByProjectIDIncludingDeletedByOwner(
+						confirmationCtx,
+						projectID,
+						userID,
+					)
+					cancelConfirmation()
+					if confirmationErr == nil && project != nil && project.DeletedAt == nil {
+						s.lifecycleCoordinator.releasePreservedProjectDeletionBarrier(projectID, generation)
+						return
+					}
+				} else if err == nil {
+					s.lifecycleCoordinator.releasePreservedProjectDeletionBarrier(projectID, generation)
+					return
+				}
+				time.Sleep(backoff)
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+			}
+		}()
+	}
+}
+
+// DeleteUserWithProjectResources coordinates runtime cleanup and the database
+// hard delete while preserving local directories for rollback on failure.
+func (s *ProjectService) DeleteUserWithProjectResources(
+	ctx context.Context,
+	userID string,
+	deleteUser func(context.Context) error,
+) error {
+	return s.deleteUserWithProjectResources(
+		ctx,
+		userID,
+		deleteUser,
+		s.stageUserProjectDirectories,
+	)
+}
+
+func (s *ProjectService) deleteUserWithProjectResources(
+	ctx context.Context,
+	userID string,
+	deleteUser func(context.Context) error,
+	stageDirectories func(
+		context.Context,
+		[]model.Project,
+	) ([]stagedProjectDirectory, error),
+) error {
+	if s == nil || s.projectRepo == nil {
+		return fmt.Errorf("project repository not available")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("user id is required")
+	}
+	if deleteUser == nil {
+		return fmt.Errorf("user deletion callback is required")
+	}
+	if stageDirectories == nil {
+		return fmt.Errorf("project directory staging callback is required")
+	}
+
+	userIdle, finishUserDeletion, err := s.lifecycleCoordinator.startUserDeletion(userID)
+	if err != nil {
+		return fmt.Errorf("begin user deletion: %w", err)
+	}
+	committed := false
+	completionHandedOff := false
+	defer func() {
+		if !completionHandedOff {
+			finishUserDeletion(committed)
+		}
+	}()
+
+	repo, ok := s.projectRepo.(userProjectDeletionRepository)
+	if !ok {
+		return fmt.Errorf("project repository does not support administrator user deletion")
+	}
+	projects, err := repo.ListByUserIDIncludingDeleted(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("list user projects for deletion: %w", err)
+	}
+
+	projectIDs := make([]string, 0, len(projects))
+	for i := range projects {
+		projectIDs = append(projectIDs, projects[i].ProjectID)
+	}
+	finishDeletion, transferredAsyncProjectIDs, err := s.lifecycleCoordinator.beginProjectDeletion(ctx, projectIDs)
+	if err != nil {
+		if finishDeletion != nil {
+			failedProjectIDs := s.restoreTransferredAsyncProjectDeletions(
+				transferredAsyncProjectIDs,
+				userID,
+			)
+			preserved := s.lifecycleCoordinator.preserveProjectDeletionBarriers(
+				failedProjectIDs,
+			)
+			finishDeletion(false)
+			s.reconcileTransferredAsyncProjectDeletions(userID, preserved)
+		}
+		return fmt.Errorf("begin user project deletion: %w", err)
+	}
+	defer func() {
+		if completionHandedOff {
+			return
+		}
+		if !committed {
+			failedProjectIDs := s.restoreTransferredAsyncProjectDeletions(
+				transferredAsyncProjectIDs,
+				userID,
+			)
+			preserved := s.lifecycleCoordinator.preserveProjectDeletionBarriers(failedProjectIDs)
+			finishDeletion(false)
+			s.reconcileTransferredAsyncProjectDeletions(userID, preserved)
+			return
+		}
+		finishDeletion(committed)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait for user operations before deletion: %w", ctx.Err())
+	case <-userIdle:
+	}
+	if s.terminalMgr != nil {
+		s.terminalMgr.closeUser(userID)
+	}
+
+	currentProjects, err := repo.ListByUserIDIncludingDeleted(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("refresh user projects for deletion: %w", err)
+	}
+	existingProjectIDs := make(map[string]struct{}, len(projectIDs))
+	for _, projectID := range projectIDs {
+		existingProjectIDs[projectID] = struct{}{}
+	}
+	additionalProjectIDs := make([]string, 0)
+	for i := range currentProjects {
+		if _, exists := existingProjectIDs[currentProjects[i].ProjectID]; !exists {
+			additionalProjectIDs = append(additionalProjectIDs, currentProjects[i].ProjectID)
+		}
+	}
+	finishAdditionalDeletion, transferredAdditionalProjectIDs, err := s.lifecycleCoordinator.beginProjectDeletion(
+		ctx,
+		additionalProjectIDs,
+	)
+	if err != nil {
+		if finishAdditionalDeletion != nil {
+			failedProjectIDs := s.restoreTransferredAsyncProjectDeletions(
+				transferredAdditionalProjectIDs,
+				userID,
+			)
+			preserved := s.lifecycleCoordinator.preserveProjectDeletionBarriers(
+				failedProjectIDs,
+			)
+			finishAdditionalDeletion(false)
+			s.reconcileTransferredAsyncProjectDeletions(userID, preserved)
+		}
+		return fmt.Errorf("begin additional user project deletion: %w", err)
+	}
+	defer func() {
+		if completionHandedOff {
+			return
+		}
+		if !committed {
+			failedProjectIDs := s.restoreTransferredAsyncProjectDeletions(
+				transferredAdditionalProjectIDs,
+				userID,
+			)
+			preserved := s.lifecycleCoordinator.preserveProjectDeletionBarriers(failedProjectIDs)
+			finishAdditionalDeletion(false)
+			s.reconcileTransferredAsyncProjectDeletions(userID, preserved)
+			return
+		}
+		finishAdditionalDeletion(committed)
+	}()
+	finishFailedDeletion := func() {
+		failedPrimary := s.restoreTransferredAsyncProjectDeletions(
+			transferredAsyncProjectIDs,
+			userID,
+		)
+		failedAdditional := s.restoreTransferredAsyncProjectDeletions(
+			transferredAdditionalProjectIDs,
+			userID,
+		)
+		preservedPrimary := s.lifecycleCoordinator.preserveProjectDeletionBarriers(failedPrimary)
+		preservedAdditional := s.lifecycleCoordinator.preserveProjectDeletionBarriers(failedAdditional)
+		finishAdditionalDeletion(false)
+		finishDeletion(false)
+		finishUserDeletion(false)
+		s.reconcileTransferredAsyncProjectDeletions(userID, preservedPrimary)
+		s.reconcileTransferredAsyncProjectDeletions(userID, preservedAdditional)
+	}
+
+	projects = currentProjects
+	projectIDs = projectIDs[:0]
+	for i := range projects {
+		projectIDs = append(projectIDs, projects[i].ProjectID)
+	}
+
+	unlockRuntimeCreation := lockProjectRuntimeCreation(projectIDs)
+	runtimeCreationHandedOff := false
+	defer func() {
+		if !runtimeCreationHandedOff {
+			unlockRuntimeCreation()
+		}
+	}()
+
+	var stagedRemoteBackups []stagedProjectRemoteBackup
+	restoreStagedResources := func(
+		paths []stagedProjectDirectory,
+		cause error,
+	) error {
+		localRollbackErr := rollbackStagedProjectDirectories(paths)
+		remoteRollbackCtx, cancelRemoteRollback := context.WithTimeout(
+			context.WithoutCancel(safeContext(ctx)),
+			30*time.Second,
+		)
+		remoteRollbackErr := restoreStagedProjectRemoteBackups(
+			remoteRollbackCtx,
+			stagedRemoteBackups,
+		)
+		cancelRemoteRollback()
+		if localRollbackErr == nil && remoteRollbackErr == nil {
+			return cause
+		}
+		completionHandedOff = true
+		runtimeCreationHandedOff = true
+		localSnapshot := append([]stagedProjectDirectory(nil), paths...)
+		remoteSnapshot := append(
+			[]stagedProjectRemoteBackup(nil),
+			stagedRemoteBackups...,
+		)
+		go func(initialLocalErr, initialRemoteErr error) {
+			defer unlockRuntimeCreation()
+			backoff := time.Second
+			localErr := initialLocalErr
+			remoteErr := initialRemoteErr
+			for localErr != nil || remoteErr != nil {
+				log.Printf(
+					"Warning: failed to restore staging after user deletion %s was rejected: %v",
+					userID,
+					fmt.Errorf("local=%v remote=%v", localErr, remoteErr),
+				)
+				time.Sleep(backoff)
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				localErr = rollbackStagedProjectDirectories(localSnapshot)
+				remoteCtx, cancelRemote := context.WithTimeout(
+					context.Background(),
+					30*time.Second,
+				)
+				remoteErr = restoreStagedProjectRemoteBackups(
+					remoteCtx,
+					remoteSnapshot,
+				)
+				cancelRemote()
+			}
+			finishFailedDeletion()
+		}(localRollbackErr, remoteRollbackErr)
+		return fmt.Errorf(
+			"%w; restore staged project data: local=%v remote=%v",
+			cause,
+			localRollbackErr,
+			remoteRollbackErr,
+		)
+	}
+
+	stagedPaths, err := stageDirectories(ctx, projects)
+	if err != nil {
+		if len(stagedPaths) == 0 {
+			return err
+		}
+		return restoreStagedResources(stagedPaths, err)
+	}
+	stagedRemoteBackups, err = s.stageUserProjectRemoteBackups(
+		ctx,
+		userID,
+		projects,
+	)
+	if err != nil {
+		return restoreStagedResources(stagedPaths, err)
+	}
+	rollback := func(cause error) error {
+		return restoreStagedResources(stagedPaths, cause)
+	}
+
+	var cleanupErrors []string
+	for i := range projects {
+		if err := s.cleanupUserProjectRuntimeResources(ctx, &projects[i]); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Sprintf("%s: %v", projects[i].ProjectID, err))
+		}
+	}
+	if len(cleanupErrors) > 0 {
+		return rollback(fmt.Errorf("cleanup user project resources: %s", strings.Join(cleanupErrors, " | ")))
+	}
+	if err := deleteUser(ctx); err != nil {
+		if isUserDeletionOutcomeUnknown(err) {
+			completionHandedOff = true
+			runtimeCreationHandedOff = true
+			go func(initialErr error) {
+				defer unlockRuntimeCreation()
+				backoff := time.Second
+				for {
+					retryCtx, cancelRetry := context.WithTimeout(context.Background(), 15*time.Second)
+					retryErr := deleteUser(retryCtx)
+					cancelRetry()
+					if isUserDeletionOutcomeUnknown(retryErr) {
+						time.Sleep(backoff)
+						if backoff < 30*time.Second {
+							backoff *= 2
+						}
+						continue
+					}
+					if retryErr == nil {
+						if markerErr := markStagedProjectDirectoriesCommitted(stagedPaths); markerErr != nil {
+							log.Printf(
+								"Warning: failed to mark committed staging after confirming user deletion %s: %v",
+								userID,
+								markerErr,
+							)
+						}
+						if markerErr := markStagedProjectRemoteBackupsCommitted(
+							stagedRemoteBackups,
+						); markerErr != nil {
+							log.Printf(
+								"Warning: failed to mark committed remote staging after confirming user deletion %s: %v",
+								userID,
+								markerErr,
+							)
+						}
+						if discardErr := discardStagedProjectDirectories(stagedPaths); discardErr != nil {
+							log.Printf(
+								"Warning: failed to discard staging after confirming user deletion %s: %v",
+								userID,
+								discardErr,
+							)
+							retryDiscardStagedProjectDirectories(stagedPaths)
+						}
+						remoteCleanupCtx, cancelRemoteCleanup := context.WithTimeout(
+							context.Background(),
+							30*time.Second,
+						)
+						remoteDiscardErr := discardStagedProjectRemoteBackups(
+							remoteCleanupCtx,
+							stagedRemoteBackups,
+						)
+						cancelRemoteCleanup()
+						if remoteDiscardErr != nil {
+							log.Printf(
+								"Warning: failed to discard remote staging after confirming user deletion %s: %v",
+								userID,
+								remoteDiscardErr,
+							)
+							retryDiscardStagedProjectRemoteBackups(stagedRemoteBackups)
+						}
+						finishAdditionalDeletion(true)
+						finishDeletion(true)
+						finishUserDeletion(true)
+						return
+					}
+
+					rollbackBackoff := time.Second
+					for {
+						localRollbackErr := rollbackStagedProjectDirectories(stagedPaths)
+						remoteRollbackCtx, cancelRemoteRollback := context.WithTimeout(
+							context.Background(),
+							30*time.Second,
+						)
+						remoteRollbackErr := restoreStagedProjectRemoteBackups(
+							remoteRollbackCtx,
+							stagedRemoteBackups,
+						)
+						cancelRemoteRollback()
+						if localRollbackErr == nil && remoteRollbackErr == nil {
+							break
+						}
+						log.Printf(
+							"Warning: failed to restore staging after user deletion %s was rejected: %v",
+							userID,
+							fmt.Errorf(
+								"local=%v remote=%v",
+								localRollbackErr,
+								remoteRollbackErr,
+							),
+						)
+						time.Sleep(rollbackBackoff)
+						if rollbackBackoff < 30*time.Second {
+							rollbackBackoff *= 2
+						}
+					}
+					finishFailedDeletion()
+					log.Printf(
+						"User deletion %s was not committed after an ambiguous response: %v (initial error: %v)",
+						userID,
+						retryErr,
+						initialErr,
+					)
+					return
+				}
+			}(err)
+			return fmt.Errorf("delete user database records: %w", err)
+		}
+		return rollback(fmt.Errorf("delete user database records: %w", err))
+	}
+	committed = true
+	if err := markStagedProjectDirectoriesCommitted(stagedPaths); err != nil {
+		log.Printf("Warning: failed to mark committed staged data after deleting user %s: %v", userID, err)
+	}
+	if err := markStagedProjectRemoteBackupsCommitted(stagedRemoteBackups); err != nil {
+		log.Printf("Warning: failed to mark committed remote staging after deleting user %s: %v", userID, err)
+	}
+	if err := discardStagedProjectDirectories(stagedPaths); err != nil {
+		log.Printf("Warning: failed to discard staged data after deleting user %s: %v", userID, err)
+		retryDiscardStagedProjectDirectories(stagedPaths)
+	}
+	remoteCleanupCtx, cancelRemoteCleanup := context.WithTimeout(
+		context.Background(),
+		30*time.Second,
+	)
+	remoteDiscardErr := discardStagedProjectRemoteBackups(
+		remoteCleanupCtx,
+		stagedRemoteBackups,
+	)
+	cancelRemoteCleanup()
+	if remoteDiscardErr != nil {
+		log.Printf("Warning: failed to discard remote staged data after deleting user %s: %v", userID, remoteDiscardErr)
+		retryDiscardStagedProjectRemoteBackups(stagedRemoteBackups)
+	}
+	return nil
+}
+
+func (s *ProjectService) cleanupUserProjectRuntimeResources(ctx context.Context, project *model.Project) error {
+	if project == nil || strings.TrimSpace(project.ProjectID) == "" {
+		return fmt.Errorf("project id is required")
+	}
+	projectID := strings.TrimSpace(project.ProjectID)
+	var cleanupErrors []string
+
+	if s.terminalMgr != nil {
+		s.terminalMgr.closeProject(projectID)
+	}
+	if s.fileSvc != nil {
+		s.fileSvc.RemoveManager(projectID)
+	}
+	if s.containerMgr != nil {
+		if err := s.containerMgr.RemoveContainer(ctx, projectID); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Sprintf("remove project container: %v", err))
+		}
+	}
+	if len(cleanupErrors) > 0 {
+		return fmt.Errorf("%s", strings.Join(cleanupErrors, " | "))
+	}
+	return nil
 }
 
 // DeleteProjectFull 完整删除项目资源。
@@ -803,7 +1706,7 @@ func (s *ProjectService) DeleteProjectFull(ctx context.Context, projectID string
 
 // UpdateProject 更新项目元数据。
 // 方案和技术栈只更新数据库；代码、文档、脚手架等文件生成必须在容器启动后进行。
-func (s *ProjectService) UpdateProject(ctx context.Context, projectID string, updates map[string]interface{}) error {
+func (s *ProjectService) UpdateProject(ctx context.Context, projectID, userID string, updates map[string]interface{}) error {
 	sanitizedUpdates := make(map[string]interface{})
 
 	if name, ok := updates["name"].(string); ok {
@@ -831,8 +1734,13 @@ func (s *ProjectService) UpdateProject(ctx context.Context, projectID string, up
 	if len(sanitizedUpdates) == 0 {
 		return nil
 	}
+	operationCtx, finishOperation, err := s.BeginCancellableUserProjectMutation(ctx, userID, projectID, false)
+	if err != nil {
+		return err
+	}
+	defer finishOperation()
 
-	if err := s.projectRepo.UpdateFields(ctx, projectID, sanitizedUpdates); err != nil {
+	if err := s.projectRepo.UpdateFields(operationCtx, projectID, sanitizedUpdates); err != nil {
 		return err
 	}
 

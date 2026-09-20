@@ -816,7 +816,7 @@ function formatProjectDeletionAcceptedNotice(project: Project, result: ProjectDe
   const hasCleanupScope = hasProjectListNoticeItems(result.cleanup_scope);
   const cleanupScope = hasCleanupScope === true
     ? result.cleanup_scope.join(' / ')
-    : 'container / project_directory / chat_messages / generated_file_metadata / git_commits';
+    : 'container / project_directory / local_backup_archives / remote_backup_objects / chat_messages / generated_file_metadata / git_commits';
   const projectName = getProjectListNoticeProjectName(project, result.project_id);
   return `项目 ${projectName} 已从列表移除，后端已受理删除请求并进入 ${result.restore_window_seconds} 秒软删除恢复窗口。窗口内可显式恢复项目记录；窗口结束后容器、项目目录、历史消息、生成文件元数据和 Git 提交记录会按异步清理策略继续处理。清理范围：${cleanupScope}。`;
 }
@@ -1732,7 +1732,7 @@ export default function ProjectsPage() {
       description: `确认向项目 ${projectName} 的资源告警 webhook 发送通知？该操作会访问已配置 webhook，并追加通知发送事件。`,
       confirmLabel: '确认发送通知',
       riskLevel: 'medium',
-      recovery: '取消不会访问 webhook，也不会追加通知事件；确认后若发送失败，后端会追加 notification_failed 证据。',
+      recovery: '取消不会访问 webhook，也不会追加通知事件；确认后后端先写 notification_pending，明确失败会追加 notification_failed，结果未知时禁止自动重放。',
     });
   };
 
@@ -1750,7 +1750,9 @@ export default function ProjectsPage() {
         ? 'resource_alert_notification_sent'
         : result.status === 'failed'
           ? 'resource_alert_notification_failed'
-          : result.status === 'unavailable'
+          : result.status === 'uncertain'
+            ? 'resource_alert_notification_uncertain'
+            : result.status === 'unavailable'
             ? 'resource_alert_notification_send_unavailable'
             : 'resource_alert_notification_send_blocked';
       setProjectListNoticeTitle(result.status === 'sent' ? '项目资源告警通知已发送' : '项目资源告警通知未发送');
@@ -1808,7 +1810,7 @@ export default function ProjectsPage() {
       description: `确认执行项目 ${projectName} 的资源告警硬配额 stop_container？该操作会在后端重新校验 readiness、通知证据和候选事件后停止项目容器，并追加 append-only 执行事件。`,
       confirmLabel: '确认执行 stop_container',
       riskLevel: 'high',
-      recovery: '取消不会停止容器，也不会追加 enforcement_executed 事件；确认后若后端 guard 阻断，容器状态不会改变。',
+      recovery: '取消不会停止容器，也不会追加执行事件；确认后后端先写 enforcement_pending，结果未知时禁止自动重放。',
     });
   };
 
@@ -1826,7 +1828,9 @@ export default function ProjectsPage() {
         ? 'resource_alert_enforcement_executed'
         : result.status === 'failed'
           ? 'resource_alert_enforcement_failed'
-          : 'resource_alert_enforcement_execute_blocked';
+          : result.status === 'uncertain'
+            ? 'resource_alert_enforcement_uncertain'
+            : 'resource_alert_enforcement_execute_blocked';
       setProjectListNoticeTitle(result.status === 'executed' ? '项目资源告警硬配额已受控执行' : '项目资源告警硬配额未执行');
       setProjectListNoticeKind(noticeKind);
       setProjectListNotice(formatProjectResourceAlertEnforcementExecuteNotice(project, result));

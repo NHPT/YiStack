@@ -129,6 +129,11 @@ func (s *GitHubIntegrationService) ImportRepository(
 	if !request.ConfirmReplaceWorkspace {
 		return nil, githubError("github_import_confirmation_required", "Repository import requires explicit workspace replacement confirmation", nil)
 	}
+	unlockProject, err := s.beginProjectMutation(ctx, project.ProjectID)
+	if err != nil {
+		return nil, githubError("github_project_deleting", "Project deletion is in progress", err)
+	}
+	defer unlockProject()
 	payload := map[string]interface{}{
 		"repository_name": repository.FullName, "branch": branch,
 		"confirm_replace_workspace": request.ConfirmReplaceWorkspace,
@@ -150,6 +155,11 @@ func (s *GitHubIntegrationService) PullRepository(
 	if !request.ConfirmPull {
 		return nil, githubError("github_pull_confirmation_required", "GitHub pull requires explicit confirmation", nil)
 	}
+	unlockProject, err := s.beginProjectMutation(ctx, project.ProjectID)
+	if err != nil {
+		return nil, githubError("github_project_deleting", "Project deletion is in progress", err)
+	}
+	defer unlockProject()
 	return s.executeIdempotentSync(ctx, userID, project.ProjectID, "pull", request.IdempotencyKey, request, func() (*GitHubSyncResult, error) {
 		return s.pullRepository(ctx, userID, project)
 	})
@@ -170,6 +180,11 @@ func (s *GitHubIntegrationService) PushRepository(
 	if request.Force && (!request.ConfirmForcePush || strings.TrimSpace(request.ExpectedRemoteSHA) == "") {
 		return nil, githubError("github_force_push_confirmation_required", "Force push requires confirmation and the expected remote SHA", nil)
 	}
+	unlockProject, err := s.beginProjectMutation(ctx, project.ProjectID)
+	if err != nil {
+		return nil, githubError("github_project_deleting", "Project deletion is in progress", err)
+	}
+	defer unlockProject()
 	return s.executeIdempotentSync(ctx, userID, project.ProjectID, "push", request.IdempotencyKey, request, func() (*GitHubSyncResult, error) {
 		return s.pushRepository(ctx, userID, project, request)
 	})
@@ -462,6 +477,16 @@ func (s *GitHubIntegrationService) prepareGitHubRuntime(ctx context.Context, pro
 		s.projectService.containerCfg, s.projectService.getImageForRuntimeProfile,
 	)
 	return err
+}
+
+func (s *GitHubIntegrationService) beginProjectMutation(
+	ctx context.Context,
+	projectID string,
+) (func(), error) {
+	if s == nil || s.projectService == nil {
+		return func() {}, nil
+	}
+	return s.projectService.BeginProjectMutationContext(ctx, projectID)
 }
 
 func (s *GitHubIntegrationService) refreshGitHubProjectFileTree(ctx context.Context, projectID string) {

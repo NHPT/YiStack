@@ -74,14 +74,21 @@ type RollbackOfficialTemplateRequest struct {
 }
 
 type ProjectCollaborationService struct {
-	repo     ProjectCollaborationRepo
-	projects *ProjectService
-	users    UserRepo
-	now      func() time.Time
+	repo                  ProjectCollaborationRepo
+	projects              *ProjectService
+	users                 UserRepo
+	now                   func() time.Time
+	stageProjectDirectory projectDirectoryStageFunc
 }
 
 func NewProjectCollaborationService(repo ProjectCollaborationRepo, projects *ProjectService, users UserRepo) *ProjectCollaborationService {
-	return &ProjectCollaborationService{repo: repo, projects: projects, users: users, now: time.Now}
+	return &ProjectCollaborationService{
+		repo:                  repo,
+		projects:              projects,
+		users:                 users,
+		now:                   time.Now,
+		stageProjectDirectory: stageProjectDirectory,
+	}
 }
 
 func validProjectMemberRole(role string) bool {
@@ -183,7 +190,8 @@ func (s *ProjectCollaborationService) AddOrUpdateMember(ctx context.Context, act
 			return ProjectMemberView{ID: existing.ID, UserID: user.ID, Email: user.Email, Username: user.Username, Role: role, Status: "active", CreatedAt: existing.CreatedAt, UpdatedAt: existing.UpdatedAt}, nil
 		}
 	}
-	member := &model.ProjectMember{ID: memberID, ProjectID: projectID, UserID: user.ID, Role: role, Status: "active", InvitedByUserID: actorID, CreatedAt: now, UpdatedAt: now}
+	invitedByUserID := actorID
+	member := &model.ProjectMember{ID: memberID, ProjectID: projectID, UserID: user.ID, Role: role, Status: "active", InvitedByUserID: &invitedByUserID, CreatedAt: now, UpdatedAt: now}
 	audit := &model.ProjectCollaborationAudit{ID: utils.GenerateUUID(), ProjectID: projectID, ActorUserID: actorID, TargetUserID: user.ID, Action: action, PreviousRole: previousRole, NextRole: role, MetadataJSON: "{}", CreatedAt: now}
 	if err := s.repo.UpsertMemberWithAudit(ctx, member, audit); err != nil {
 		return ProjectMemberView{}, err
@@ -344,6 +352,16 @@ func (s *ProjectCollaborationService) CreateProjectFromTemplate(ctx context.Cont
 	if !req.Confirm {
 		return nil, &ProjectCollaborationError{Code: "template_confirmation_required", Message: "Template project creation requires explicit confirmation"}
 	}
+	if s == nil || s.projects == nil {
+		return nil, &ProjectCollaborationError{Code: "collaboration_unavailable", Message: "Project collaboration is unavailable"}
+	}
+	operationCtx, finishOperation, err := s.projects.BeginCancellableUserProjectOperation(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishOperation()
+	ctx = operationCtx
+
 	template, err := s.repo.FindOfficialTemplateBySlug(ctx, strings.ToLower(strings.TrimSpace(req.Slug)))
 	if err != nil {
 		return nil, err
@@ -363,22 +381,116 @@ func (s *ProjectCollaborationService) CreateProjectFromTemplate(ctx context.Cont
 	if err := json.Unmarshal([]byte(version.FilesJSON), &files); err != nil {
 		return nil, &ProjectCollaborationError{Code: "template_files_invalid", Message: "Template files are invalid"}
 	}
-	project, err := s.projects.CreateProject(ctx, &CreateProjectRequest{UserID: userID, Name: req.Name, Description: req.Description, AppType: template.AppType, TechStack: version.ManifestJSON})
+	project := s.projects.buildProjectModel(&CreateProjectRequest{UserID: userID, Name: req.Name, Description: req.Description, AppType: template.AppType, TechStack: version.ManifestJSON})
+	finishProjectMutation, err := s.projects.BeginProjectMutationContext(ctx, project.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer finishProjectMutation()
+	project, err = s.projects.createProjectWithoutRecentReuseUnderUserOperation(ctx, project)
 	if err != nil {
 		return nil, err
 	}
 	if err := materializeOfficialTemplate(project, files); err != nil {
-		cleanupTemplateProject(project)
-		_ = s.projects.DeleteProject(ctx, project.ProjectID)
-		return nil, err
+		return nil, s.rollbackTemplateProjectCreation(ctx, project, err)
 	}
 	if err := commitOfficialTemplateProject(project); err != nil {
-		cleanupTemplateProject(project)
-		_ = s.projects.DeleteProject(ctx, project.ProjectID)
-		return nil, err
+		return nil, s.rollbackTemplateProjectCreation(ctx, project, err)
 	}
 	return project, nil
 }
+
+func (s *ProjectCollaborationService) rollbackTemplateProjectCreation(
+	ctx context.Context,
+	project *model.Project,
+	cause error,
+) error {
+	if project == nil {
+		return cause
+	}
+	root, pathErr := secureProjectHostDirectory(
+		currentProjectRootDir(),
+		project.ProjectID,
+		project.DirectoryPath,
+	)
+	var stagingErr error
+	stagedPaths := []stagedProjectDirectory{}
+	if pathErr != nil {
+		stagingErr = fmt.Errorf("resolve template project rollback path: %w", pathErr)
+	} else {
+		stageDirectory := s.stageProjectDirectory
+		if stageDirectory == nil {
+			stageDirectory = stageProjectDirectory
+		}
+		staged, err := stageDirectory(
+			root,
+			project.UserID,
+			project.ProjectID,
+			"project",
+		)
+		if err != nil {
+			stagingErr = fmt.Errorf("stage template project rollback: %w", err)
+		} else if staged != nil {
+			stagedPaths = append(stagedPaths, *staged)
+		}
+	}
+
+	deleteCtx, cancelDelete := context.WithTimeout(
+		context.WithoutCancel(safeContext(ctx)),
+		10*time.Second,
+	)
+	deleteErr := s.projects.DeleteProject(deleteCtx, project.ProjectID)
+	cancelDelete()
+	if deleteErr != nil {
+		confirmCtx, cancelConfirm := context.WithTimeout(
+			context.WithoutCancel(safeContext(ctx)),
+			5*time.Second,
+		)
+		_, confirmErr := s.projects.GetProject(confirmCtx, project.ProjectID)
+		cancelConfirm()
+		if errors.Is(confirmErr, gorm.ErrRecordNotFound) {
+			deleteErr = nil
+		}
+	}
+	if deleteErr != nil {
+		compensationErr := fmt.Errorf(
+			"compensate template project deletion: %w",
+			deleteErr,
+		)
+		rollbackErr := rollbackStagedProjectDirectories(stagedPaths)
+		if rollbackErr != nil {
+			return errors.Join(
+				cause,
+				stagingErr,
+				compensationErr,
+				fmt.Errorf("restore template workspace: %w", rollbackErr),
+			)
+		}
+		return errors.Join(cause, stagingErr, compensationErr)
+	}
+
+	var residualCleanupErr error
+	if stagingErr != nil && root != "" {
+		if err := os.RemoveAll(root); err != nil {
+			residualCleanupErr = fmt.Errorf("remove unstaged template workspace: %w", err)
+		}
+	}
+	markerErr := markStagedProjectDirectoriesCommitted(stagedPaths)
+	discardErr := discardStagedProjectDirectories(stagedPaths)
+	if discardErr != nil {
+		retryDiscardStagedProjectDirectories(stagedPaths)
+		cleanupErr := fmt.Errorf("discard template rollback staging: %w", discardErr)
+		if markerErr != nil {
+			cleanupErr = errors.Join(
+				fmt.Errorf("mark template rollback committed: %w", markerErr),
+				cleanupErr,
+			)
+		}
+		return errors.Join(cause, stagingErr, residualCleanupErr, cleanupErr)
+	}
+	return errors.Join(cause, stagingErr, residualCleanupErr)
+}
+
 func materializeOfficialTemplate(project *model.Project, files []OfficialTemplateFile) error {
 	if project == nil {
 		return fmt.Errorf("project is required")
@@ -402,15 +514,6 @@ func materializeOfficialTemplate(project *model.Project, files []OfficialTemplat
 		}
 	}
 	return nil
-}
-func cleanupTemplateProject(project *model.Project) {
-	if project == nil {
-		return
-	}
-	root, err := secureProjectHostDirectory(currentProjectRootDir(), project.ProjectID, project.DirectoryPath)
-	if err == nil {
-		_ = os.RemoveAll(root)
-	}
 }
 func commitOfficialTemplateProject(project *model.Project) error {
 	root, err := secureProjectHostDirectory(currentProjectRootDir(), project.ProjectID, project.DirectoryPath)

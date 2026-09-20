@@ -22,6 +22,15 @@ func (o *GenerateOrchestrator) StartGenerationJob(ctx context.Context, command G
 	if !isBootstrapWorkflowStage(command.Context.WorkflowStage) && strings.TrimSpace(command.Prompt) == "" {
 		return nil, ErrPromptRequired
 	}
+	unlockUserProjects := func() {}
+	if o.projectService != nil {
+		var err error
+		unlockUserProjects, err = o.projectService.BeginUserProjectOperation(command.UserID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer unlockUserProjects()
 	if err := ensureOwnedProjectAccess(ctx, o.projectService, command.UserID, command.ProjectID); err != nil {
 		return nil, err
 	}

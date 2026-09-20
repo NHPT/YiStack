@@ -63,7 +63,16 @@ func (o *GenerateOrchestrator) Generate(ctx context.Context, command GenerateCom
 		return err
 	}
 	if isBootstrapWorkflowStage(command.Context.WorkflowStage) {
-		return o.executeBootstrapWorkflowStage(ctx, command, handler)
+		return o.executeBootstrapWorkflowStageWithProjectLifecycle(ctx, command, handler)
+	}
+	if o != nil && o.projectService != nil {
+		operationCtx, finishUserOperation, err :=
+			o.projectService.BeginCancellableUserProjectOperation(ctx, command.UserID)
+		if err != nil {
+			return err
+		}
+		defer finishUserOperation()
+		ctx = operationCtx
 	}
 
 	ctx = withOrchestrationContext(ctx, command.Context)

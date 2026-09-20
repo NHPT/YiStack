@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +16,10 @@ import (
 )
 
 type stubProjectResourceAlertEventRepo struct {
+	mu            sync.Mutex
 	created       []model.ProjectResourceAlertEvent
+	claims        map[string]model.ProjectResourceAlertActionClaim
+	createErrors  []error
 	projectID     string
 	status        string
 	offset        int
@@ -23,6 +28,15 @@ type stubProjectResourceAlertEventRepo struct {
 }
 
 func (r *stubProjectResourceAlertEventRepo) Create(_ context.Context, event *model.ProjectResourceAlertEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.createErrors) > 0 {
+		err := r.createErrors[0]
+		r.createErrors = r.createErrors[1:]
+		if err != nil {
+			return err
+		}
+	}
 	if event == nil {
 		return nil
 	}
@@ -34,6 +48,8 @@ func (r *stubProjectResourceAlertEventRepo) Create(_ context.Context, event *mod
 }
 
 func (r *stubProjectResourceAlertEventRepo) ListByProjectID(_ context.Context, projectID, status string, offset, limit int) ([]model.ProjectResourceAlertEvent, int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.projectID = projectID
 	r.status = status
 	r.offset = offset
@@ -49,7 +65,68 @@ func (r *stubProjectResourceAlertEventRepo) ListByProjectID(_ context.Context, p
 }
 
 func (r *stubProjectResourceAlertEventRepo) DeleteByProjectID(context.Context, string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.created = nil
+	r.claims = nil
+	return nil
+}
+
+func (r *stubProjectResourceAlertEventRepo) ClaimAction(
+	_ context.Context,
+	claim *model.ProjectResourceAlertActionClaim,
+	pendingEvent *model.ProjectResourceAlertEvent,
+) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if claim == nil || pendingEvent == nil {
+		return false, fmt.Errorf("claim and pending event are required")
+	}
+	if r.claims == nil {
+		r.claims = make(map[string]model.ProjectResourceAlertActionClaim)
+	}
+	key := fmt.Sprintf("%s:%d:%s", claim.ProjectID, claim.SourceEventID, claim.Action)
+	existing, exists := r.claims[key]
+	if exists && existing.Status != "failed" {
+		claim.Status = existing.Status
+		return false, nil
+	}
+	if len(r.createErrors) > 0 {
+		err := r.createErrors[0]
+		r.createErrors = r.createErrors[1:]
+		if err != nil {
+			return false, err
+		}
+	}
+	if pendingEvent.ID == 0 {
+		pendingEvent.ID = int64(len(r.created) + 1)
+	}
+	if pendingEvent.CreatedAt.IsZero() {
+		pendingEvent.CreatedAt = time.Now().UTC()
+	}
+	r.created = append(r.created, *pendingEvent)
+	r.claims[key] = *claim
+	return true, nil
+}
+
+func (r *stubProjectResourceAlertEventRepo) CompleteAction(
+	_ context.Context,
+	projectID string,
+	sourceEventID int64,
+	action string,
+	status string,
+	updatedAt time.Time,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := fmt.Sprintf("%s:%d:%s", projectID, sourceEventID, action)
+	claim, exists := r.claims[key]
+	if !exists || claim.Status != "pending" {
+		return fmt.Errorf("pending action claim not found")
+	}
+	claim.Status = status
+	claim.UpdatedAt = updatedAt
+	r.claims[key] = claim
 	return nil
 }
 
@@ -58,6 +135,20 @@ type stubResourceAlertNotificationHTTPClient struct {
 	requests   int
 	body       string
 	headers    http.Header
+}
+
+type blockingResourceAlertNotificationHTTPClient struct {
+	started   chan struct{}
+	cancelled chan struct{}
+	release   chan struct{}
+}
+
+func (c *blockingResourceAlertNotificationHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	close(c.started)
+	<-req.Context().Done()
+	close(c.cancelled)
+	<-c.release
+	return nil, req.Context().Err()
 }
 
 func (c *stubResourceAlertNotificationHTTPClient) Do(req *http.Request) (*http.Response, error) {
@@ -73,6 +164,178 @@ func (c *stubResourceAlertNotificationHTTPClient) Do(req *http.Request) (*http.R
 		StatusCode: statusCode,
 		Body:       io.NopCloser(strings.NewReader("")),
 	}, nil
+}
+
+func TestProjectSideEffectOperationsRejectedDuringProjectDeletion(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	projectSvc := NewProjectService(ProjectServiceOptions{LifecycleCoordinator: coordinator})
+	finishDeletion, _, err := coordinator.beginProjectDeletion(
+		context.Background(),
+		[]string{"deleting-side-effect-project"},
+	)
+	if err != nil {
+		t.Fatalf("beginProjectDeletion() error = %v", err)
+	}
+	defer finishDeletion(false)
+
+	checks := []struct {
+		name string
+		run  func() error
+	}{
+		{"remote backup upload", func() error {
+			_, err := projectSvc.UploadProjectBackupToRemoteStorage(context.Background(), "deleting-side-effect-project", "side-effect-user", "backup-1")
+			return err
+		}},
+		{"container stop", func() error {
+			_, err := projectSvc.StopProjectContainer(context.Background(), "deleting-side-effect-project", "side-effect-user")
+			return err
+		}},
+		{"project update", func() error {
+			return projectSvc.UpdateProject(context.Background(), "deleting-side-effect-project", "side-effect-user", map[string]interface{}{"name": "blocked"})
+		}},
+		{"resource alert event", func() error {
+			_, err := projectSvc.CreateProjectResourceAlertEvent(context.Background(), "deleting-side-effect-project", "side-effect-user", true)
+			return err
+		}},
+		{"resource alert notification", func() error {
+			_, err := projectSvc.SendProjectResourceAlertNotification(context.Background(), "deleting-side-effect-project", "side-effect-user", true)
+			return err
+		}},
+		{"resource alert enforcement", func() error {
+			_, err := projectSvc.ExecuteProjectResourceAlertEnforcement(context.Background(), "deleting-side-effect-project", "side-effect-user", true)
+			return err
+		}},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.run(); !errors.Is(err, errProjectDeletionInProgress) {
+				t.Fatalf("operation error = %v, want project deletion in progress", err)
+			}
+		})
+	}
+}
+
+func TestProjectSideEffectOperationsRejectedDuringUserDeletion(t *testing.T) {
+	coordinator := NewProjectLifecycleCoordinator()
+	projectSvc := NewProjectService(ProjectServiceOptions{LifecycleCoordinator: coordinator})
+	finishDeletion, err := coordinator.beginUserDeletion(context.Background(), "deleting-side-effect-user")
+	if err != nil {
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	}
+	defer finishDeletion(false)
+
+	checks := []struct {
+		name string
+		run  func() error
+	}{
+		{"remote backup upload", func() error {
+			_, err := projectSvc.UploadProjectBackupToRemoteStorage(context.Background(), "side-effect-project", "deleting-side-effect-user", "backup-1")
+			return err
+		}},
+		{"container stop", func() error {
+			_, err := projectSvc.StopProjectContainer(context.Background(), "side-effect-project", "deleting-side-effect-user")
+			return err
+		}},
+		{"project update", func() error {
+			return projectSvc.UpdateProject(context.Background(), "side-effect-project", "deleting-side-effect-user", map[string]interface{}{"name": "blocked"})
+		}},
+		{"resource alert event", func() error {
+			_, err := projectSvc.CreateProjectResourceAlertEvent(context.Background(), "side-effect-project", "deleting-side-effect-user", true)
+			return err
+		}},
+		{"resource alert notification", func() error {
+			_, err := projectSvc.SendProjectResourceAlertNotification(context.Background(), "side-effect-project", "deleting-side-effect-user", true)
+			return err
+		}},
+		{"resource alert enforcement", func() error {
+			_, err := projectSvc.ExecuteProjectResourceAlertEnforcement(context.Background(), "side-effect-project", "deleting-side-effect-user", true)
+			return err
+		}},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.run(); !errors.Is(err, errUserDeletionInProgress) {
+				t.Fatalf("operation error = %v, want user deletion in progress", err)
+			}
+		})
+	}
+}
+
+func TestUserDeletionCancelsActiveResourceAlertNotification(t *testing.T) {
+	projectID := "active-resource-alert-notification"
+	userID := "active-resource-alert-user"
+	coordinator := NewProjectLifecycleCoordinator()
+	repo := &stubProjectResourceAlertEventRepo{
+		created: []model.ProjectResourceAlertEvent{buildNotificationSourceEvent(projectID, 121)},
+	}
+	httpClient := &blockingResourceAlertNotificationHTTPClient{
+		started:   make(chan struct{}),
+		cancelled: make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+	projectSvc := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:            &stubProjectListRepo{projects: []model.Project{{ProjectID: projectID, UserID: userID}}},
+		ResourceAlertEventRepo: repo,
+		NotificationHTTPClient: httpClient,
+		LifecycleCoordinator:   coordinator,
+		ProjectCfg: &config.ProjectConfig{
+			ResourceAlertNotificationEnabled:  true,
+			ResourceAlertNotificationProvider: "webhook",
+		},
+		ProjectSecretCfg: &config.ProjectSecretConfig{
+			ResourceAlertNotificationWebhookURL: "https://hooks.example.test/resource-alert",
+		},
+	})
+
+	notificationDone := make(chan error, 1)
+	go func() {
+		_, sendErr := projectSvc.SendProjectResourceAlertNotification(
+			context.Background(),
+			projectID,
+			userID,
+			true,
+		)
+		notificationDone <- sendErr
+	}()
+	<-httpClient.started
+
+	deletionReady := make(chan func(bool), 1)
+	deletionErr := make(chan error, 1)
+	go func() {
+		finish, beginErr := coordinator.beginUserDeletion(context.Background(), userID)
+		if beginErr != nil {
+			deletionErr <- beginErr
+			return
+		}
+		deletionReady <- finish
+	}()
+
+	select {
+	case <-httpClient.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("user deletion did not cancel the active webhook request")
+	}
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+		t.Fatal("user deletion completed before the canceled notification exited")
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(httpClient.release)
+	if err := <-notificationDone; err != nil {
+		t.Fatalf("SendProjectResourceAlertNotification() error = %v", err)
+	}
+	select {
+	case finish := <-deletionReady:
+		finish(false)
+	case err := <-deletionErr:
+		t.Fatalf("beginUserDeletion() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("user deletion did not continue after the canceled notification exited")
+	}
 }
 
 func TestGetProjectResourceSnapshotUnavailableWithoutContainerManager(t *testing.T) {
@@ -609,6 +872,81 @@ func TestSendProjectResourceAlertNotificationSendsWebhookAndAppendsEvent(t *test
 	}
 }
 
+func TestSendProjectResourceAlertNotificationPendingEventFailureDoesNotRetainClaim(t *testing.T) {
+	projectID := "proj_resource_alert_notification_atomic_pending"
+	repo := &stubProjectResourceAlertEventRepo{
+		created:      []model.ProjectResourceAlertEvent{buildNotificationSourceEvent(projectID, 34)},
+		createErrors: []error{errors.New("pending event insert failed")},
+	}
+	httpClient := &stubResourceAlertNotificationHTTPClient{statusCode: http.StatusAccepted}
+	projectSvc := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:            &stubProjectListRepo{projects: []model.Project{{ProjectID: projectID}}},
+		ResourceAlertEventRepo: repo,
+		NotificationHTTPClient: httpClient,
+		ProjectCfg: &config.ProjectConfig{
+			ResourceAlertNotificationEnabled:  true,
+			ResourceAlertNotificationProvider: "webhook",
+		},
+		ProjectSecretCfg: &config.ProjectSecretConfig{
+			ResourceAlertNotificationWebhookURL: "https://hooks.example.test/resource-alert",
+		},
+	})
+
+	result, err := projectSvc.SendProjectResourceAlertNotification(
+		context.Background(), projectID, "user-alert", true,
+	)
+	if err == nil || result != nil {
+		t.Fatalf("first send result=%#v err=%v, want atomic pending failure", result, err)
+	}
+	if len(repo.claims) != 0 || len(repo.created) != 1 || httpClient.requests != 0 {
+		t.Fatalf("failed pending event retained state: claims=%#v events=%#v requests=%d", repo.claims, repo.created, httpClient.requests)
+	}
+
+	result, err = projectSvc.SendProjectResourceAlertNotification(
+		context.Background(), projectID, "user-alert", true,
+	)
+	if err != nil || result == nil || result.Status != "sent" || httpClient.requests != 1 {
+		t.Fatalf("retry result=%#v err=%v requests=%d, want successful send", result, err, httpClient.requests)
+	}
+}
+
+func TestSendProjectResourceAlertNotificationPendingIntentBlocksReplayAfterSuccessPersistenceFailure(t *testing.T) {
+	projectID := "proj_resource_alert_notification_persist_failure"
+	repo := &stubProjectResourceAlertEventRepo{
+		created:      []model.ProjectResourceAlertEvent{buildNotificationSourceEvent(projectID, 35)},
+		createErrors: []error{nil, errors.New("database unavailable")},
+	}
+	httpClient := &stubResourceAlertNotificationHTTPClient{statusCode: http.StatusAccepted}
+	projectSvc := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:            &stubProjectListRepo{projects: []model.Project{{ProjectID: projectID}}},
+		ResourceAlertEventRepo: repo,
+		NotificationHTTPClient: httpClient,
+		ProjectCfg: &config.ProjectConfig{
+			ResourceAlertNotificationEnabled:  true,
+			ResourceAlertNotificationProvider: "webhook",
+		},
+		ProjectSecretCfg: &config.ProjectSecretConfig{
+			ResourceAlertNotificationWebhookURL: "https://hooks.example.test/resource-alert",
+		},
+	})
+
+	result, err := projectSvc.SendProjectResourceAlertNotification(context.Background(), projectID, "user-alert", true)
+	if err == nil || result == nil || result.Status != "uncertain" || !result.NotificationSent {
+		t.Fatalf("first send result=%#v err=%v, want uncertain persisted intent after remote success", result, err)
+	}
+	if httpClient.requests != 1 || len(repo.created) != 2 || repo.created[1].Status != "notification_pending" {
+		t.Fatalf("first send did not retain one pending intent: requests=%d events=%#v", httpClient.requests, repo.created)
+	}
+
+	result, err = projectSvc.SendProjectResourceAlertNotification(context.Background(), projectID, "user-alert", true)
+	if err != nil {
+		t.Fatalf("retry returned error: %v", err)
+	}
+	if result.Status != "uncertain" || result.NotificationSent || httpClient.requests != 1 {
+		t.Fatalf("pending intent did not block webhook replay: result=%#v requests=%d", result, httpClient.requests)
+	}
+}
+
 func TestSendProjectResourceAlertNotificationBlocksDuplicateSentEvent(t *testing.T) {
 	projectID := "proj_resource_alert_notification_duplicate"
 	source := buildNotificationSourceEvent(projectID, 41)
@@ -840,6 +1178,59 @@ func TestExecuteProjectResourceAlertEnforcementBlocksWhenReadinessBlocked(t *tes
 	}
 }
 
+func TestExecuteProjectResourceAlertEnforcementPendingIntentBlocksReplay(t *testing.T) {
+	projectID := "proj_resource_alert_enforcement_pending"
+	source := buildNotificationSourceEvent(projectID, 105)
+	repo := &stubProjectResourceAlertEventRepo{created: []model.ProjectResourceAlertEvent{
+		source,
+		{
+			ID:                  106,
+			ProjectID:           projectID,
+			Status:              "notification_sent",
+			EvaluationID:        source.EvaluationID,
+			ReadinessStatus:     source.ReadinessStatus,
+			TriggeredCount:      source.TriggeredCount,
+			TriggeredThresholds: source.TriggeredThresholds,
+			Thresholds:          source.Thresholds,
+			EvaluationPreview:   source.EvaluationPreview,
+			Message:             "notification sent; source_event_id=105",
+			CreatedAt:           time.Now().UTC(),
+		},
+		{
+			ID:                  107,
+			ProjectID:           projectID,
+			Status:              "enforcement_pending",
+			EvaluationID:        source.EvaluationID,
+			ReadinessStatus:     source.ReadinessStatus,
+			TriggeredCount:      source.TriggeredCount,
+			TriggeredThresholds: source.TriggeredThresholds,
+			Thresholds:          source.Thresholds,
+			EvaluationPreview:   source.EvaluationPreview,
+			Message:             "enforcement pending; source_event_id=105",
+			CreatedAt:           time.Now().UTC().Add(time.Millisecond),
+		},
+	}}
+	projectSvc := NewProjectService(ProjectServiceOptions{
+		ProjectRepo:            &stubProjectListRepo{projects: []model.Project{{ProjectID: projectID, AppType: "web"}}},
+		ResourceAlertEventRepo: repo,
+		ProjectCfg: &config.ProjectConfig{
+			ResourceAlertEnforcementEnabled: true,
+			ResourceAlertEnforcementMode:    "stop_container",
+		},
+	})
+
+	result, err := projectSvc.ExecuteProjectResourceAlertEnforcement(context.Background(), projectID, "user-alert", true)
+	if err != nil {
+		t.Fatalf("ExecuteProjectResourceAlertEnforcement returned error: %v", err)
+	}
+	if result.Status != "uncertain" || result.EnforcementExecuted || result.StopResult != nil {
+		t.Fatalf("pending intent did not block stop replay: %#v", result)
+	}
+	if len(repo.created) != 3 {
+		t.Fatalf("pending replay guard appended an unexpected event: %#v", repo.created)
+	}
+}
+
 func TestExecuteProjectResourceAlertEnforcementStopFailureDoesNotAppendExecutedEvent(t *testing.T) {
 	projectID := "proj_resource_alert_enforcement_execute_stop_failed"
 	repo := &stubProjectResourceAlertEventRepo{created: []model.ProjectResourceAlertEvent{
@@ -876,10 +1267,17 @@ func TestExecuteProjectResourceAlertEnforcementStopFailureDoesNotAppendExecutedE
 	if result.Status != "failed" || result.EnforcementExecuted || result.StopResult == nil {
 		t.Fatalf("expected stop failure result without executed event, got %#v", result)
 	}
+	hasPending := false
+	hasFailed := false
 	for _, record := range repo.created {
+		hasPending = hasPending || record.Status == "enforcement_pending"
+		hasFailed = hasFailed || record.Status == "enforcement_failed"
 		if record.Status == "enforcement_executed" {
 			t.Fatalf("stop failure should not append enforcement_executed event: %#v", record)
 		}
+	}
+	if !hasPending || !hasFailed {
+		t.Fatalf("stop failure should retain pending intent and append confirmed failure: %#v", repo.created)
 	}
 }
 
@@ -895,5 +1293,48 @@ func buildNotificationSourceEvent(projectID string, id int64) model.ProjectResou
 		Thresholds:          `[{"name":"cpu","configured":true,"current_value":91,"threshold_value":80,"unit":"percent","exceeded":true}]`,
 		EvaluationPreview:   `{"status":"would_alert","project_id":"` + projectID + `","evaluation_id":"eval-notify-test","readiness_status":"alerting","would_create_alert":true,"triggered_count":1,"triggered_thresholds":[{"name":"cpu","configured":true,"current_value":91,"threshold_value":80,"unit":"percent","exceeded":true}],"thresholds":[{"name":"cpu","configured":true,"current_value":91,"threshold_value":80,"unit":"percent","exceeded":true}],"readiness":null,"message":"preview","recovery":"none"}`,
 		CreatedAt:           time.Now().UTC(),
+	}
+}
+
+func TestProjectResourceAlertActionClaimIsSharedAcrossServiceInstances(t *testing.T) {
+	repo := &stubProjectResourceAlertEventRepo{}
+	sourceEvent := buildNotificationSourceEvent("cross-instance-project", 501)
+	first := NewProjectService(ProjectServiceOptions{ResourceAlertEventRepo: repo})
+	second := NewProjectService(ProjectServiceOptions{ResourceAlertEventRepo: repo})
+
+	start := make(chan struct{})
+	results := make(chan bool, 2)
+	for _, projectService := range []*ProjectService{first, second} {
+		go func(service *ProjectService) {
+			<-start
+			acquired, _, err := service.claimProjectResourceAlertAction(
+				context.Background(),
+				sourceEvent,
+				"actor-user",
+				"notification",
+				buildProjectResourceAlertActionEvent(
+					sourceEvent,
+					"actor-user",
+					"notification_pending",
+					"pending",
+					"pending",
+				),
+			)
+			if err != nil {
+				results <- false
+				return
+			}
+			results <- acquired
+		}(projectService)
+	}
+	close(start)
+	acquiredCount := 0
+	for range 2 {
+		if <-results {
+			acquiredCount++
+		}
+	}
+	if acquiredCount != 1 {
+		t.Fatalf("acquired claim count = %d, want 1", acquiredCount)
 	}
 }

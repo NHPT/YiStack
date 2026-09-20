@@ -34,12 +34,12 @@ func TestGeneratorServiceReportsActiveGeneration(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	service.registerActiveTask("project-active", cancel)
+	unregister := service.registerActiveTask("project-active", cancel)
 	if service.IsGenerationActive("project-active") != true {
 		t.Fatal("expected active generation to be reported")
 	}
 
-	service.unregisterActiveTask("project-active", cancel)
+	unregister()
 	if service.IsGenerationActive("project-active") == true {
 		t.Fatal("expected inactive generation after unregister")
 	}

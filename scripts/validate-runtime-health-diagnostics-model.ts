@@ -861,7 +861,7 @@ assert.match(
 );
 assert.match(
   fs.readFileSync('backend/internal/service/project_terminal_service.go', 'utf8'),
-  /func \(s \*ProjectService\) CreateTerminalSession\(ctx context\.Context, projectID string, rows, cols int\) \(\*TerminalSessionInfo, error\) \{[\s\S]*project, err := s\.projectRepo\.FindByProjectID\(ctx, projectID\)[\s\S]*if s\.containerMgr == nil \{[\s\S]*containerErr := errors\.New\("container manager not available"\)[\s\S]*s\.persistRuntimeUnavailable\(ctx, project, "开发终端无法连接容器管理器", containerErr\)[\s\S]*return nil, containerErr/,
+  /func \(s \*ProjectService\) CreateTerminalSession\(ctx context\.Context, userID, projectID string, rows, cols int\) \(\*TerminalSessionInfo, error\) \{[\s\S]*project, err := s\.projectRepo\.FindByProjectID\(ctx, projectID\)[\s\S]*if s\.containerMgr == nil \{[\s\S]*containerErr := errors\.New\("container manager not available"\)[\s\S]*s\.persistRuntimeUnavailable\(ctx, project, "开发终端无法连接容器管理器", containerErr\)[\s\S]*return nil, containerErr[\s\S]*s\.terminalMgr\.create\(userID, projectID, containerInfo\.ContainerID, rows, cols\)/,
   'terminal session creation should persist unavailable runtime snapshots when the container manager is missing',
 );
 assert.match(
@@ -901,7 +901,7 @@ assert.match(
 );
 assert.match(
   runtimeFacadeService,
-  /func \(s \*ProjectService\) StopProjectContainer\(ctx context\.Context, projectID string\) \(\*ProjectContainerStopResult, error\)[\s\S]*StopStatus:\s+"stopped"[\s\S]*status := s\.persistStoppedRuntimeStatus\(ctx, projectID, "开发容器已停止"\)[\s\S]*result\.ContainerStatusPersistence = status\.ContainerStatusPersistence[\s\S]*result\.RuntimeStatus = status/,
+  /func \(s \*ProjectService\) StopProjectContainer\(ctx context\.Context, projectID, userID string\) \(\*ProjectContainerStopResult, error\)[\s\S]*BeginCancellableUserProjectMutation\(ctx, userID, projectID, false\)[\s\S]*stopProjectContainerUnderMutation\(operationCtx, projectID\)[\s\S]*StopStatus:\s+"stopped"[\s\S]*status := s\.persistStoppedRuntimeStatus\(ctx, projectID, "开发容器已停止"\)[\s\S]*result\.ContainerStatusPersistence = status\.ContainerStatusPersistence[\s\S]*result\.RuntimeStatus = status/,
   'container stop should keep stop success separate from container status and runtime snapshot persistence',
 );
 assert.match(
@@ -921,12 +921,12 @@ assert.match(
 );
 assert.match(
   runtimeHandler,
-  /result, err := projectService\.StopProjectContainer\(c, projectID\)[\s\S]*"success": true,[\s\S]*"message": "Container stopped",[\s\S]*"data":\s+result/,
+  /result, err := projectService\.StopProjectContainer\(c, projectID, h\.currentUserIDValue\(ctx\)\)[\s\S]*"success": true,[\s\S]*"message": "Container stopped",[\s\S]*"data":\s+result/,
   'container stop handler should return structured stop result data',
 );
 assert.match(
   runtimeHandler,
-  /result, err := projectService\.StopProjectContainer\(c, projectID\)[\s\S]*if err != nil \{[\s\S]*"details": err\.Error\(\),[\s\S]*"data":\s+result/,
+  /result, err := projectService\.StopProjectContainer\(c, projectID, h\.currentUserIDValue\(ctx\)\)[\s\S]*if err != nil \{[\s\S]*"details": err\.Error\(\),[\s\S]*"data":\s+result/,
   'container stop handler should preserve structured stop result data on error responses',
 );
 assert.match(
@@ -1041,7 +1041,7 @@ assert.match(
 );
 assert.match(
   projectServiceAdminTest,
-  /func TestProjectTerminalManagerUnavailablePersistsRuntimeSnapshot[\s\S]*service\.CreateTerminalSession\(context\.Background\(\), "proj_terminal_unavailable"[\s\S]*repo\.updatedContainerStatus != "unavailable"[\s\S]*stored\.Message != "开发终端无法连接容器管理器"/,
+  /func TestProjectTerminalManagerUnavailablePersistsRuntimeSnapshot[\s\S]*service\.CreateTerminalSession\(context\.Background\(\), "user-terminal", "proj_terminal_unavailable"[\s\S]*repo\.updatedContainerStatus != "unavailable"[\s\S]*stored\.Message != "开发终端无法连接容器管理器"/,
   'Go tests should cover terminal manager unavailable runtime snapshots',
 );
 assert.match(

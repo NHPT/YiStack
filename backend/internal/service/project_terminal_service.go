@@ -61,6 +61,7 @@ type projectTerminalChunk struct {
 type projectTerminalSession struct {
 	id        string
 	projectID string
+	userID    string
 	container string
 	cmd       *exec.Cmd
 	ptyFile   *os.File
@@ -107,7 +108,7 @@ func normalizeTerminalSize(rows, cols int) (int, int) {
 	return rows, cols
 }
 
-func (m *projectTerminalSessionManager) create(projectID, containerID string, rows, cols int) (*TerminalSessionInfo, error) {
+func (m *projectTerminalSessionManager) create(userID, projectID, containerID string, rows, cols int) (*TerminalSessionInfo, error) {
 	rows, cols = normalizeTerminalSize(rows, cols)
 
 	sessionID := uuid.NewString()
@@ -138,6 +139,7 @@ func (m *projectTerminalSessionManager) create(projectID, containerID string, ro
 	session := &projectTerminalSession{
 		id:          sessionID,
 		projectID:   projectID,
+		userID:      strings.TrimSpace(userID),
 		container:   containerID,
 		cmd:         cmd,
 		ptyFile:     ptyFile,
@@ -234,7 +236,9 @@ func (s *projectTerminalSession) setCloseReason(reason string) {
 
 func (s *projectTerminalSession) markClosed(exitCode *int, reason string) {
 	s.closeOnce.Do(func() {
-		_ = s.ptyFile.Close()
+		if s.ptyFile != nil {
+			_ = s.ptyFile.Close()
+		}
 
 		s.mu.Lock()
 		s.closed = true
@@ -418,6 +422,54 @@ func (m *projectTerminalSessionManager) close(projectID, sessionID string) error
 	return nil
 }
 
+func (m *projectTerminalSessionManager) closeUser(userID string) {
+	if m == nil || strings.TrimSpace(userID) == "" {
+		return
+	}
+
+	m.mu.Lock()
+	sessions := make([]*projectTerminalSession, 0)
+	for sessionID, session := range m.sessions {
+		if session.userID != strings.TrimSpace(userID) {
+			continue
+		}
+		sessions = append(sessions, session)
+		delete(m.sessions, sessionID)
+	}
+	m.mu.Unlock()
+
+	for _, session := range sessions {
+		if session.cmd != nil && session.cmd.Process != nil {
+			_ = session.cmd.Process.Kill()
+		}
+		session.markClosed(nil, "user deleted")
+	}
+}
+
+func (m *projectTerminalSessionManager) closeProject(projectID string) {
+	if m == nil {
+		return
+	}
+
+	m.mu.Lock()
+	sessions := make([]*projectTerminalSession, 0)
+	for sessionID, session := range m.sessions {
+		if session.projectID != projectID {
+			continue
+		}
+		sessions = append(sessions, session)
+		delete(m.sessions, sessionID)
+	}
+	m.mu.Unlock()
+
+	for _, session := range sessions {
+		if session.cmd != nil && session.cmd.Process != nil {
+			_ = session.cmd.Process.Kill()
+		}
+		session.markClosed(nil, "project deleted")
+	}
+}
+
 func (m *projectTerminalSessionManager) subscribe(projectID, sessionID string, cursor int64) (<-chan TerminalStreamEvent, func(), error) {
 	session, err := m.get(sessionID)
 	if err != nil {
@@ -508,10 +560,21 @@ func (m *projectTerminalSessionManager) cleanupExpiredSessions(now time.Time) {
 	}
 }
 
-func (s *ProjectService) CreateTerminalSession(ctx context.Context, projectID string, rows, cols int) (*TerminalSessionInfo, error) {
+func (s *ProjectService) CreateTerminalSession(ctx context.Context, userID, projectID string, rows, cols int) (*TerminalSessionInfo, error) {
 	if s == nil || s.terminalMgr == nil {
 		return nil, errors.New("terminal manager not available")
 	}
+	operationCtx, finishMutation, err := s.BeginCancellableUserProjectMutation(
+		ctx,
+		userID,
+		projectID,
+		false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer finishMutation()
+	ctx = operationCtx
 
 	project, err := s.projectRepo.FindByProjectID(ctx, projectID)
 	if err != nil {
@@ -537,7 +600,7 @@ func (s *ProjectService) CreateTerminalSession(ctx context.Context, projectID st
 		return nil, fmt.Errorf("project %s container not found", projectID)
 	}
 
-	return s.terminalMgr.create(projectID, containerInfo.ContainerID, rows, cols)
+	return s.terminalMgr.create(userID, projectID, containerInfo.ContainerID, rows, cols)
 }
 
 func (s *ProjectService) ReadTerminalOutput(ctx context.Context, projectID, sessionID string, cursor int64) (*TerminalOutput, error) {

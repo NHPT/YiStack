@@ -102,7 +102,7 @@ admin_auth_contract="$(
     -c "SELECT must_change_password::text || ':' || auth_version || ':' || (crypt('admin123', password_hash) = password_hash)::text FROM public.admins WHERE email = 'admin@yistack.com';"
 )"
 
-expected_migrations="2:000000000000_contributor_alpha:a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871,202609070001_migration_integrity:82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf"
+expected_migrations="4:000000000000_contributor_alpha:a7dbe43d655163175bb51cb4c5eed1f87249a37a50e2e0585d794d4283d8e871,202609070001_migration_integrity:82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf,202609190001_admin_user_hard_delete:02fcf5bfd172cec450869b28feae2b4167a4cd5ced63f3429055c73890524d51,202609190002_resource_alert_action_claims:1893ce147476f621ddad5a74c87c7bf333bfcf6ad943a87ee3d2db229e467453"
 if [ "$migration_contract" != "$expected_migrations" ]; then
   echo "[R7] Unexpected migration ledger: $migration_contract." >&2
   exit 1
@@ -115,7 +115,7 @@ if [ "$provider_contract" != "7:0:https://ollama.com" ]; then
   echo "[R7] Unexpected minimal provider catalog: $provider_contract" >&2
   exit 1
 fi
-if [ "$app_version_contract" != "1.1.0" ]; then
+if [ "$app_version_contract" != "1.1.10" ]; then
   echo "[R7] Unexpected application version: $app_version_contract" >&2
   exit 1
 fi
@@ -184,7 +184,92 @@ if [ "$collaboration_contract" != "expired:2:true" ]; then
   exit 1
 fi
 
+echo "[R7] Verifying transactional administrator user deletion..."
+hard_delete_contract="$(
+  podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
+    psql -qAt -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack <<'SQL'
+DO $$
+BEGIN
+  INSERT INTO public.users (id, email, username, password_hash)
+  VALUES (
+    '10000000-0000-0000-0000-000000000002',
+    'collab-peer@example.invalid',
+    'Collab Peer',
+    'test-only'
+  );
+  INSERT INTO public.projects (id, user_id, project_id, name, app_type)
+  VALUES (
+    '20000000-0000-0000-0000-000000000002',
+    '10000000-0000-0000-0000-000000000002',
+    'collab-peer-project',
+    'Collaboration Peer Project',
+    'vite-react'
+  );
+  INSERT INTO public.project_members (
+    project_id, user_id, role, invited_by_user_id
+  ) VALUES (
+    'collab-peer-project',
+    '10000000-0000-0000-0000-000000000002',
+    'editor',
+    '10000000-0000-0000-0000-000000000001'
+  );
+  PERFORM public.admin_delete_user_with_audit(
+    '10000000-0000-0000-0000-000000000001',
+    (SELECT id FROM public.admins WHERE email = 'admin@yistack.com'),
+    'Permanently deleted user: collab-owner@example.test',
+    '127.0.0.1'
+  );
+END
+$$;
+SELECT
+  (SELECT count(*) FROM public.users WHERE id = '10000000-0000-0000-0000-000000000001')
+  || ':' ||
+  (SELECT count(*) FROM public.projects WHERE project_id = 'collab-baseline')
+  || ':' ||
+  (SELECT count(*) FROM public.project_collaboration_events WHERE project_id = 'collab-baseline')
+  || ':' ||
+  (SELECT count(*) FROM public.project_members
+   WHERE project_id = 'collab-peer-project'
+     AND user_id = '10000000-0000-0000-0000-000000000002')
+  || ':' ||
+  (SELECT count(*) FROM public.project_members
+   WHERE project_id = 'collab-peer-project'
+     AND user_id = '10000000-0000-0000-0000-000000000002'
+     AND invited_by_user_id IS NULL)
+  || ':' ||
+  (SELECT count(*) FROM public.admin_audit_log WHERE action = 'delete_user' AND target_id = '10000000-0000-0000-0000-000000000001')
+  || ':' ||
+  has_function_privilege(
+    'service_role',
+    'public.admin_delete_user(uuid)',
+    'EXECUTE'
+  )::text
+  || ':' ||
+  has_function_privilege(
+    'service_role',
+    'public.admin_delete_user_with_audit(uuid,uuid,text,text)',
+    'EXECUTE'
+  )::text;
+SQL
+)"
+if [ "$hard_delete_contract" != "0:0:0:1:1:1:true:true" ]; then
+  echo "[R7] Unexpected administrator user deletion contract: $hard_delete_contract" >&2
+  exit 1
+fi
+
 echo "[R7] Verifying ordered rollback and re-apply..."
+podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  -c "DELETE FROM public.schema_migrations WHERE version = '202609190002_resource_alert_action_claims';" \
+  >/dev/null
+podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
+  psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  < "$ROOT_DIR/backend/migrations/rollback/202609190002_resource_alert_action_claims.sql" >/dev/null
+podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  -c "DELETE FROM public.schema_migrations WHERE version = '202609190001_admin_user_hard_delete';" \
+  >/dev/null
+podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
+  psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  < "$ROOT_DIR/backend/migrations/rollback/202609190001_admin_user_hard_delete.sql" >/dev/null
 podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
   -c "DELETE FROM public.schema_migrations WHERE version = '202609070001_migration_integrity';" \
   >/dev/null
@@ -208,12 +293,32 @@ podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yis
         'Add migration checksum integrity and v1.1.0 release metadata',
         '82c16545ca00adda937470bca75f0591472cbb702a8eb60e192221ba07a602bf'
       );" >/dev/null
+podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
+  psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  < "$ROOT_DIR/backend/migrations/202609190001_admin_user_hard_delete.sql" >/dev/null
+podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  -c "INSERT INTO public.schema_migrations (version, description, checksum_sha256)
+      VALUES (
+        '202609190001_admin_user_hard_delete',
+        'Add transactional administrator user hard deletion',
+        '02fcf5bfd172cec450869b28feae2b4167a4cd5ced63f3429055c73890524d51'
+      );" >/dev/null
+podman exec -i --env PGOPTIONS=--client-min-messages=warning "$CONTAINER_NAME" \
+  psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  < "$ROOT_DIR/backend/migrations/202609190002_resource_alert_action_claims.sql" >/dev/null
+podman exec "$CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" -d yistack \
+  -c "INSERT INTO public.schema_migrations (version, description, checksum_sha256)
+      VALUES (
+        '202609190002_resource_alert_action_claims',
+        'Add cross-instance resource alert action claims',
+        '1893ce147476f621ddad5a74c87c7bf333bfcf6ad943a87ee3d2db229e467453'
+      );" >/dev/null
 
 migration_count="$(
   podman exec "$CONTAINER_NAME" psql -At -U "$DATABASE_USER" -d yistack \
     -c "SELECT count(*) FROM public.schema_migrations;"
 )"
-if [ "$migration_count" != "2" ]; then
+if [ "$migration_count" != "4" ]; then
   echo "[R7] Baseline re-apply failed." >&2
   exit 1
 fi

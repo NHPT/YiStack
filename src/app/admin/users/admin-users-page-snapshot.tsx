@@ -280,11 +280,11 @@ export function buildAdminUsersPageSnapshot({
       : status === 'load_failed'
         ? 'Admin Users 用户列表加载失败。'
         : status === 'delete_failed'
-          ? 'Admin Users 删除失败，当前用户软删除尚未确认写入后端。'
+          ? 'Admin Users 删除失败，当前用户及关联数据尚未确认永久删除。'
         : status === 'deleting'
-          ? 'Admin Users 正在软删除用户。'
+          ? 'Admin Users 正在永久删除用户及关联数据。'
         : status === 'delete_confirming'
-          ? 'Admin Users 正在等待用户软删除确认。'
+          ? 'Admin Users 正在等待永久删除确认。'
         : status === 'save_failed'
           ? 'Admin Users 保存失败，当前用户状态或角色尚未确认写入后端。'
           : status === 'saving'
@@ -305,9 +305,9 @@ export function buildAdminUsersPageSnapshot({
         : status === 'delete_failed'
           ? '检查目标用户和删除确认边界后重试，或取消返回列表。'
         : status === 'deleting'
-          ? '等待软删除请求完成，避免重复提交。'
+          ? '等待永久删除请求完成，避免重复提交。'
         : status === 'delete_confirming'
-          ? '确认后会调用既有 DELETE API 将用户标记为 deleted，并刷新用户列表。'
+          ? '确认后会永久删除用户、其项目和关联业务数据，并刷新用户列表。'
         : status === 'save_failed'
           ? '检查用户状态、角色和确认边界后重试保存。'
           : status === 'saving'
@@ -515,17 +515,17 @@ export function buildAdminUserDeleteConfirmationSnapshot({
     message: status === 'closed'
       ? 'Admin User 删除确认未打开。'
       : status === 'confirming'
-        ? 'Admin User 正在执行软删除。'
+        ? 'Admin User 正在执行永久删除。'
         : status === 'delete_failed'
-          ? 'Admin User 删除失败，后端尚未确认本次软删除。'
-          : 'Admin User 软删除等待确认。',
+          ? 'Admin User 删除失败，后端尚未确认本次永久删除。'
+          : 'Admin User 永久删除等待确认。',
     recovery: status === 'closed'
       ? '从用户列表选择删除后再打开确认。'
       : status === 'confirming'
         ? '等待删除请求完成，避免重复提交。'
         : status === 'delete_failed'
           ? '检查目标用户后重试，或取消返回列表。'
-          : '确认后会调用既有 DELETE API 将用户标记为 deleted，并刷新用户列表。',
+          : '确认后会永久删除用户、其项目和关联业务数据，并刷新用户列表。',
     updatedAt: 'derived',
   };
 }
